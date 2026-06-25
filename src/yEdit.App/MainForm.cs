@@ -51,6 +51,8 @@ public sealed partial class MainForm : Form
     {
         base.OnShown(e);
         _docs.Active?.Editor.Focus();
+        UpdateTitle();
+        UpdateStatus();
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -86,7 +88,7 @@ public sealed partial class MainForm : Form
             case Keys.Control | Keys.Tab: _docs.SelectNext(+1); return true;
             case Keys.Control | Keys.Shift | Keys.Tab: _docs.SelectNext(-1); return true;
         }
-        if ((keyData & Keys.Control) == Keys.Control)
+        if ((keyData & (Keys.Control | Keys.Alt | Keys.Shift)) == Keys.Control)
         {
             Keys k = keyData & Keys.KeyCode;
             if (k >= Keys.D1 && k <= Keys.D9)
@@ -223,9 +225,13 @@ public sealed partial class MainForm : Form
         var existing = _docs.FindByPath(dlg.FileName);
         if (existing is not null) { _docs.Activate(existing); return; }
 
+        var prev = _docs.Active; // 読込失敗時に戻る先（直前のアクティブタブ）
         var doc = _docs.CreateNew();
         if (!LoadInto(doc, dlg.FileName, forcedCodePage: null))
+        {
             _docs.TryClose(doc, _ => true); // 読込失敗→作りかけタブを破棄
+            if (prev is not null) _docs.Activate(prev); // 直前のアクティブへ戻す
+        }
     }
 
     /// <summary>

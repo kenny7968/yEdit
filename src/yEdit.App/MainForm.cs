@@ -50,6 +50,16 @@ public sealed partial class MainForm : Form
         _editor.Focus();
     }
 
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        if (!ConfirmDiscardIfDirty()) { e.Cancel = true; return; }
+        // ウィンドウサイズを設定に保存（最小キーのみ）。
+        _settings.WindowWidth = Width;
+        _settings.WindowHeight = Height;
+        try { SettingsStore.Save(_settingsPath, _settings); } catch { /* 設定保存失敗は致命でない */ }
+        base.OnFormClosing(e);
+    }
+
     private void ApplyFont()
         => _editor.Styles[ScintillaNET.Style.Default].Font = _settings.FontName; // size 等は M7 で詳細化
 

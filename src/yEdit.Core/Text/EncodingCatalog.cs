@@ -8,7 +8,8 @@ namespace yEdit.Core.Text;
 /// </summary>
 public static class EncodingCatalog
 {
-    private static bool _registered;
+    // double-checked locking の慣用に従い volatile（lock 外の高速パス読みで最新値を見る）。
+    private static volatile bool _registered;
     private static readonly object _sync = new();
 
     public static void EnsureRegistered()

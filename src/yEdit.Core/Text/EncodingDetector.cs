@@ -47,7 +47,10 @@ public static class EncodingDetector
         catch (DecoderFallbackException) { return false; }
     }
 
-    /// <summary>UTF.Unknown の名前→コードページ（採用は euc-jp/shift_jis のみ。低信頼は不採用）。</summary>
+    /// <summary>
+    /// UTF.Unknown の名前→コードページ。採用は utf-8 / shift_jis / euc-jp / utf-16(le/be) のみ。
+    /// 低信頼（&lt;0.5）と未対応の名前は不採用（null を返し、呼び出し側で Shift_JIS フォールバック）。
+    /// </summary>
     private static int? MapCharset(string? name, float confidence)
     {
         if (name is null || confidence < 0.5f) return null;

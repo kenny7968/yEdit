@@ -128,10 +128,95 @@ public sealed partial class MainForm : Form
         _ => enc.WebName,
     };
 
-    // ==================== ファイル操作 stub（中身は次フェーズ E で実装） ====================
+    // ==================== ファイル操作 ====================
 
-    private void NewFile() { }
-    private void OpenFile() { }
+    /// <summary>
+    /// 変更があれば 保存/破棄/キャンセル を問う。Yes なら Save() の結果（保存成否）を、
+    /// No なら true（破棄して続行）、キャンセルなら false（操作中止）を返す。
+    /// </summary>
+    private bool ConfirmDiscardIfDirty()
+    {
+        if (!_editor.Modified) return true;
+        var r = MessageBox.Show(
+            $"{_doc.DisplayName} の変更を保存しますか？",
+            "yEdit", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
+        return r switch
+        {
+            DialogResult.Yes => Save(),
+            DialogResult.No => true,
+            _ => false,
+        };
+    }
+
+    private void NewFile()
+    {
+        if (!ConfirmDiscardIfDirty()) return;
+        _editor.Text = string.Empty;
+        _doc.Path = null;
+        _doc.Encoding = EncodingCatalog.Get(_settings.DefaultCodePage);
+        _doc.HasBom = false;
+        _doc.LineEnding = (LineEnding)_settings.DefaultLineEnding;
+        ApplyEol();
+        _editor.EmptyUndoBuffer();
+        _editor.SetSavePoint();
+        UpdateTitle();
+        UpdateStatus();
+    }
+
+    private void OpenFile()
+    {
+        if (!ConfirmDiscardIfDirty()) return;
+        using var dlg = new OpenFileDialog { Filter = "テキスト ファイル (*.txt)|*.txt|すべてのファイル (*.*)|*.*" };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        LoadPath(dlg.FileName, forcedCodePage: null);
+    }
+
+    /// <summary>
+    /// ファイルを読み込み、本文・文字コード・改行をエディタとドキュメント状態へ反映する。
+    /// forcedCodePage 指定時は自動判定せずそのコードページで読む（開き直し用）。
+    /// 例外は MessageBox でエラー表示する（握り潰さない）。
+    /// </summary>
+    private void LoadPath(string path, int? forcedCodePage)
+    {
+        try
+        {
+            var doc = TextFileService.Load(path, forcedCodePage);
+            _doc.Path = path;
+            _doc.Encoding = doc.Encoding;
+            _doc.HasBom = doc.HasBom;
+            _doc.LineEnding = doc.LineEnding;
+
+            _editor.Text = doc.Text;
+            ApplyEol();
+            _editor.EmptyUndoBuffer();
+            _editor.SetSavePoint();
+
+            UpdateTitle();
+            UpdateStatus();
+
+            if (doc.HadReplacementChar)
+            {
+                MessageBox.Show(
+                    "このファイルには現在の文字コードで表せない文字（置換文字）が含まれています。" +
+                    "別の文字コードで開き直してください。",
+                    "文字コードの警告", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"開けませんでした: {ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    /// <summary>_doc.LineEnding をエディタの EOL モードへ反映する。</summary>
+    private void ApplyEol()
+        => _editor.EolMode = _doc.LineEnding switch
+        {
+            LineEnding.Crlf => ScintillaNET.Eol.CrLf,
+            LineEnding.Lf => ScintillaNET.Eol.Lf,
+            _ => ScintillaNET.Eol.Cr,
+        };
+
     private void ReopenWithEncoding() { }
     private bool Save() { return false; }
     private bool SaveAs() { return false; }

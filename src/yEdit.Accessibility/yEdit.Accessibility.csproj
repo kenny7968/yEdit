@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <!-- UseWPF で UIAutomationProvider / UIAutomationTypes / WindowsBase(System.Windows.Rect) を引き込む -->
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+</Project>

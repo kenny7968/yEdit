@@ -7,7 +7,7 @@ using ScintillaNET;
 using yEdit.Accessibility;
 using WpfRect = System.Windows.Rect;
 
-namespace yEdit.ScintillaProbe;
+namespace yEdit.Editor;
 
 /// <summary>
 /// Scintilla（desjarlais/Scintilla5.NET）を継承し、WM_GETOBJECT を横取りして
@@ -73,6 +73,27 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     /// <summary>状態ログ出力（UI スレッドから呼ばれる）。</summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public Action<string>? Log { get; set; }
+
+    // ==================== SR 適応設定（確定アーキテクチャ） ====================
+
+    /// <summary>
+    /// 起動中のスクリーンリーダーに応じて UIA/MSAA の提供可否を確定する（確定アーキテクチャ）。
+    /// NVDA 起動中 → 我々は引っ込む（ネイティブ Scintilla に任せる）。それ以外 → UIA 提供。
+    /// ハンドル生成前に呼ぶこと（WM_GETOBJECT 前に値を確定させる）。
+    /// </summary>
+    public void ConfigureForCurrentScreenReader()
+    {
+        if (ScreenReaders.IsNvdaRunning())
+        {
+            ServeUiaProvider = false;
+            SuppressClientMsaa = true;
+        }
+        else
+        {
+            ServeUiaProvider = true;
+            SuppressClientMsaa = false;
+        }
+    }
 
     // ==================== ウィンドウクラス名から "Scintilla" を除去 ====================
     // NVDA は WindowsForms10.Scintilla.app.0.NNN を "Scintilla" に正規化し、ネイティブ

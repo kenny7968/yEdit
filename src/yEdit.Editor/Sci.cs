@@ -1,4 +1,4 @@
-namespace yEdit.ScintillaProbe;
+namespace yEdit.Editor;
 
 /// <summary>
 /// 使用する SCI_* メッセージ定数（Scintilla.h より）。
@@ -21,4 +21,12 @@ internal static class Sci
     public const int SCI_POINTXFROMPOSITION = 2164;
     public const int SCI_POINTYFROMPOSITION = 2165;
     public const int SCI_CHARPOSITIONFROMPOINT = 2561;
+
+    // 状態取得（ステータスバー行桁・EOL・保存点）。
+    public const int SCI_LINEFROMPOSITION = 2166;   // byte pos → 行番号(0始まり)
+    public const int SCI_GETCOLUMN = 2129;          // byte pos → 桁(0始まり, タブ考慮)
+    public const int SCI_SETEOLMODE = 2031;         // 0=CRLF,1=CR,2=LF
+    public const int SCI_GETMODIFY = 2159;          // 変更フラグ
+    public const int SCI_SETSAVEPOINT = 2014;       // 保存点を設定（clean 化）
+    public const int SCI_EMPTYUNDOBUFFER = 2175;    // Undo バッファ消去
 }

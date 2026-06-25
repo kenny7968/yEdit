@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- UIA 型（System.Windows.Automation）の連鎖参照のため UseWPF も有効化 -->
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\yEdit.Editor\yEdit.Editor.csproj" />
+    <ProjectReference Include="..\yEdit.Core\yEdit.Core.csproj" />
+  </ItemGroup>
+
+</Project>

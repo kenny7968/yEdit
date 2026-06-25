@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace yEdit.ScintillaProbe;
+namespace yEdit.Editor;
 
 internal static class NativeMethods
 {

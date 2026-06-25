@@ -2,6 +2,7 @@ using System.IO;
 using System.Text;
 using System.Windows.Automation;
 using yEdit.Accessibility;
+using yEdit.Editor;
 
 namespace yEdit.ScintillaProbe;
 

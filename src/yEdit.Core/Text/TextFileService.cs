@@ -52,4 +52,59 @@ public static partial class TextFileService
         for (int i = 0; i < pre.Length; i++) if (bytes[i] != pre[i]) return false;
         return true;
     }
+
+    /// <summary>
+    /// 原子的にテキストを保存する。同ディレクトリの temp に書いてから File.Replace で差し替え。
+    /// 新規は File.Move。対象がロック中で差し替え不能なら in-place 上書きへフォールバック。
+    /// </summary>
+    public static void Save(string path, string text, Encoding encoding, bool hasBom)
+    {
+        EncodingCatalog.EnsureRegistered();
+
+        // BOM 制御: hasBom に応じて preamble を出す Encoding を用意。
+        Encoding enc = encoding.CodePage switch
+        {
+            65001 => new UTF8Encoding(encoderShouldEmitUTF8Identifier: hasBom),
+            1200 or 1201 => encoding, // UTF-16 は preamble 既定で出る
+            _ => encoding,
+        };
+        byte[] preamble = hasBom ? enc.GetPreamble() : Array.Empty<byte>();
+        byte[] body = enc.GetBytes(text);
+
+        byte[] payload = preamble.Length == 0
+            ? body
+            : preamble.Concat(body).ToArray();
+
+        string dir = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        string tmp = Path.Combine(dir, Path.GetFileName(path) + "." + Path.GetRandomFileName() + ".tmp");
+
+        try
+        {
+            File.WriteAllBytes(tmp, payload);
+            if (File.Exists(path))
+            {
+                // 既存の ACL・属性を保持して差し替え（バックアップ無し）。
+                File.Replace(tmp, path, destinationBackupFileName: null);
+            }
+            else
+            {
+                File.Move(tmp, path);
+            }
+        }
+        catch (IOException)
+        {
+            // ロック等で差し替え不能 → in-place 上書きにフォールバック。
+            TryDelete(tmp);
+            File.WriteAllBytes(path, payload);
+        }
+        finally
+        {
+            TryDelete(tmp);
+        }
+    }
+
+    private static void TryDelete(string p)
+    {
+        try { if (File.Exists(p)) File.Delete(p); } catch { /* 残骸は実害小 */ }
+    }
 }

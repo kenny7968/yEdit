@@ -52,10 +52,17 @@ public sealed partial class MainForm : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (!ConfirmDiscardIfDirty()) { e.Cancel = true; return; }
+        if (!ConfirmDiscardIfDirty())
+        {
+            e.Cancel = true;
+            base.OnFormClosing(e);
+            return;
+        }
         // ウィンドウサイズを設定に保存（最小キーのみ）。
-        _settings.WindowWidth = Width;
-        _settings.WindowHeight = Height;
+        // 最大化/最小化中は最大化サイズを保存しないよう、復元時サイズ（RestoreBounds）を使う。
+        var b = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+        _settings.WindowWidth = b.Width;
+        _settings.WindowHeight = b.Height;
         try { SettingsStore.Save(_settingsPath, _settings); } catch { /* 設定保存失敗は致命でない */ }
         base.OnFormClosing(e);
     }
@@ -128,15 +135,12 @@ public sealed partial class MainForm : Form
     private void UpdateTitle()
         => Text = $"{(_editor.Modified ? "* " : "")}{_doc.DisplayName} - yEdit";
 
-    private static string EncodingDisplayName(System.Text.Encoding enc, bool bom) => enc.CodePage switch
+    private static string EncodingDisplayName(System.Text.Encoding enc, bool bom)
     {
-        65001 => bom ? "UTF-8 (BOM)" : "UTF-8",
-        932 => "Shift_JIS",
-        51932 => "EUC-JP",
-        1200 => "UTF-16 LE",
-        1201 => "UTF-16 BE",
-        _ => enc.WebName,
-    };
+        // 表示名は Core（EncodingCatalog）に集約。BOM 表記のみ App 側で付与する（UTF-8 のみ）。
+        string name = EncodingCatalog.DisplayName(enc.CodePage);
+        return enc.CodePage == 65001 && bom ? name + " (BOM)" : name;
+    }
 
     // ==================== ファイル操作 ====================
 
@@ -161,11 +165,14 @@ public sealed partial class MainForm : Form
     private void NewFile()
     {
         if (!ConfirmDiscardIfDirty()) return;
-        _editor.Text = string.Empty;
+        // LoadPath と対称に _doc.* を先に更新する。_editor.Text 変更で発火する
+        // TextChanged/UpdateUI→UpdateStatus が旧 _doc（前ファイルの enc/eol）を読まないように。
         _doc.Path = null;
         _doc.Encoding = EncodingCatalog.Get(_settings.DefaultCodePage);
         _doc.HasBom = false;
         _doc.LineEnding = (LineEnding)_settings.DefaultLineEnding;
+
+        _editor.Text = string.Empty;
         ApplyEol();
         _editor.EmptyUndoBuffer();
         _editor.SetSavePoint();
@@ -212,8 +219,9 @@ public sealed partial class MainForm : Form
                     "文字コードの警告", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Security.SecurityException or NotSupportedException)
         {
+            // 想定内の入出力エラーのみ握る。NullReference 等のロジックバグは伝播させる。
             MessageBox.Show($"開けませんでした: {ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -279,8 +287,9 @@ public sealed partial class MainForm : Form
             UpdateTitle();
             return true;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Security.SecurityException or NotSupportedException)
         {
+            // 想定内の入出力エラーのみ握る。ロジックバグは伝播させる。
             MessageBox.Show($"保存できませんでした: {ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return false;
         }

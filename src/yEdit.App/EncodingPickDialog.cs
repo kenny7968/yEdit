@@ -1,3 +1,5 @@
+using yEdit.Core.Text;
+
 namespace yEdit.App;
 
 /// <summary>
@@ -14,14 +16,14 @@ public sealed class EncodingPickDialog : Form
         AccessibleName = "文字コード",
     };
 
-    /// <summary>OK 押下時に確定する選択コードページ。</summary>
-    public int SelectedCodePage { get; private set; } = 65001;
+    // 選択肢の定義は Core（EncodingCatalog）へ集約。表示順もそのまま使う。
+    private static readonly IReadOnlyList<EncodingCatalog.EncodingOption> Choices = EncodingCatalog.SelectableEncodings;
 
-    private static readonly (string Name, int Cp)[] Choices =
-    {
-        ("UTF-8", 65001), ("Shift_JIS", 932), ("EUC-JP", 51932),
-        ("UTF-16 LE", 1200), ("UTF-16 BE", 1201),
-    };
+    /// <summary>
+    /// 現在の選択コードページ。ShowDialog 戻り後に呼び出し側が読む（Click 発火順に非依存）。
+    /// コンストラクタで SelectedIndex を必ず設定するため常に有効。
+    /// </summary>
+    public int SelectedCodePage => Choices[_combo.SelectedIndex].CodePage;
 
     public EncodingPickDialog(int currentCodePage)
     {
@@ -38,12 +40,16 @@ public sealed class EncodingPickDialog : Form
         _combo.Left = 12;
         _combo.Top = 38;
         _combo.TabIndex = 1;
-        foreach (var c in Choices) _combo.Items.Add(c.Name);
-        _combo.SelectedIndex = Math.Max(0, Array.FindIndex(Choices, c => c.Cp == currentCodePage));
+        int selected = 0;
+        for (int i = 0; i < Choices.Count; i++)
+        {
+            _combo.Items.Add(Choices[i].DisplayName);
+            if (Choices[i].CodePage == currentCodePage) selected = i;
+        }
+        _combo.SelectedIndex = selected;
 
         var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Left = 150, Top = 72, Width = 75, TabIndex = 2 };
         var cancel = new Button { Text = "キャンセル", DialogResult = DialogResult.Cancel, Left = 232, Top = 72, Width = 75, TabIndex = 3 };
-        ok.Click += (_, _) => SelectedCodePage = Choices[_combo.SelectedIndex].Cp;
 
         Controls.AddRange(new Control[] { label, _combo, ok, cancel });
         AcceptButton = ok;

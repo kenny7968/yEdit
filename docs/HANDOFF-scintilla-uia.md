@@ -267,3 +267,26 @@ Scintilla 公式ドキュメント:
 2. PC-Talker モードでの §4.1 空行・§8.6 `RangeFromPoint`/`GetBoundingRectangles`（**§3.4 を守り UI スレッドのキャッシュから応答**。RPC から `Invoke` で SCI_POINTX/Y は SR ハングの恐れ）。
 3. 文字コード I/O 層（§9）と巨大ファイルのストリーム読み（snapshot を窓化）。
 4. PC-Talker の正確なプロセス名は未確定（情報目的の `IsPcTalkerRunning` は前方一致の推測）。判定の主役は NVDA 検出なので実害なし。
+
+---
+
+## 14. M1（v0.1 ウォーキングスケルトン）完了 — 2026-06-26
+
+本番エディタ開発のマイルストーン M1 完了。設計は `docs/plans/2026-06-26-yedit-production-architecture-design.md`、実装計画は `docs/plans/2026-06-26-m1-walking-skeleton.md`。ブランチ `feature/m1-walking-skeleton`（18コミット）→ main へ no-ff マージ。
+
+### 成果
+- **本番プロジェクト構成を確立**: `yEdit.Core`(net9.0・UI非依存: 文字コードI/O・設定。xUnit 23件緑)／`yEdit.Editor`(net9.0-windows: probe の `ScintillaHost` を移設・本番化＝Scintilla継承＋WM_GETOBJECT横取り＋SR適応)／`yEdit.App`(WinForms シェル: 単一ドキュメント)／`yEdit.Accessibility`(既存・無改変)。probe は Editor 参照へ移行し残置。
+- **機能**: 新規/開く/上書き保存/名前を付けて保存/文字コード指定で開き直す。文字コード判定（UTF-8 BOM有無・Shift_JIS(932)・EUC-JP(51932)・UTF-16、`UTF.Unknown` 流用）。改行コード（CRLF/LF/CR）判定・保持。原子的保存（temp→`File.Replace`、共有/ロック違反時のみ in-place フォールバック＝原本喪失を回避）。置換文字検出で文字コード警告。dirty 追跡・終了時確認・ウィンドウサイズ永続化（settings.json）。メニュー/ステータスバー（行桁・文字コード・改行）。
+- **SR 適応**: `ScintillaHost.ConfigureForCurrentScreenReader()` をハンドル生成前に呼び、NVDA起動中→ネイティブ譲り／それ以外→自作UIA提供。鉄則4点（クラス名 "Scintilla" 固定／NVDA時UIA非提供／RPCスレッドからSCI_*非呼出／フォーカス獲得時 TextSelectionChanged）を最終レビューで遵守確認。
+
+### 検証
+- `dotnet build yEdit.sln -c Release` = 0 warning / `dotnet test` = 23/23 PASS。
+- probe SR非依存検証（`verify-uia-sci.ps1`/`walk-test-sci.ps1`）は Phase C で無回帰 PASS（以降 Editor/Accessibility/probe 不変）。
+- 各フェーズで別エージェント二段レビュー（仕様適合＋コード品質）＋M1全体の最終レビュー（マージ可判定）。
+- **実機SR（PC-Talker/NVDA）= ユーザー確認 OK**（§13.5-1 のエンドツーエンド確認に相当）。
+
+### M2 以降への申し送り（非ブロッキング）
+- §4.1 空行の PC-Talker 読み・§8.6 座標API（`GetBoundingRectangles`/`RangeFromPoint`）は M6（PC-Talker 精緻化）へ。
+- `AppSettings.FontSize` 未適用（M7 外観）。`ApplyFont()` の早期ハンドル生成は無害だが整理余地。保存毎の `ConvertEols` が undo を残す軽微UX。UTF-16 は BOM 無し未検出（開き直しで救済）。`SettingsStore.Save` 非原子的（実害小）。
+- `DocumentState` のタブ化ファサード化は M2。
+- 巨大ファイル（snapshot 窓化・ストリーム読み）は後続。

@@ -217,7 +217,22 @@ public sealed partial class MainForm : Form
             _ => ScintillaNET.Eol.Cr,
         };
 
-    private void ReopenWithEncoding() { }
+    /// <summary>
+    /// 現在のファイルを指定の文字コードで開き直す。Path 未確定なら情報表示して中止。
+    /// 変更があれば dirty 確認し、ダイアログで選んだコードページで再読込する。
+    /// </summary>
+    private void ReopenWithEncoding()
+    {
+        if (_doc.Path is null)
+        {
+            MessageBox.Show("ファイルを開いてから実行してください。", "yEdit", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        if (!ConfirmDiscardIfDirty()) return;
+        using var dlg = new EncodingPickDialog(_doc.Encoding.CodePage);
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        LoadPath(_doc.Path, forcedCodePage: dlg.SelectedCodePage);
+    }
 
     /// <summary>上書き保存。Path 未確定なら SaveAs にフォールバック。</summary>
     private bool Save()

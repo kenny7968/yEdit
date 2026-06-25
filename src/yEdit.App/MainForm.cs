@@ -218,6 +218,46 @@ public sealed partial class MainForm : Form
         };
 
     private void ReopenWithEncoding() { }
-    private bool Save() { return false; }
-    private bool SaveAs() { return false; }
+
+    /// <summary>上書き保存。Path 未確定なら SaveAs にフォールバック。</summary>
+    private bool Save()
+    {
+        if (_doc.Path is null) return SaveAs();
+        return WriteToPath(_doc.Path);
+    }
+
+    /// <summary>名前を付けて保存。成功したら _doc.Path を更新しタイトルを更新する。</summary>
+    private bool SaveAs()
+    {
+        using var dlg = new SaveFileDialog { Filter = "テキスト ファイル (*.txt)|*.txt|すべてのファイル (*.*)|*.*" };
+        if (_doc.Path is not null) dlg.FileName = System.IO.Path.GetFileName(_doc.Path);
+        if (dlg.ShowDialog(this) != DialogResult.OK) return false;
+        if (!WriteToPath(dlg.FileName)) return false;
+        _doc.Path = dlg.FileName;
+        UpdateTitle();
+        return true;
+    }
+
+    /// <summary>
+    /// 改行を _doc.LineEnding に正規化してから本文を取得し、原子的に保存する。
+    /// 例外は MessageBox でエラー表示し false を返す。
+    /// </summary>
+    private bool WriteToPath(string path)
+    {
+        try
+        {
+            // buffer を _doc.LineEnding に正規化してから本文取得（改行コード保持）。
+            ApplyEol();
+            _editor.ConvertEols(_editor.EolMode);
+            TextFileService.Save(path, _editor.Text, _doc.Encoding, _doc.HasBom);
+            _editor.SetSavePoint();
+            UpdateTitle();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"保存できませんでした: {ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
+        }
+    }
 }

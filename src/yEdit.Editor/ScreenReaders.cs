@@ -1,13 +1,13 @@
 using System.Diagnostics;
 
-namespace yEdit.ScintillaProbe;
+namespace yEdit.Editor;
 
 /// <summary>
 /// 起動中スクリーンリーダーの判定。確定アーキテクチャ:
 /// NVDA 起動中はネイティブ Scintilla に任せ（UIA/MSAA を出さない）、それ以外（PC-Talker
 /// など）は我々の UIA プロバイダを適用する。判定の要は「NVDA が動いているか」だけ。
 /// </summary>
-internal static class ScreenReaders
+public static class ScreenReaders
 {
     /// <summary>NVDA 本体プロセスが動いているか。</summary>
     public static bool IsNvdaRunning()

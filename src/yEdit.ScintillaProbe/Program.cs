@@ -1,3 +1,5 @@
+using yEdit.Editor;
+
 namespace yEdit.ScintillaProbe;
 
 static class Program

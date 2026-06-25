@@ -1,4 +1,4 @@
-namespace yEdit.ScintillaProbe;
+namespace yEdit.Editor;
 
 /// <summary>
 /// 使用する SCI_* メッセージ定数（Scintilla.h より）。

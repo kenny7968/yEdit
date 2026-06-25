@@ -7,7 +7,7 @@ using ScintillaNET;
 using yEdit.Accessibility;
 using WpfRect = System.Windows.Rect;
 
-namespace yEdit.ScintillaProbe;
+namespace yEdit.Editor;
 
 /// <summary>
 /// Scintilla（desjarlais/Scintilla5.NET）を継承し、WM_GETOBJECT を横取りして

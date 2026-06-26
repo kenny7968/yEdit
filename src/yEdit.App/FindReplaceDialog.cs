@@ -21,7 +21,7 @@ public sealed class FindReplaceDialog : Form
     private readonly Button _prev = new() { Text = "前を検索(&P)", AutoSize = true };
     private readonly Button _replaceOne = new() { Text = "置換して次を検索(&L)", AutoSize = true };
     private readonly Button _replaceAll = new() { Text = "すべて置換(&A)", AutoSize = true };
-    private readonly Button _close = new() { Text = "閉じる", AutoSize = true };
+    private readonly Button _close = new() { Text = "閉じる(&X)", AutoSize = true };
     private readonly Label _status = new() { AutoSize = true, Text = "" };
 
     public FindReplaceDialog(SearchController controller)

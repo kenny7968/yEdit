@@ -19,6 +19,11 @@ public sealed class SearchController
     {
         _docs = docs;
         _owner = owner;
+        _docs.ActiveDocumentChanged += (_, _) =>
+        {
+            _lastHit = null;                              // 別文書の歩進状態を持ち越さない
+            if (_dialog?.Visible == true) UpdateCount();  // 表示中なら新アクティブで件数を更新
+        };
     }
 
     private ScintillaHost? ActiveEditor => _docs.Active?.Editor;
@@ -28,7 +33,7 @@ public sealed class SearchController
 
     private void Open(bool replaceMode)
     {
-        _dialog ??= new FindReplaceDialog(this);
+        if (_dialog is null || _dialog.IsDisposed) _dialog = new FindReplaceDialog(this);
         _dialog.SetMode(replaceMode);
         if (!_dialog.Visible) _dialog.Show(_owner);
         _dialog.Activate();
@@ -105,6 +110,7 @@ public sealed class SearchController
             var loc = searcher.Locate(text, hit.Value);
             string msg = loc is { } l ? $"{l.Total} 件中 {l.Ordinal} 件目" : "";
             Announce(msg);
+            // msg が空のとき Announce は早期 return するため、ここでステータスを空へクリアする。
             _dialog?.SetStatus(msg);
         }
         catch (RegexMatchTimeoutException)
@@ -135,7 +141,9 @@ public sealed class SearchController
 
             ed.ReplaceCharRange(span.Start, span.Length, repl);
             string text2 = ed.SnapshotText;
-            var next = searcher.FindNext(text2, span.Start + Math.Max(1, repl.Length));
+            // repl が non-null＝マッチ長>0 が保証されるため Max(1,…) は不要。空置換（削除）
+            // のとき +1 すると置換直後の隣接ヒットを取りこぼすので素の repl.Length（0含む）で前進する。
+            var next = searcher.FindNext(text2, span.Start + repl.Length);
             if (next is null)
             {
                 _lastHit = null;

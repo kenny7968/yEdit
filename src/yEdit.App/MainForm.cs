@@ -1,4 +1,5 @@
 using yEdit.Core.Backup;
+using yEdit.Core.Reading;
 using yEdit.Core.Search;
 using yEdit.Core.Settings;
 using yEdit.Core.Text;
@@ -16,6 +17,13 @@ public sealed partial class MainForm : Form
     private readonly ToolStripStatusLabel _posLabel = new("行 1, 桁 1");
     private readonly ToolStripStatusLabel _encLabel = new("UTF-8");
     private readonly ToolStripStatusLabel _eolLabel = new("CRLF");
+    // SR への能動通知用ラベル（底部・最後の通知を視覚表示）。フォーカス不可なので編集を妨げない。
+    private readonly Label _announceLabel = new()
+    {
+        Dock = DockStyle.Bottom, Height = 22, AutoSize = false,
+        TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "通知",
+    };
+    private Announcer _announcer = null!; // コンストラクタで生成
     private readonly string _settingsPath = SettingsStore.DefaultPath;
     private AppSettings _settings = new();
     private int _untitledSeq; // 無題タブの連番（新規作成毎に増加・セッション内で再利用しない）
@@ -37,12 +45,14 @@ public sealed partial class MainForm : Form
         _grep = new GrepController(_docs, this,
             hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength));
         _backup = new BackupCoordinator(_docs, _settings.BackupEnabled, _settings.BackupIntervalSeconds);
+        _announcer = new Announcer(_announceLabel);
 
         var menu = BuildMenu();
         var status = BuildStatusBar();
 
         Controls.Add(_docs.TabHost);
         Controls.Add(status);
+        Controls.Add(_announceLabel); // 最下部（status の下）
         Controls.Add(menu);
         MainMenuStrip = menu;
 
@@ -146,6 +156,10 @@ public sealed partial class MainForm : Form
             case Keys.Control | Keys.Shift | Keys.Tab: _docs.SelectNext(-1); return true;
             case Keys.F3: _search.FindNext(); return true;
             case Keys.Shift | Keys.F3: _search.FindPrev(); return true;
+            case Keys.Control | Keys.Alt | Keys.P: AnnouncePosition(); return true;
+            case Keys.Control | Keys.Alt | Keys.I: AnnounceCharInfo(); return true;
+            case Keys.Control | Keys.G: GoToLine(); return true;
+            case Keys.Insert: ToggleOvertype(); return true;
         }
         if ((keyData & (Keys.Control | Keys.Alt | Keys.Shift)) == Keys.Control)
         {
@@ -198,11 +212,20 @@ public sealed partial class MainForm : Form
         edit.DropDownItems.Add(new ToolStripSeparator());
         AddMenuItem(edit, "フォルダ検索(grep)(&G)...", (_, _) => _grep.Open(), Keys.Control | Keys.Shift | Keys.F);
 
+        // 読み上げ（SR 照会）。キーは ProcessCmdKey で処理し、ここは表示のみ（二重発火回避・M3 同方式）。
+        var read = new ToolStripMenuItem("読み上げ(&R)");
+        read.DropDownItems.Add(new ToolStripMenuItem("現在位置(&P)", null, (_, _) => AnnouncePosition())
+        { ShortcutKeyDisplayString = "Ctrl+Alt+P" });
+        read.DropDownItems.Add(new ToolStripMenuItem("文字情報(&I)", null, (_, _) => AnnounceCharInfo())
+        { ShortcutKeyDisplayString = "Ctrl+Alt+I" });
+        read.DropDownItems.Add(new ToolStripMenuItem("行へ移動(&G)...", null, (_, _) => GoToLine())
+        { ShortcutKeyDisplayString = "Ctrl+G" });
+
         var help = new ToolStripMenuItem("ヘルプ(&H)");
         help.DropDownItems.Add("バージョン情報(&A)", null, (_, _) =>
             MessageBox.Show("yEdit v0.1", "バージョン情報", MessageBoxButtons.OK, MessageBoxIcon.Information));
 
-        menu.Items.AddRange(new ToolStripItem[] { file, edit, help });
+        menu.Items.AddRange(new ToolStripItem[] { file, edit, read, help });
         return menu;
     }
 
@@ -332,6 +355,56 @@ public sealed partial class MainForm : Form
         }
         doc.Editor.SelectCharRange(offset, length);
         doc.Editor.Focus();
+        // ジャンプ先のファイル名と行を明示通知（選択移動の自動読みに加え、別ファイルへ飛んだ文脈を補う）。
+        _announcer.Say($"{doc.State.DisplayName} {doc.Editor.CurrentLine + 1} 行目");
+    }
+
+    // ==================== 読み上げ照会（SR 利便・M6） ====================
+
+    /// <summary>現在位置（行/総行/桁/文字数/選択数）を読み上げる。</summary>
+    private void AnnouncePosition()
+    {
+        var ed = _docs.Active?.Editor;
+        if (ed is null) return;
+        int line = ed.CurrentLine + 1;
+        int totalLines = ed.Lines.Count;
+        int column = ed.GetColumn(ed.CurrentPosition) + 1;
+        var (s, e) = ed.GetSelectionCharRange();
+        _announcer.Say(PositionFormatter.Format(line, totalLines, column, ed.SnapshotText.Length, e - s, ed.Overtype));
+    }
+
+    /// <summary>キャレット位置の文字情報（全角/半角空白の区別など）を読み上げる。末尾なら案内する。</summary>
+    private void AnnounceCharInfo()
+    {
+        var ed = _docs.Active?.Editor;
+        if (ed is null) return;
+        string text = ed.SnapshotText;
+        int caret = ed.CaretCharOffset; // 選択端ではなく実キャレット位置の文字を説明する
+        if (caret < 0 || caret >= text.Length) { _announcer.Say("文書の末尾"); return; }
+        _announcer.Say(CharacterDescriber.DescribeAt(text, caret));
+    }
+
+    /// <summary>行番号を入力して移動する。</summary>
+    private void GoToLine()
+    {
+        var ed = _docs.Active?.Editor;
+        if (ed is null) return;
+        int max = ed.Lines.Count;
+        using var dlg = new GoToLineDialog(ed.CurrentLine + 1, max);
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        int target = Math.Clamp(dlg.LineNumber, 1, max);
+        ed.Lines[target - 1].Goto();
+        ed.Focus();
+        _announcer.Say($"行 {target}");
+    }
+
+    /// <summary>挿入/上書きモードをトグルし読み上げる（Insert キー）。</summary>
+    private void ToggleOvertype()
+    {
+        var ed = _docs.Active?.Editor;
+        if (ed is null) return;
+        ed.Overtype = !ed.Overtype;
+        _announcer.Say(ed.Overtype ? "上書きモード" : "挿入モード");
     }
 
     /// <summary>

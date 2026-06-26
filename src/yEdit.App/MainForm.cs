@@ -24,6 +24,8 @@ public sealed partial class MainForm : Form
         TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "通知",
     };
     private Announcer _announcer = null!; // コンストラクタで生成
+    private ToolStripMenuItem _recentMenu = null!; // BuildMenu で生成
+    private const int MaxRecent = 10;
     private readonly string _settingsPath = SettingsStore.DefaultPath;
     private AppSettings _settings = new();
     private int _untitledSeq; // 無題タブの連番（新規作成毎に増加・セッション内で再利用しない）
@@ -63,8 +65,8 @@ public sealed partial class MainForm : Form
     private ScintillaHost CreateEditor()
     {
         var e = new ScintillaHost { Dock = DockStyle.Fill };
-        e.ConfigureForCurrentScreenReader();                       // ハンドル生成前に SR 適応を確定
-        e.Styles[ScintillaNET.Style.Default].Font = _settings.FontName; // size 等は M7
+        e.ConfigureForCurrentScreenReader();   // ハンドル生成前に SR 適応を確定
+        EditorAppearance.Apply(e, _settings);  // フォント＋配色テーマを適用（M7）
         return e;
     }
 
@@ -184,12 +186,16 @@ public sealed partial class MainForm : Form
         AddMenuItem(file, "新規(&N)", (_, _) => NewFile(), Keys.Control | Keys.N);
         AddMenuItem(file, "開く(&O)...", (_, _) => OpenFile(), Keys.Control | Keys.O);
         AddMenuItem(file, "文字コードを指定して開き直す(&R)...", (_, _) => ReopenWithEncoding());
+        _recentMenu = new ToolStripMenuItem("最近のファイル(&Y)");
+        file.DropDownItems.Add(_recentMenu);
         file.DropDownItems.Add(new ToolStripSeparator());
         AddMenuItem(file, "上書き保存(&S)", (_, _) => Save(), Keys.Control | Keys.S);
         AddMenuItem(file, "名前を付けて保存(&A)...", (_, _) => SaveAs());
         file.DropDownItems.Add(new ToolStripSeparator());
+        AddMenuItem(file, "設定(&P)...", (_, _) => OpenSettings());
         AddMenuItem(file, "タブを閉じる(&W)", (_, _) => CloseActiveTab(), Keys.Control | Keys.W);
         AddMenuItem(file, "終了(&X)", (_, _) => Close());
+        RebuildRecentMenu();
 
         var edit = new ToolStripMenuItem("編集(&E)");
         AddMenuItem(edit, "元に戻す(&U)", (_, _) => _docs.Active?.Editor.Undo(), Keys.Control | Keys.Z);
@@ -315,18 +321,66 @@ public sealed partial class MainForm : Form
     {
         using var dlg = new OpenFileDialog { Filter = "テキスト ファイル (*.txt)|*.txt|すべてのファイル (*.*)|*.*" };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        OpenExistingPath(dlg.FileName);
+    }
 
+    /// <summary>既存ファイルを開く（既存タブ再利用・読込失敗時は直前へ復帰）。OpenFile/最近のファイル共通。</summary>
+    private void OpenExistingPath(string path)
+    {
         // 既に同じファイルを開いていればそのタブへ（Q4：二重編集の上書き事故防止）。
-        var existing = _docs.FindByPath(dlg.FileName);
+        var existing = _docs.FindByPath(path);
         if (existing is not null) { _docs.Activate(existing); return; }
 
         var prev = _docs.Active; // 読込失敗時に戻る先（直前のアクティブタブ）
         var doc = _docs.CreateNew();
-        if (!LoadInto(doc, dlg.FileName, forcedCodePage: null))
+        if (!LoadInto(doc, path, forcedCodePage: null))
         {
             _docs.TryClose(doc, _ => true); // 読込失敗→作りかけタブを破棄
             if (prev is not null) _docs.Activate(prev); // 直前のアクティブへ戻す
         }
+    }
+
+    // ==================== 最近のファイル / 設定（M7） ====================
+
+    /// <summary>開いたファイルを最近のファイルへ登録し、永続化＆メニュー再生成する。</summary>
+    private void RegisterRecent(string path)
+    {
+        _settings.RecentFiles = RecentFilesList.Add(_settings.RecentFiles, path, MaxRecent);
+        try { SettingsStore.Save(_settingsPath, _settings); } catch { /* 設定保存失敗は致命でない */ }
+        RebuildRecentMenu();
+    }
+
+    private void RebuildRecentMenu()
+    {
+        _recentMenu.DropDownItems.Clear();
+        if (_settings.RecentFiles.Count == 0)
+        {
+            _recentMenu.DropDownItems.Add(new ToolStripMenuItem("(なし)") { Enabled = false });
+            return;
+        }
+        int n = 0;
+        foreach (string path in _settings.RecentFiles)
+        {
+            string p = path; // クロージャ捕捉
+            n++;
+            string body = ($"{System.IO.Path.GetFileName(p)}  〔{System.IO.Path.GetDirectoryName(p)}〕").Replace("&", "&&");
+            string text = n <= 9 ? $"&{n} {body}" : body; // 1..9 はアクセスキー付与
+            _recentMenu.DropDownItems.Add(new ToolStripMenuItem(text, null, (_, _) => OpenExistingPath(p)));
+        }
+    }
+
+    /// <summary>設定ダイアログを開き、OK なら全タブへ外観適用＋永続化する。</summary>
+    private void OpenSettings()
+    {
+        using var dlg = new SettingsDialog(_settings);
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        _settings.FontName = dlg.FontName;
+        _settings.FontSize = dlg.FontSize;
+        _settings.Theme = dlg.ThemeId;
+        _settings.DefaultCodePage = dlg.DefaultCodePage;
+        _settings.DefaultLineEnding = dlg.DefaultLineEnding;
+        foreach (var doc in _docs.Documents) EditorAppearance.Apply(doc.Editor, _settings);
+        try { SettingsStore.Save(_settingsPath, _settings); } catch { /* 設定保存失敗は致命でない */ }
     }
 
     /// <summary>
@@ -438,6 +492,7 @@ public sealed partial class MainForm : Form
                     "別の文字コードで開き直してください。",
                     "文字コードの警告", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
+            RegisterRecent(path); // 開けたファイルを最近のファイルへ
             return true;
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Security.SecurityException or NotSupportedException)

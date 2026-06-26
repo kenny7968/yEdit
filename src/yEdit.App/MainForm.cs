@@ -7,6 +7,7 @@ namespace yEdit.App;
 public sealed partial class MainForm : Form
 {
     private readonly DocumentManager _docs;
+    private SearchController _search = null!; // コンストラクタで生成
     private readonly ToolStripStatusLabel _posLabel = new("行 1, 桁 1");
     private readonly ToolStripStatusLabel _encLabel = new("UTF-8");
     private readonly ToolStripStatusLabel _eolLabel = new("CRLF");
@@ -27,6 +28,7 @@ public sealed partial class MainForm : Form
         _docs.ActiveDocumentChanged += (_, _) => { UpdateTitle(); UpdateStatus(); };
         _docs.ActiveDirtyChanged += (_, _) => UpdateTitle();
         _docs.ActiveCaretChanged += (_, _) => UpdateStatus();
+        _search = new SearchController(_docs, this);
 
         var menu = BuildMenu();
         var status = BuildStatusBar();
@@ -88,6 +90,8 @@ public sealed partial class MainForm : Form
         {
             case Keys.Control | Keys.Tab: _docs.SelectNext(+1); return true;
             case Keys.Control | Keys.Shift | Keys.Tab: _docs.SelectNext(-1); return true;
+            case Keys.F3: _search.FindNext(); return true;
+            case Keys.Shift | Keys.F3: _search.FindPrev(); return true;
         }
         if ((keyData & (Keys.Control | Keys.Alt | Keys.Shift)) == Keys.Control)
         {
@@ -127,6 +131,16 @@ public sealed partial class MainForm : Form
         AddMenuItem(edit, "コピー(&C)", (_, _) => _docs.Active?.Editor.Copy(), Keys.Control | Keys.C);
         AddMenuItem(edit, "貼り付け(&P)", (_, _) => _docs.Active?.Editor.Paste(), Keys.Control | Keys.V);
         AddMenuItem(edit, "すべて選択(&A)", (_, _) => _docs.Active?.Editor.SelectAll(), Keys.Control | Keys.A);
+        edit.DropDownItems.Add(new ToolStripSeparator());
+        AddMenuItem(edit, "検索(&F)...", (_, _) => _search.OpenFind(), Keys.Control | Keys.F);
+        AddMenuItem(edit, "置換(&H)...", (_, _) => _search.OpenReplace(), Keys.Control | Keys.H);
+        // F3/Shift+F3 は ProcessCmdKey で処理するため、メニューは表示専用（ShortcutKeys 未登録）にして二重発火を避ける。
+        var findNext = new ToolStripMenuItem("次を検索(&N)", null, (_, _) => _search.FindNext())
+        { ShortcutKeyDisplayString = "F3" };
+        var findPrev = new ToolStripMenuItem("前を検索(&P)", null, (_, _) => _search.FindPrev())
+        { ShortcutKeyDisplayString = "Shift+F3" };
+        edit.DropDownItems.Add(findNext);
+        edit.DropDownItems.Add(findPrev);
 
         var help = new ToolStripMenuItem("ヘルプ(&H)");
         help.DropDownItems.Add("バージョン情報(&A)", null, (_, _) =>

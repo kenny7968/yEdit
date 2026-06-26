@@ -98,17 +98,16 @@ public sealed class DocumentManager
         if (index >= 0 && index < _tabs.TabPages.Count) _tabs.SelectedIndex = index;
     }
 
-    public void UpdateLabel(Document doc)
-    {
-        doc.Page.Text = doc.TabLabel;
-        // NVDA はフォーカス時に MSAA の AccessibleName を読む。変更マーク無しのファイル名を載せ、
-        // タブ切替で「ファイル名」が読まれるようにする（PC-Talker は UIA 経由なので無影響）。
-        doc.Editor.AccessibleName = doc.State.DisplayName;
-    }
+    public void UpdateLabel(Document doc) => doc.Page.Text = doc.TabLabel;
 
     private void OnSelectedTabChanged()
     {
-        Active?.Editor.Focus(); // フォーカス移動で OnGotFocus→SR が新タブ＋現在行を読む
+        // NVDA は「フォーカスした要素」を読む。まずタブ列へフォーカスして標準のタブ読み上げ
+        // （ファイル名＋位置）を促し、続けてエディタへフォーカスを戻して編集を継続できるようにする
+        // （案2: 一瞬タブ→エディタ）。BeginInvoke でタブのフォーカスイベントを先に処理させる。
+        _tabs.Focus();
+        // 連続切替に備え、遅延実行時点で選択中のエディタへフォーカスする（古いタブを掴まない）。
+        if (Active is not null) _tabs.BeginInvoke(new Action(() => Active?.Editor.Focus()));
         ActiveDocumentChanged?.Invoke(this, EventArgs.Empty);
     }
 

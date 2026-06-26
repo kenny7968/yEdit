@@ -119,7 +119,12 @@ public sealed class DocumentManager
     {
         // タブ列にフォーカスがある状態で Enter を押したらエディタへ移って編集を開始する
         // （Ctrl+Tab で SR がファイル名を読む→Enter で本文へ、という流れ）。
-        if (e.KeyCode == Keys.Enter)
+        //
+        // 重要: TabControl.ProcessKeyPreview は子孫（エディタ）にフォーカスがある編集中でも
+        // プレビュー経路でこの KeyDown を発火させる。_tabs.Focused でタブ列自身がフォーカスを
+        // 持つ時だけに限定しないと、編集中の Enter＝改行を横取りして native Scintilla へ
+        // 渡らなくなる（改行が入力できなくなる）。タブ列フォーカス時のみ処理すること。
+        if (e.KeyCode == Keys.Enter && _tabs.Focused)
         {
             FocusActiveEditor();
             e.Handled = true;

@@ -98,7 +98,13 @@ public sealed class DocumentManager
         if (index >= 0 && index < _tabs.TabPages.Count) _tabs.SelectedIndex = index;
     }
 
-    public void UpdateLabel(Document doc) => doc.Page.Text = doc.TabLabel;
+    public void UpdateLabel(Document doc)
+    {
+        doc.Page.Text = doc.TabLabel;
+        // NVDA はフォーカス時に MSAA の AccessibleName を読む。変更マーク無しのファイル名を載せ、
+        // タブ切替で「ファイル名」が読まれるようにする（PC-Talker は UIA 経由なので無影響）。
+        doc.Editor.AccessibleName = doc.State.DisplayName;
+    }
 
     private void OnSelectedTabChanged()
     {

@@ -78,15 +78,20 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
 
     /// <summary>
     /// 起動中のスクリーンリーダーに応じて UIA/MSAA の提供可否を確定する（確定アーキテクチャ）。
-    /// NVDA 起動中 → 我々は引っ込む（ネイティブ Scintilla に任せる）。それ以外 → UIA 提供。
+    /// NVDA 起動中 → UIA は出さず（クラス "Scintilla" との overlay 競合で無音化するため）ネイティブ
+    /// Scintilla に本文読みを任せる。ただし MSAA は素通しし、各エディタの AccessibleName（ファイル名）を
+    /// NVDA がフォーカス時に読めるようにする（タブ切替時のファイル名読み上げ）。それ以外 → UIA 提供。
+    /// 注意: NVDA 時は MSAA の既定 Name が本文になりうるため、App 側で AccessibleName を必ず設定すること。
     /// ハンドル生成前に呼ぶこと（WM_GETOBJECT 前に値を確定させる）。
     /// </summary>
     public void ConfigureForCurrentScreenReader()
     {
         if (ScreenReaders.IsNvdaRunning())
         {
+            // ネイティブ Scintilla に本文を任せる（UIA 非提供）。MSAA は素通しして
+            // AccessibleName（ファイル名）を NVDA に届ける（M2: タブ切替のファイル名読み）。
             ServeUiaProvider = false;
-            SuppressClientMsaa = true;
+            SuppressClientMsaa = false;
         }
         else
         {

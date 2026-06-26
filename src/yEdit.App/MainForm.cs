@@ -361,9 +361,12 @@ public sealed partial class MainForm : Form
         var doc = _docs.Active;
         if (doc is null) return;
         if (!_docs.TryClose(doc, ConfirmDiscardIfDirty)) return;
-        if (_docs.Count == 0) Close();
+        if (_docs.Count == 0) { Close(); return; }
         // 選択タブ削除時の TabControl.Selected 発火は WinForms の仕様上保証されないため、
-        // クローズ後の新アクティブへ明示的にフォーカスを移す（SR が新タブ＋現在行を読む）。冪等。
-        else _docs.Active?.Editor.Focus();
+        // クローズ後の新アクティブへフォーカス・タイトル・ステータスを明示更新する
+        // （Selected 発火に依存しない唯一の更新源）。
+        _docs.Active?.Editor.Focus();
+        UpdateTitle();
+        UpdateStatus();
     }
 }

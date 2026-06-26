@@ -87,6 +87,7 @@ public sealed class DocumentManager
         return true;
     }
 
+    /// <summary>タブを相対移動し、フォーカスをタブ列へ移す（SR が選択タブ＝ファイル名を読むため）。</summary>
     public void SelectNext(int dir)
     {
         int n = _tabs.TabPages.Count;
@@ -96,6 +97,7 @@ public sealed class DocumentManager
         FocusTabStrip(); // タブ列にフォーカスを留め、SR が選択タブ（ファイル名＋位置）を読む
     }
 
+    /// <summary>指定位置のタブを選択し、フォーカスをタブ列へ移す（SR が選択タブ＝ファイル名を読むため）。</summary>
     public void SelectAt(int index)
     {
         if (index < 0 || index >= _tabs.TabPages.Count) return;

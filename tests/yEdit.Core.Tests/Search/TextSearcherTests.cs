@@ -101,4 +101,82 @@ public class TextSearcherTests
     [Fact]
     public void Offsets_are_utf16_char_positions_for_cjk()
         => Assert.Equal(new MatchSpan(5, 2), Make("世界").FindNext("こんにちは世界", 0));
+
+    // ----- Locate（何件目か・1始まり） -----
+
+    [Fact]
+    public void Locate_returns_one_based_ordinal_and_total()
+        => Assert.Equal((2, 3), Make("ab").Locate("ab ab ab", new MatchSpan(3, 2)));
+
+    [Fact]
+    public void Locate_returns_null_when_span_is_not_a_hit()
+        => Assert.Null(Make("ab").Locate("ab ab ab", new MatchSpan(1, 2)));
+
+    // ----- ReplacementAt（当該ヒットの置換後文字列） -----
+
+    [Fact]
+    public void ReplacementAt_literal_does_not_expand_dollar()
+    {
+        // リテラルモードでは "X$1" は素のまま返る。
+        Assert.Equal("X$1", Make("ab").ReplacementAt("ab", new MatchSpan(0, 2), "X$1"));
+    }
+
+    [Fact]
+    public void ReplacementAt_regex_expands_groups()
+    {
+        // 正規表現モードでは $2$1 が展開される。
+        var s = Make("(a)(b)", useRegex: true);
+        Assert.Equal("ba", s.ReplacementAt("ab", new MatchSpan(0, 2), "$2$1"));
+    }
+
+    [Fact]
+    public void ReplacementAt_returns_null_when_span_is_not_a_hit()
+        => Assert.Null(Make("ab").ReplacementAt("ab", new MatchSpan(1, 1), "X"));
+
+    // ----- ReplaceAll（全文置換） -----
+
+    [Fact]
+    public void ReplaceAll_replaces_every_hit()
+    {
+        var (fragment, count) = Make("ab").ReplaceAll("ab_ab_ab", "X");
+        Assert.Equal("X_X_X", fragment);
+        Assert.Equal(3, count);
+    }
+
+    [Fact]
+    public void ReplaceAll_regex_expands_groups()
+    {
+        var (fragment, count) = Make("(a)(b)", useRegex: true).ReplaceAll("ab ab", "$2$1");
+        Assert.Equal("ba ba", fragment);
+        Assert.Equal(2, count);
+    }
+
+    // ----- ReplaceInRange（範囲内に完全に収まるヒットのみ） -----
+
+    [Fact]
+    public void ReplaceInRange_replaces_only_hits_fully_inside_range()
+    {
+        // [0,5) には index0 と index3 の "ab" が収まる。
+        var (fragment, count) = Make("ab").ReplaceInRange("ab_ab_ab", 0, 5, "X");
+        Assert.Equal("X_X", fragment);
+        Assert.Equal(2, count);
+    }
+
+    [Fact]
+    public void ReplaceInRange_excludes_hit_straddling_end_boundary()
+    {
+        // [0,4) は index3 の "ab"(3-5) が範囲をまたぐため対象外。
+        var (fragment, count) = Make("ab").ReplaceInRange("ab_ab_ab", 0, 4, "X");
+        Assert.Equal("X_a", fragment);
+        Assert.Equal(1, count);
+    }
+
+    [Fact]
+    public void ReplaceInRange_excludes_hit_before_start()
+    {
+        // [3,8) は index0 の "ab" を対象外とし、index3 と index6 のみ置換。
+        var (fragment, count) = Make("ab").ReplaceInRange("ab_ab_ab", 3, 5, "X");
+        Assert.Equal("X_X", fragment);
+        Assert.Equal(2, count);
+    }
 }

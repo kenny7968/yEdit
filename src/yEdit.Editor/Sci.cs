@@ -16,6 +16,12 @@ internal static class Sci
     public const int SCI_GETSELECTIONEND = 2145;    // 選択終了（バイト）
     public const int SCI_GETCURRENTPOS = 2008;      // キャレット（バイト）
     public const int SCI_SETSEL = 2160;             // (anchor, caret) 選択設定（バイト）
+    public const int SCI_SCROLLCARET = 2169;        // キャレットを可視範囲へスクロール
+
+    // 置換ターゲット（検索・置換で使用。バイト位置）。
+    public const int SCI_SETTARGETSTART = 2190;     // 置換ターゲット開始（バイト）
+    public const int SCI_SETTARGETEND = 2192;       // 置換ターゲット終了（バイト）
+    public const int SCI_REPLACETARGET = 2194;      // (length, char*) ターゲットを置換（UTF-8・1アンドゥ）
 
     // 座標系（§6 で実装）。lParam = byte position。
     public const int SCI_POINTXFROMPOSITION = 2164;

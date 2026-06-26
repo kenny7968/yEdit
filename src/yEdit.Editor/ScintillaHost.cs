@@ -365,6 +365,52 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
 
     private int Clamp16(int v) => v < 0 ? 0 : (v > _snapshot.Length ? _snapshot.Length : v);
 
+    // ==================== 検索・置換ヘルパ（UI スレッド・文字オフセット） ====================
+    // Core は UTF-16 文字オフセットで照合する。ここで既存の Utf16ToByte を介し Scintilla の
+    // バイト位置へ変換して選択/置換する（ScintillaNET の文字位置 API はサロゲートでズレ得るため不使用）。
+
+    /// <summary>照合対象テキスト（UI スレッドで保持する UTF-16 スナップショット）。</summary>
+    public string SnapshotText => _snapshot;
+
+    /// <summary>現在の選択範囲（UTF-16 文字オフセット, Start&lt;=End）。</summary>
+    public (int Start, int End) GetSelectionCharRange()
+    {
+        int s = _selStart, e = _selEnd;
+        return (Math.Min(s, e), Math.Max(s, e));
+    }
+
+    /// <summary>文字オフセット範囲を選択しキャレットを可視化する（選択移動で SR が一致行を読む）。</summary>
+    public void SelectCharRange(int start, int length)
+    {
+        if (InvokeRequired) { BeginInvoke(new Action(() => SelectCharRange(start, length))); return; }
+        int bs = Utf16ToByte(Clamp16(start));
+        int be = Utf16ToByte(Clamp16(start + length));
+        DirectMessage(Sci.SCI_SETSEL, (nint)bs, (nint)be);
+        DirectMessage(Sci.SCI_SCROLLCARET);
+        RefreshSelection();
+    }
+
+    /// <summary>文字オフセット範囲を replacement で置換する（SCI_REPLACETARGET = 1 アンドゥ）。</summary>
+    public void ReplaceCharRange(int start, int length, string replacement)
+    {
+        if (InvokeRequired) { BeginInvoke(new Action(() => ReplaceCharRange(start, length, replacement))); return; }
+        int bs = Utf16ToByte(Clamp16(start));
+        int be = Utf16ToByte(Clamp16(start + length));
+        DirectMessage(Sci.SCI_SETTARGETSTART, (nint)bs);
+        DirectMessage(Sci.SCI_SETTARGETEND, (nint)be);
+        byte[] repl = Encoding.UTF8.GetBytes(replacement);
+        nint buf = Marshal.AllocHGlobal(repl.Length + 1);
+        try
+        {
+            if (repl.Length > 0) Marshal.Copy(repl, 0, buf, repl.Length);
+            Marshal.WriteByte(buf, repl.Length, 0);
+            DirectMessage(Sci.SCI_REPLACETARGET, (nint)repl.Length, buf);
+        }
+        finally { Marshal.FreeHGlobal(buf); }
+        RefreshSnapshot();
+        RefreshSelection();
+    }
+
     // ==================== IUiaTextHost（RPC スレッドから呼ばれる） ====================
 
     string IUiaTextHost.GetText() => _snapshot;

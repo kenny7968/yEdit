@@ -401,6 +401,7 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     /// <summary>文字オフセット範囲を選択しキャレットを可視化する（選択移動で SR が一致行を読む）。</summary>
     public void SelectCharRange(int start, int length)
     {
+        if (!IsHandleCreated || IsDisposed) return; // タブ閉じ等でハンドル破棄後の BeginInvoke を防ぐ
         if (InvokeRequired) { BeginInvoke(new Action(() => SelectCharRange(start, length))); return; }
         int bs = Utf16ToByte(SnapToCodepoint(Clamp16(start)));
         int be = Utf16ToByte(SnapToCodepoint(Clamp16(start + length)));
@@ -412,6 +413,7 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     /// <summary>文字オフセット範囲を replacement で置換する（SCI_REPLACETARGET = 1 アンドゥ）。</summary>
     public void ReplaceCharRange(int start, int length, string replacement)
     {
+        if (!IsHandleCreated || IsDisposed) return; // ハンドル破棄後の BeginInvoke を防ぐ
         if (InvokeRequired) { BeginInvoke(new Action(() => ReplaceCharRange(start, length, replacement))); return; }
         int bs = Utf16ToByte(SnapToCodepoint(Clamp16(start)));
         int be = Utf16ToByte(SnapToCodepoint(Clamp16(start + length)));
@@ -444,6 +446,7 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
 
     void IUiaTextHost.SetSelection(int start, int end)
     {
+        if (!IsHandleCreated || IsDisposed) return; // ハンドル破棄後の BeginInvoke を防ぐ
         if (InvokeRequired) { BeginInvoke(new Action(() => ((IUiaTextHost)this).SetSelection(start, end))); return; }
         int bs = Utf16ToByte(Clamp16(start));
         int be = Utf16ToByte(Clamp16(end));
@@ -465,6 +468,7 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
 
     void IUiaTextHost.SetFocus()
     {
+        if (!IsHandleCreated || IsDisposed) return; // ハンドル破棄後の BeginInvoke を防ぐ
         if (InvokeRequired) { BeginInvoke(new Action(() => Focus())); return; }
         Focus();
     }

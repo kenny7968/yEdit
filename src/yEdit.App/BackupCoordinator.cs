@@ -198,8 +198,12 @@ public sealed class BackupCoordinator : IDisposable
 
     public void Dispose()
     {
+        // Shutdown 済みなら timer/writer は解放済み。未経由（異常系）なら timer/writer を片付ける
+        // （孤児バックアップは残し、次回起動で復元提案できるようにする）。冪等。
+        if (_shutDown) return;
+        _shutDown = true;
         _timer.Stop();
         _timer.Dispose();
-        if (!_shutDown) _writer?.Dispose(); // Shutdown 未経由（異常系）なら writer だけ片付け、孤児は残す
+        _writer?.Dispose();
     }
 }

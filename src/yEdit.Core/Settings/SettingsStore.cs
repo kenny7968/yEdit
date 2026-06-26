@@ -1,4 +1,5 @@
 using System.Text.Json;
+using yEdit.Core.Text;
 
 namespace yEdit.Core.Settings;
 
@@ -33,7 +34,22 @@ public static class SettingsStore
         s.RecentFiles ??= def.RecentFiles;
         if (string.IsNullOrEmpty(s.Theme)) s.Theme = def.Theme;
         if (string.IsNullOrEmpty(s.FontName)) s.FontName = def.FontName;
+
+        // 数値の健全化（手編集等で壊れた設定が起動時クラッシュ／不可視を招かないように）。
+        if (!IsSelectableCodePage(s.DefaultCodePage)) s.DefaultCodePage = def.DefaultCodePage;
+        if (s.DefaultLineEnding is < 0 or > 2) s.DefaultLineEnding = def.DefaultLineEnding;
+        if (s.FontSize <= 0f) s.FontSize = def.FontSize;
+        if (s.WindowWidth < 200) s.WindowWidth = def.WindowWidth;
+        if (s.WindowHeight < 150) s.WindowHeight = def.WindowHeight;
+        if (s.BackupIntervalSeconds < 5) s.BackupIntervalSeconds = def.BackupIntervalSeconds;
         return s;
+    }
+
+    private static bool IsSelectableCodePage(int codePage)
+    {
+        foreach (var e in EncodingCatalog.SelectableEncodings)
+            if (e.CodePage == codePage) return true;
+        return false;
     }
 
     public static void Save(string path, AppSettings settings)

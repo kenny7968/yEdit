@@ -63,30 +63,52 @@ public sealed class GrepController
         var req = new GrepRequest(d.Folder, d.Filter, d.Recursive, opts);
         string pattern = d.Pattern, folder = d.Folder;
 
+        // 連打対策: 直前の実行を中止し、本実行専用の CTS を作る（破棄は本実行の finally で）。
         _cts?.Cancel();
-        _cts = new CancellationTokenSource();
-        var ct = _cts.Token;
-        var progress = new Progress<GrepProgress>(p => d.SetStatus(
-            p.CurrentFile is null
+        var cts = new CancellationTokenSource();
+        _cts = cts;
+        var ct = cts.Token;
+        var progress = new Progress<GrepProgress>(p =>
+        {
+            if (d.IsDisposed) return; // 破棄済みダイアログへは触れない
+            d.SetStatus(p.CurrentFile is null
                 ? $"{p.FilesScanned} ファイル走査・{p.HitCount} 件"
-                : $"{p.FilesScanned} ファイル走査中… {p.HitCount} 件"));
+                : $"{p.FilesScanned} ファイル走査中… {p.HitCount} 件");
+        });
 
         d.SetRunning(true);
         d.SetStatus("検索中…");
+        d.RaiseNotification("検索を開始しました");
         try
         {
             // GrepService は協調キャンセルで部分結果＋Cancelled を返す（例外で打ち切らない）。
             var outcome = await Task.Run(() => GrepService.Search(req, progress, ct));
+
+            // ダイアログ破棄済み・後発の実行に追い越された場合は UI を触らない。
+            if (d.IsDisposed || !ReferenceEquals(_cts, cts)) return;
+
             ShowResults(pattern, folder, outcome);
-            d.RaiseNotification(Summary(outcome));
+            // ヒットがあれば結果窓のフォーカスが SR を駆動するので二重読みを避ける。ただし
+            // 読み取りエラーがある時は走査が不完全な旨を必ず音声化する（誤った「見つかりません」防止）。
+            if (outcome.Hits.Count == 0 || outcome.Errors.Count > 0)
+                d.RaiseNotification(Summary(outcome));
+            else
+                d.SetStatus(Summary(outcome));
         }
         catch (Exception ex)
         {
-            d.RaiseNotification("検索エラー: " + ex.Message);
+            if (!d.IsDisposed && ReferenceEquals(_cts, cts))
+                d.RaiseNotification("検索エラー: " + ex.Message);
         }
         finally
         {
-            if (!d.IsDisposed) d.SetRunning(false);
+            // 本実行が最新なら状態をリセット。後発実行に追い越されていればそちらに任せる。
+            if (ReferenceEquals(_cts, cts))
+            {
+                _cts = null;
+                if (!d.IsDisposed) d.SetRunning(false);
+            }
+            cts.Dispose();
         }
     }
 
@@ -94,9 +116,11 @@ public sealed class GrepController
 
     private static string Summary(GrepOutcome o)
     {
-        if (o.Hits.Count == 0) return o.Cancelled ? "中断しました（0 件）" : "見つかりません";
+        string errs = o.Errors.Count > 0 ? $"・読み取り不可 {o.Errors.Count} 件" : "";
+        if (o.Hits.Count == 0)
+            return (o.Cancelled ? "中断しました（0 件）" : "見つかりません") + errs;
         string head = o.Cancelled ? "中断: " : "";
-        return $"{head}{o.Hits.Count} 行 / {o.FilesMatched} ファイル";
+        return $"{head}{o.Hits.Count} 行 / {o.FilesMatched} ファイル{errs}";
     }
 
     private void ShowResults(string pattern, string folder, GrepOutcome outcome)

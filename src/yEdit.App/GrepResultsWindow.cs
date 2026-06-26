@@ -40,6 +40,7 @@ public sealed class GrepResultsWindow : Form
         if (_list.Items.Count > 0) _list.SelectedIndex = 0;
 
         string suffix = outcome.Cancelled ? "（中断）" : "";
+        if (outcome.Errors.Count > 0) suffix += $"（読み取り不可 {outcome.Errors.Count} 件）";
         Text = outcome.Hits.Count == 0
             ? $"grep: \"{pattern}\" — 見つかりません{suffix}"
             : $"grep: \"{pattern}\" — {outcome.Hits.Count} 行 / {outcome.FilesMatched} ファイル{suffix}";
@@ -57,7 +58,12 @@ public sealed class GrepResultsWindow : Form
     {
         string rel = RelativePath(hit.FilePath);
         string line = hit.LineText.Trim();
-        if (line.Length > 200) line = line.Substring(0, 200) + "…";
+        if (line.Length > 200)
+        {
+            int cut = 200;
+            if (char.IsHighSurrogate(line[cut - 1])) cut--; // サロゲートペアを割らない
+            line = line.Substring(0, cut) + "…";
+        }
         return $"{rel} (行 {hit.LineNumber}): {line}";
     }
 

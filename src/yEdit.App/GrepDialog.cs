@@ -40,7 +40,7 @@ public sealed class GrepDialog : Form
         _browse.Click += (_, _) => BrowseFolder();
         _run.Click += (_, _) => _controller.Run();
         _stop.Click += (_, _) => _controller.Cancel();
-        _close.Click += (_, _) => Hide();
+        _close.Click += (_, _) => HideAndCancel();
         AcceptButton = _run;
     }
 
@@ -89,15 +89,22 @@ public sealed class GrepDialog : Form
         if (dlg.ShowDialog(this) == DialogResult.OK) _folder.Text = dlg.SelectedPath;
     }
 
+    /// <summary>ダイアログを隠す際は実行中の grep も中止する（隠れたまま走り続けるのを防ぐ）。</summary>
+    private void HideAndCancel()
+    {
+        _controller.Cancel();
+        Hide();
+    }
+
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
-        if (keyData == Keys.Escape) { Hide(); return true; }
+        if (keyData == Keys.Escape) { HideAndCancel(); return true; }
         return base.ProcessCmdKey(ref msg, keyData);
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); return; }
+        if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; HideAndCancel(); return; }
         base.OnFormClosing(e);
     }
 

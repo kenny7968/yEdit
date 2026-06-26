@@ -117,6 +117,23 @@ public class GrepServiceTests
     }
 
     [Fact]
+    public void Star_dot_star_and_star_match_extensionless_files()
+    {
+        using var t = new TempDir();
+        t.WriteUtf8("Makefile", "TARGET\n");   // 拡張子（ドット）なし
+        t.WriteUtf8("a.txt", "TARGET\n");
+
+        // "*.*" と "*" はどちらも「すべてのファイル」を意味し、拡張子なしファイルも拾う。
+        Assert.Equal(2, GrepService.Search(Req(t.Root, "TARGET", patterns: "*.*")).Hits.Count);
+        Assert.Equal(2, GrepService.Search(Req(t.Root, "TARGET", patterns: "*")).Hits.Count);
+        Assert.Equal(2, GrepService.Search(Req(t.Root, "TARGET", patterns: "")).Hits.Count);
+        // 一方 "*.txt" は拡張子なしファイルを拾わない。
+        var txt = GrepService.Search(Req(t.Root, "TARGET", patterns: "*.txt"));
+        Assert.Single(txt.Hits);
+        Assert.Equal("a.txt", Path.GetFileName(txt.Hits[0].FilePath));
+    }
+
+    [Fact]
     public void Binary_file_with_nul_is_skipped()
     {
         using var t = new TempDir();

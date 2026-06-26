@@ -15,6 +15,8 @@ public static class GrepService
     private const int BinarySniffBytes = 8000;
     // 進捗通知の間隔（ファイル数）。
     private const int ProgressEvery = 64;
+    // これを超えるファイルは読まずスキップ（OOM で grep 全体が落ちるのを防ぐ）。
+    private const long MaxFileBytes = 64L * 1024 * 1024;
 
     /// <summary>
     /// request に従ってフォルダを（再帰）走査し全ヒットを返す。読めないファイル/ディレクトリは
@@ -52,17 +54,23 @@ public static class GrepService
             if (!filter.IsMatch(Path.GetFileName(path))) continue;
 
             filesScanned++;
+            int hitsBefore = hits.Count;
             try
             {
+                long size = new FileInfo(path).Length;
+                if (size > MaxFileBytes)
+                {
+                    errors.Add(new GrepError(path, $"ファイルが大きすぎます（{size:N0} バイト）。スキップしました。"));
+                    continue;
+                }
+
                 byte[] bytes = File.ReadAllBytes(path);
                 var det = EncodingDetector.Detect(bytes);
                 bool wide = det.CodePage is 1200 or 1201; // UTF-16 は NUL を含むためバイナリ判定から除外
                 if (!wide && ContainsNul(bytes)) continue; // バイナリとみなしスキップ
 
                 var loaded = TextFileService.DecodeBytes(bytes, det.CodePage);
-                int before = hits.Count;
                 CollectLineHits(path, loaded.Text, searcher, hits);
-                if (hits.Count > before) filesMatched++;
             }
             catch (RegexMatchTimeoutException)
             {
@@ -72,6 +80,12 @@ public static class GrepService
                 or System.Security.SecurityException or NotSupportedException)
             {
                 errors.Add(new GrepError(path, ex.Message));
+            }
+            finally
+            {
+                // タイムアウトで部分ヒットが残っても 1 件以上あればファイル一致として数える
+                // （件数「M ファイル」の過少を防ぐ）。バイナリ/巨大スキップ時は hits 不変で加算されない。
+                if (hits.Count > hitsBefore) filesMatched++;
             }
 
             if (filesScanned % ProgressEvery == 0)
@@ -136,7 +150,12 @@ public static class GrepService
         if (globs.Length == 0) globs = new[] { "*" };
 
         var parts = globs.Select(g =>
-            "^" + Regex.Escape(g).Replace("\\*", ".*").Replace("\\?", ".") + "$");
+            // "*" と "*.*" は「すべてのファイル」を表す慣用（Windows シェル準拠）。素直に翻訳すると
+            // "*.*" は `^.*\..*$` となりドットを持たない名前（Makefile/LICENSE 等）を取りこぼすため、
+            // この 2 つは全一致へ正規化する。
+            (g == "*" || g == "*.*")
+                ? "^.*$"
+                : "^" + Regex.Escape(g).Replace("\\*", ".*").Replace("\\?", ".") + "$");
         return new Regex(string.Join("|", parts),
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
@@ -182,8 +201,21 @@ public static class GrepService
             {
                 // スタックは LIFO なので逆順に積んで名前昇順で処理する。
                 Array.Sort(subs, StringComparer.OrdinalIgnoreCase);
-                for (int i = subs.Length - 1; i >= 0; i--) stack.Push(subs[i]);
+                for (int i = subs.Length - 1; i >= 0; i--)
+                {
+                    // ジャンクション/シンボリックリンク（reparse point）は辿らない。
+                    // 循環参照で無限ループ・重複走査に陥るのを防ぐ。
+                    if (IsReparsePoint(subs[i])) continue;
+                    stack.Push(subs[i]);
+                }
             }
         }
+    }
+
+    /// <summary>ディレクトリが reparse point（ジャンクション/シンボリックリンク）か。取得不能時は false。</summary>
+    private static bool IsReparsePoint(string dir)
+    {
+        try { return (File.GetAttributes(dir) & FileAttributes.ReparsePoint) != 0; }
+        catch { return false; } // 判定不能なら通常ディレクトリとして扱い、列挙時の失敗は errors に積む
     }
 }

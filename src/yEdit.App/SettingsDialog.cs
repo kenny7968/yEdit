@@ -13,7 +13,7 @@ public sealed class SettingsDialog : Form
     private string _fontName;
     private float _fontSize;
 
-    private readonly Label _fontLabel = new() { AutoSize = true, AccessibleName = "現在のフォント" };
+    private readonly Label _fontLabel = new() { AutoSize = true }; // Text をそのまま SR に読ませる
     private readonly Button _fontButton = new() { Text = "変更(&F)...", AutoSize = true };
     private readonly ComboBox _theme = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240, AccessibleName = "配色テーマ" };
     private readonly ComboBox _encoding = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240, AccessibleName = "既定の文字コード" };
@@ -76,7 +76,13 @@ public sealed class SettingsDialog : Form
         return 0;
     }
 
-    private void UpdateFontLabel() => _fontLabel.Text = $"{_fontName}, {_fontSize:0.#} pt";
+    private void UpdateFontLabel()
+    {
+        string desc = $"{_fontName}, {_fontSize:0.#} pt";
+        _fontLabel.Text = desc;
+        // 変更ボタンに現在値を載せ、フォーカス時に SR が「フォント変更 現在 …」と読めるようにする。
+        _fontButton.AccessibleName = $"フォント変更 現在 {desc}";
+    }
 
     private void PickFont()
     {
@@ -100,8 +106,8 @@ public sealed class SettingsDialog : Form
             Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Padding = new Padding(12),
         };
 
-        // フォント行: ラベル(&F は変更ボタンへ) ＋ [現在表示 + 変更ボタン]
-        var fontLabelCol = new Label { Text = "フォント(&F):", AutoSize = true, TabIndex = 0 };
+        // フォント行: ラベル ＋ [現在表示 + 変更ボタン]。アクセスキー &F はボタン側に一本化（重複回避）。
+        var fontLabelCol = new Label { Text = "フォント:", AutoSize = true, TabIndex = 0 };
         var fontPanel = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, TabIndex = 1 };
         fontPanel.Controls.Add(_fontLabel);
         fontPanel.Controls.Add(_fontButton);
@@ -112,9 +118,11 @@ public sealed class SettingsDialog : Form
         AddRow(root, 2, "既定の文字コード(&E):", _encoding, tabBase: 4);
         AddRow(root, 3, "既定の改行(&L):", _eol, tabBase: 6);
 
-        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true, TabIndex = 20 };
-        var cancel = new Button { Text = "キャンセル", DialogResult = DialogResult.Cancel, AutoSize = true, TabIndex = 21 };
-        var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
+        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true, TabIndex = 1 };
+        var cancel = new Button { Text = "キャンセル", DialogResult = DialogResult.Cancel, AutoSize = true, TabIndex = 2 };
+        // ボタン群は設定コントロール（TabIndex 0..7）より後にする。パネル自身の TabIndex が
+        // root 内の並びを決めるため、十分大きい値を明示（未設定だと既定 0 で先頭に来てしまう）。
+        var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, TabIndex = 100 };
         buttons.Controls.AddRange(new Control[] { ok, cancel });
         root.Controls.Add(buttons, 0, 4);
         root.SetColumnSpan(buttons, 2);
@@ -122,6 +130,8 @@ public sealed class SettingsDialog : Form
         Controls.Add(root);
         AcceptButton = ok;
         CancelButton = cancel;
+        // 開いた直後のフォーカスを先頭の設定項目（フォント変更ボタン）に置く（OK に乗らないように）。
+        ActiveControl = _fontButton;
     }
 
     private static void AddRow(TableLayoutPanel root, int row, string label, Control control, int tabBase)

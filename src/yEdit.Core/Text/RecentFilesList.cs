@@ -19,9 +19,9 @@ public static class RecentFilesList
         string key = PathKey.For(path);
         foreach (string p in current)
         {
-            if (PathKey.For(p) == key) continue; // 同一ファイルは先頭の 1 件に集約
+            if (result.Count >= max) break;          // 追加前に上限判定（max==1 の超過を防ぐ）
+            if (PathKey.For(p) == key) continue;      // 同一ファイルは先頭の 1 件に集約
             result.Add(p);
-            if (result.Count >= max) break;
         }
         return result;
     }

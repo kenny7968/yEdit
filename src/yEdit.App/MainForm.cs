@@ -327,9 +327,9 @@ public sealed partial class MainForm : Form
     /// <summary>既存ファイルを開く（既存タブ再利用・読込失敗時は直前へ復帰）。OpenFile/最近のファイル共通。</summary>
     private void OpenExistingPath(string path)
     {
-        // 既に同じファイルを開いていればそのタブへ（Q4：二重編集の上書き事故防止）。
+        // 既に同じファイルを開いていればそのタブへ（Q4：二重編集の上書き事故防止）。最近のファイルは先頭へ繰上げ。
         var existing = _docs.FindByPath(path);
-        if (existing is not null) { _docs.Activate(existing); return; }
+        if (existing is not null) { _docs.Activate(existing); RegisterRecent(path); return; }
 
         var prev = _docs.Active; // 読込失敗時に戻る先（直前のアクティブタブ）
         var doc = _docs.CreateNew();
@@ -352,7 +352,12 @@ public sealed partial class MainForm : Form
 
     private void RebuildRecentMenu()
     {
+        // 旧項目を解放（差し替え毎のリーク防止）。Clear 後に Dispose してコレクション変更との競合を避ける。
+        var olds = new ToolStripItem[_recentMenu.DropDownItems.Count];
+        _recentMenu.DropDownItems.CopyTo(olds, 0);
         _recentMenu.DropDownItems.Clear();
+        foreach (var o in olds) o.Dispose();
+
         if (_settings.RecentFiles.Count == 0)
         {
             _recentMenu.DropDownItems.Add(new ToolStripMenuItem("(なし)") { Enabled = false });
@@ -364,7 +369,8 @@ public sealed partial class MainForm : Form
             string p = path; // クロージャ捕捉
             n++;
             string body = ($"{System.IO.Path.GetFileName(p)}  〔{System.IO.Path.GetDirectoryName(p)}〕").Replace("&", "&&");
-            string text = n <= 9 ? $"&{n} {body}" : body; // 1..9 はアクセスキー付与
+            // 1..9 は &1..&9、10 件目は &0 をアクセスキーに（不揃いを避ける）。
+            string text = n <= 9 ? $"&{n} {body}" : n == 10 ? $"&0 {body}" : body;
             _recentMenu.DropDownItems.Add(new ToolStripMenuItem(text, null, (_, _) => OpenExistingPath(p)));
         }
     }
@@ -381,6 +387,7 @@ public sealed partial class MainForm : Form
         _settings.DefaultLineEnding = dlg.DefaultLineEnding;
         foreach (var doc in _docs.Documents) EditorAppearance.Apply(doc.Editor, _settings);
         try { SettingsStore.Save(_settingsPath, _settings); } catch { /* 設定保存失敗は致命でない */ }
+        _announcer.Say("設定を適用しました");
     }
 
     /// <summary>

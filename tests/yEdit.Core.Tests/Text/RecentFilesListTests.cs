@@ -27,6 +27,13 @@ public class RecentFilesListTests
     }
 
     [Fact]
+    public void Cap_one_returns_only_new()
+    {
+        var r = RecentFilesList.Add(new[] { @"C:\a.txt", @"C:\b.txt" }, @"C:\c.txt", 1);
+        Assert.Equal(new[] { @"C:\c.txt" }, r); // max==1 で超過しない
+    }
+
+    [Fact]
     public void Dedup_is_pathkey_normalized_case_and_separators()
     {
         // 同一ファイルの大小・区切り違いは 1 件に集約される（PathKey 正規化）。

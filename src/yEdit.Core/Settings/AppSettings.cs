@@ -16,4 +16,9 @@ public sealed class AppSettings
     public bool BackupEnabled { get; set; } = true;
     /// <summary>自動バックアップの間隔（秒）。</summary>
     public int BackupIntervalSeconds { get; set; } = 30;
+
+    /// <summary>配色テーマ Id（AppearanceThemes.All の Id・既定は標準）。</summary>
+    public string Theme { get; set; } = "default";
+    /// <summary>最近開いたファイル（先頭が最新）。</summary>
+    public List<string> RecentFiles { get; set; } = new();
 }

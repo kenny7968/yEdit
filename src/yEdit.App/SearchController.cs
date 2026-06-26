@@ -114,9 +114,82 @@ public sealed class SearchController
         }
     }
 
-    // ----- 置換（コミット2 で実装） -----
-    public void ReplaceOne() { /* Task 6 */ }
-    public void ReplaceAll() { /* Task 6 */ }
+    /// <summary>現在の選択が今のヒットなら置換し次へ。違えばまず次を検索（標準の置換動作）。</summary>
+    public void ReplaceOne()
+    {
+        var ed = ActiveEditor;
+        var opts = CurrentOptions();
+        var d = _dialog;
+        if (ed is null || opts is null || d is null) return;
+        var searcher = new TextSearcher(opts);
+        if (!searcher.IsValid) { Announce("正規表現が正しくありません"); return; }
+
+        try
+        {
+            string text = ed.SnapshotText;
+            var (selStart, selEnd) = ed.GetSelectionCharRange();
+            var span = new MatchSpan(selStart, selEnd - selStart);
+            string? repl = selEnd > selStart ? searcher.ReplacementAt(text, span, d.Replacement) : null;
+
+            if (repl is null) { Find(forward: true); return; } // まだヒット未選択 → 次を検索
+
+            ed.ReplaceCharRange(span.Start, span.Length, repl);
+            string text2 = ed.SnapshotText;
+            var next = searcher.FindNext(text2, span.Start + Math.Max(1, repl.Length));
+            if (next is null)
+            {
+                _lastHit = null;
+                Announce("置換しました。これ以上見つかりません");
+                d.SetStatus("これ以上見つかりません");
+                return;
+            }
+            ed.SelectCharRange(next.Value.Start, next.Value.Length);
+            _lastHit = next;
+            var loc = searcher.Locate(text2, next.Value);
+            Announce(loc is { } l ? $"置換しました。{l.Total} 件中 {l.Ordinal} 件目" : "置換しました");
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            Announce("検索式が複雑すぎます");
+            d.SetStatus("検索式が複雑すぎます");
+        }
+    }
+
+    /// <summary>全文（または選択範囲のみ）を一括置換し件数を通知する。</summary>
+    public void ReplaceAll()
+    {
+        var ed = ActiveEditor;
+        var opts = CurrentOptions();
+        var d = _dialog;
+        if (ed is null || opts is null || d is null) return;
+        var searcher = new TextSearcher(opts);
+        if (!searcher.IsValid) { Announce("正規表現が正しくありません"); return; }
+
+        try
+        {
+            string text = ed.SnapshotText;
+            int rangeStart, rangeLen;
+            if (d.InSelection)
+            {
+                var (s, e) = ed.GetSelectionCharRange();
+                if (e <= s) { Announce("選択範囲がありません"); d.SetStatus("選択範囲がありません"); return; }
+                rangeStart = s; rangeLen = e - s;
+            }
+            else { rangeStart = 0; rangeLen = text.Length; }
+
+            var (fragment, count) = searcher.ReplaceInRange(text, rangeStart, rangeLen, d.Replacement);
+            if (count == 0) { Announce("見つかりません"); d.SetStatus("見つかりません"); return; }
+            ed.ReplaceCharRange(rangeStart, rangeLen, fragment);
+            _lastHit = null;
+            Announce($"{count} 件置換しました");
+            d.SetStatus($"{count} 件置換しました");
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            Announce("検索式が複雑すぎます");
+            d.SetStatus("検索式が複雑すぎます");
+        }
+    }
 
     /// <summary>ステータス Label 経由で SR にライブ通知（NVDA 対応厚・PC-Talker は実機確認）。</summary>
     internal void Announce(string message) => _dialog?.RaiseNotification(message);

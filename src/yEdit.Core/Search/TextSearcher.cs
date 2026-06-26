@@ -6,7 +6,11 @@ namespace yEdit.Core.Search;
 /// <summary>
 /// 単一ファイル検索・置換の照合エンジン。内部を .NET Regex に統一する
 /// （リテラルは Regex.Escape、単語単位は \b 境界、大小無視は IgnoreCase）。
-/// オフセットは UTF-16 文字位置。正規表現の不正は例外でなく IsValid/Error で返す。
+/// 大小無視時も含め常に CultureInvariant を用いる（トルコ語 i 問題等の
+/// カルチャ依存を避ける安全側）。オフセットは UTF-16 文字位置。
+/// 正規表現の不正は例外でなく IsValid/Error で返す。照合実行には 1 秒の
+/// matchTimeout を設けており、破滅的バックトラッキング時は照合メソッドが
+/// RegexMatchTimeoutException を送出し得る（Core では捕捉せず呼び出し側へ伝播）。
 /// </summary>
 public sealed class TextSearcher
 {
@@ -32,14 +36,23 @@ public sealed class TextSearcher
         if (options.WholeWord) body = $@"\b(?:{body})\b";
         var opts = RegexOptions.CultureInvariant;
         if (!options.MatchCase) opts |= RegexOptions.IgnoreCase;
-        try { _regex = new Regex(body, opts); }
+        try { _regex = new Regex(body, opts, TimeSpan.FromSeconds(1)); }
         catch (ArgumentException ex) { Error = ex.Message; }
     }
 
-    /// <summary>text 全体のヒット件数。無効なら 0。</summary>
+    /// <summary>
+    /// text 全体のヒット件数。無効なら 0。
+    /// 複雑な正規表現では RegexMatchTimeoutException が送出され得る（1秒）。
+    /// </summary>
     public int Count(string text) => _regex is null ? 0 : _regex.Matches(text).Count;
 
-    /// <summary>from 以降で最初のヒット（折り返しなし）。</summary>
+    /// <summary>
+    /// from 以降で最初のヒット（折り返しなし）。
+    /// a*・\b・(?=...) 等のゼロ幅パターンでは Length=0 の MatchSpan を返し得る。
+    /// 前方へ歩進する呼び出し側は同位置の無限ループを避けるため、from を
+    /// max(1, Length) 分進めること。折り返しはしない。
+    /// 複雑な正規表現では RegexMatchTimeoutException が送出され得る（1秒）。
+    /// </summary>
     public MatchSpan? FindNext(string text, int from)
     {
         if (_regex is null) return null;
@@ -49,7 +62,11 @@ public sealed class TextSearcher
         return m.Success ? new MatchSpan(m.Index, m.Length) : null;
     }
 
-    /// <summary>before より厳密に前で最後のヒット（折り返しなし）。</summary>
+    /// <summary>
+    /// 開始位置（Index）が before より厳密に前にある最後のヒットを返す（折り返しなし）。
+    /// 開始が before より前で終端が before を越える“またぎ”ヒットも返り得る。
+    /// 複雑な正規表現では RegexMatchTimeoutException が送出され得る（1秒）。
+    /// </summary>
     public MatchSpan? FindPrev(string text, int before)
     {
         if (_regex is null) return null;
@@ -62,7 +79,10 @@ public sealed class TextSearcher
         return last;
     }
 
-    /// <summary>span を全ヒット中の何件目か（1始まり, total）。span がヒットでなければ null。</summary>
+    /// <summary>
+    /// span を全ヒット中の何件目か（1始まり, total）。span がヒットでなければ null。
+    /// 複雑な正規表現では RegexMatchTimeoutException が送出され得る（1秒）。
+    /// </summary>
     public (int Ordinal, int Total)? Locate(string text, MatchSpan span)
     {
         if (_regex is null) return null;
@@ -75,7 +95,10 @@ public sealed class TextSearcher
         return found ? (ordinal, total) : null;
     }
 
-    /// <summary>span が実際のヒットなら置換文字列を返す（正規表現は $1 等展開・リテラルは素のまま）。違えば null。</summary>
+    /// <summary>
+    /// span が実際のヒットなら置換文字列を返す（正規表現は $1 等展開・リテラルは素のまま）。違えば null。
+    /// 複雑な正規表現では RegexMatchTimeoutException が送出され得る（1秒）。
+    /// </summary>
     public string? ReplacementAt(string text, MatchSpan span, string replacement)
     {
         if (_regex is null) return null;
@@ -85,13 +108,18 @@ public sealed class TextSearcher
         return Expand(m, replacement);
     }
 
-    /// <summary>全文置換。返すのは置換後の全文（=新断片）と件数。</summary>
+    /// <summary>
+    /// 全文置換。返すのは置換後の全文（=新断片）と件数。
+    /// 複雑な正規表現では RegexMatchTimeoutException が送出され得る（1秒）。
+    /// </summary>
     public (string Fragment, int Count) ReplaceAll(string text, string replacement)
         => ReplaceInRange(text, 0, text.Length, replacement);
 
     /// <summary>
     /// [start, start+length) に完全に収まるヒットだけ置換し、その範囲の置換後断片と件数を返す。
-    /// 範囲外・境界をまたぐヒットは対象外。エディタはこの断片で当該文字範囲を差し替える。
+    /// 範囲外・境界をまたぐヒットは対象外。start/length は text 範囲へクランプする。
+    /// エディタはこの断片で当該文字範囲を差し替える。
+    /// 複雑な正規表現では RegexMatchTimeoutException が送出され得る（1秒）。
     /// </summary>
     public (string Fragment, int Count) ReplaceInRange(string text, int start, int length, string replacement)
     {

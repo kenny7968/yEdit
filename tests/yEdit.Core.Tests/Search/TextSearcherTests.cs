@@ -179,4 +179,48 @@ public class TextSearcherTests
         Assert.Equal("X_X", fragment);
         Assert.Equal(2, count);
     }
+
+    [Fact]
+    public void ReplaceInRange_clamps_out_of_range_arguments_without_throwing()
+    {
+        // 負の start・length 超過でも例外を投げず、text 範囲へクランプして全文を扱う。
+        var (fragment, count) = Make("ab").ReplaceInRange("ab_ab", -3, 100, "X");
+        Assert.Equal("X_X", fragment);
+        Assert.Equal(2, count);
+    }
+
+    // ----- ゼロ幅マッチ（I-1） -----
+
+    [Fact]
+    public void Count_zero_width_pattern_counts_empty_matches()
+    {
+        // 正規表現 "a*" は 'a' 連と空文字位置の双方でヒットする。
+        Assert.Equal(4, Make("a*", useRegex: true).Count("aba"));
+    }
+
+    [Fact]
+    public void FindNext_zero_width_lookahead_returns_zero_length_span()
+    {
+        // 先読み "(?=b)" は 'b' の直前で長さ 0 のヒットを返す。
+        Assert.Equal(new MatchSpan(1, 0), Make("(?=b)", useRegex: true).FindNext("ab", 0));
+    }
+
+    // ----- 単語単位 × 正規表現 × 選択（\b(?:...)\b のグループ化, I-3） -----
+
+    [Fact]
+    public void Whole_word_regex_alternation_is_grouped_at_boundaries()
+    {
+        // \b(?:cat|dog)\b として括られるため "category" 内の "cat" は除外され 2 件。
+        Assert.Equal(2, Make("cat|dog", wholeWord: true, useRegex: true).Count("cat dog category"));
+    }
+
+    // ----- 端点・値の契約 -----
+
+    [Fact]
+    public void FindNext_at_exact_end_returns_null()
+        => Assert.Null(Make("ab").FindNext("ab", 2));
+
+    [Fact]
+    public void MatchSpan_End_is_start_plus_length()
+        => Assert.Equal(7, new MatchSpan(5, 2).End);
 }

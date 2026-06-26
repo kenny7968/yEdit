@@ -14,6 +14,7 @@ public sealed class SearchController
     private readonly Form _owner;
     private FindReplaceDialog? _dialog;
     private MatchSpan? _lastHit; // 直前に選択したヒット（ゼロ幅でも前進できるよう歩進に使う）
+    private (int Start, int End)? _selectionScope; // 「選択範囲のみ」ON 時に捕捉した置換対象範囲
 
     public SearchController(DocumentManager docs, Form owner)
     {
@@ -22,6 +23,7 @@ public sealed class SearchController
         _docs.ActiveDocumentChanged += (_, _) =>
         {
             _lastHit = null;                              // 別文書の歩進状態を持ち越さない
+            _selectionScope = null;                       // 別文書へ切替時は捕捉済みスコープも無効化
             if (_dialog?.Visible == true) UpdateCount();  // 表示中なら新アクティブで件数を更新
         };
     }
@@ -163,6 +165,21 @@ public sealed class SearchController
         }
     }
 
+    /// <summary>「選択範囲のみ」トグル時に対象範囲を捕捉/破棄する（find 移動でクロバーされないよう保持）。</summary>
+    public void OnInSelectionToggled(bool on)
+    {
+        if (on && ActiveEditor is { } ed)
+        {
+            var (s, e) = ed.GetSelectionCharRange();
+            _selectionScope = e > s ? (s, e) : null;
+        }
+        else
+        {
+            _selectionScope = null;
+        }
+        UpdateCount();
+    }
+
     /// <summary>全文（または選択範囲のみ）を一括置換し件数を通知する。</summary>
     public void ReplaceAll()
     {
@@ -179,9 +196,13 @@ public sealed class SearchController
             int rangeStart, rangeLen;
             if (d.InSelection)
             {
-                var (s, e) = ed.GetSelectionCharRange();
-                if (e <= s) { Announce("選択範囲がありません"); d.SetStatus("選択範囲がありません"); return; }
-                rangeStart = s; rangeLen = e - s;
+                if (_selectionScope is not { } scope)
+                {
+                    Announce("選択範囲がありません");
+                    d.SetStatus("選択範囲がありません");
+                    return;
+                }
+                rangeStart = scope.Start; rangeLen = scope.End - scope.Start;
             }
             else { rangeStart = 0; rangeLen = text.Length; }
 

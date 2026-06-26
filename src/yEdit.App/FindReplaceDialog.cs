@@ -46,6 +46,7 @@ public sealed class FindReplaceDialog : Form
         _matchCase.CheckedChanged += (_, _) => _controller.UpdateCount();
         _wholeWord.CheckedChanged += (_, _) => _controller.UpdateCount();
         _useRegex.CheckedChanged += (_, _) => _controller.UpdateCount();
+        _inSelection.CheckedChanged += (_, _) => _controller.OnInSelectionToggled(_inSelection.Checked);
     }
 
     public string Pattern => _pattern.Text;

@@ -370,7 +370,7 @@ public sealed partial class MainForm : Form
         int totalLines = ed.Lines.Count;
         int column = ed.GetColumn(ed.CurrentPosition) + 1;
         var (s, e) = ed.GetSelectionCharRange();
-        _announcer.Say(PositionFormatter.Format(line, totalLines, column, ed.SnapshotText.Length, e - s));
+        _announcer.Say(PositionFormatter.Format(line, totalLines, column, ed.SnapshotText.Length, e - s, ed.Overtype));
     }
 
     /// <summary>キャレット位置の文字情報（全角/半角空白の区別など）を読み上げる。末尾なら案内する。</summary>
@@ -379,9 +379,9 @@ public sealed partial class MainForm : Form
         var ed = _docs.Active?.Editor;
         if (ed is null) return;
         string text = ed.SnapshotText;
-        var (s, _) = ed.GetSelectionCharRange();
-        if (s >= text.Length) { _announcer.Say("文書の末尾"); return; }
-        _announcer.Say(CharacterDescriber.DescribeAt(text, s));
+        int caret = ed.CaretCharOffset; // 選択端ではなく実キャレット位置の文字を説明する
+        if (caret < 0 || caret >= text.Length) { _announcer.Say("文書の末尾"); return; }
+        _announcer.Say(CharacterDescriber.DescribeAt(text, caret));
     }
 
     /// <summary>行番号を入力して移動する。</summary>

@@ -3,7 +3,8 @@ namespace yEdit.App;
 /// <summary>行番号を入力して移動するモーダルダイアログ。NumericUpDown で 1..最大行を選ぶ。</summary>
 public sealed class GoToLineDialog : Form
 {
-    private readonly NumericUpDown _number = new() { Minimum = 1, Width = 120 };
+    // IME を無効化し、JIS 環境で全角数字が入って受理されない事故を防ぐ。
+    private readonly NumericUpDown _number = new() { Minimum = 1, Width = 120, ImeMode = ImeMode.Disable };
 
     public GoToLineDialog(int current, int maxLine)
     {

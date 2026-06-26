@@ -28,6 +28,7 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     private readonly object _snapSync = new();
     private volatile int _selStart;                      // 選択開始（UTF-16 オフセット）
     private volatile int _selEnd;                        // 選択終了（UTF-16 オフセット）
+    private volatile int _caret;                         // キャレット位置（UTF-16 オフセット・選択端と区別）
     private volatile bool _hasFocus;
     private volatile int _controlTypeId = System.Windows.Automation.ControlType.Document.Id;
     private nint _hwnd;
@@ -242,8 +243,10 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     {
         int bs = DirectMessage(Sci.SCI_GETSELECTIONSTART).ToInt32();
         int be = DirectMessage(Sci.SCI_GETSELECTIONEND).ToInt32();
+        int bc = DirectMessage(Sci.SCI_GETCURRENTPOS).ToInt32();
         _selStart = ByteToUtf16(bs);
         _selEnd = ByteToUtf16(be);
+        _caret = ByteToUtf16(bc);
     }
 
     // Scintilla のバイト位置 ⇔ スナップショット UTF-16 オフセット（UI スレッド専用）。
@@ -384,6 +387,9 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
 
     /// <summary>照合対象テキスト（UI スレッドで保持する UTF-16 スナップショット）。</summary>
     public string SnapshotText => _snapshot;
+
+    /// <summary>キャレット位置（UTF-16 文字オフセット）。選択端と区別され、文字情報照会に使う。</summary>
+    public int CaretCharOffset => _caret;
 
     /// <summary>現在の選択範囲（UTF-16 文字オフセット, Start&lt;=End）。</summary>
     public (int Start, int End) GetSelectionCharRange()

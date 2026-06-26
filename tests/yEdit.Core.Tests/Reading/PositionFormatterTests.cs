@@ -14,4 +14,9 @@ public class PositionFormatterTests
     public void Appends_selection_when_present()
         => Assert.Equal("行 1 / 全 1、桁 1、文字数 0、選択 7 文字",
             PositionFormatter.Format(1, 1, 1, 0, 7));
+
+    [Fact]
+    public void Appends_overtype_when_set()
+        => Assert.Equal("行 1 / 全 1、桁 1、文字数 5、上書き",
+            PositionFormatter.Format(1, 1, 1, 5, 0, overtype: true));
 }

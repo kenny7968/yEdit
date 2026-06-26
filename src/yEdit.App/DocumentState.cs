@@ -10,9 +10,12 @@ namespace yEdit.App;
 public sealed class DocumentState
 {
     public string? Path { get; set; }              // 未保存なら null
+    public int UntitledNumber { get; set; }        // 無題タブの連番（Path 未確定時のみ表示に使う）
     public Encoding Encoding { get; set; } = EncodingCatalog.Get(65001);
     public bool HasBom { get; set; }
     public LineEnding LineEnding { get; set; } = LineEnding.Crlf;
 
-    public string DisplayName => Path is null ? "無題" : System.IO.Path.GetFileName(Path);
+    public string DisplayName => Path is not null
+        ? System.IO.Path.GetFileName(Path)
+        : UntitledNumber > 0 ? $"無題 {UntitledNumber}" : "無題";
 }

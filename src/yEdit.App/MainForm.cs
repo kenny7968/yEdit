@@ -12,6 +12,7 @@ public sealed partial class MainForm : Form
     private readonly ToolStripStatusLabel _eolLabel = new("CRLF");
     private readonly string _settingsPath = SettingsStore.DefaultPath;
     private AppSettings _settings = new();
+    private int _untitledSeq; // 無題タブの連番（新規作成毎に増加・セッション内で再利用しない）
 
     public MainForm()
     {
@@ -203,6 +204,7 @@ public sealed partial class MainForm : Form
     {
         var doc = _docs.CreateNew();
         doc.State.Path = null;
+        doc.State.UntitledNumber = ++_untitledSeq; // 「無題 1」「無題 2」…で区別できるように
         doc.State.Encoding = EncodingCatalog.Get(_settings.DefaultCodePage);
         doc.State.HasBom = false;
         doc.State.LineEnding = (LineEnding)_settings.DefaultLineEnding;

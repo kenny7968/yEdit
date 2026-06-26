@@ -137,7 +137,7 @@ public sealed partial class MainForm : Form
         // F3/Shift+F3 は ProcessCmdKey で処理するため、メニューは表示専用（ShortcutKeys 未登録）にして二重発火を避ける。
         var findNext = new ToolStripMenuItem("次を検索(&N)", null, (_, _) => _search.FindNext())
         { ShortcutKeyDisplayString = "F3" };
-        var findPrev = new ToolStripMenuItem("前を検索(&P)", null, (_, _) => _search.FindPrev())
+        var findPrev = new ToolStripMenuItem("前を検索(&B)", null, (_, _) => _search.FindPrev())
         { ShortcutKeyDisplayString = "Shift+F3" };
         edit.DropDownItems.Add(findNext);
         edit.DropDownItems.Add(findPrev);

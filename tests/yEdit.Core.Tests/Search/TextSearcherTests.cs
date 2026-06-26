@@ -223,4 +223,23 @@ public class TextSearcherTests
     [Fact]
     public void MatchSpan_End_is_start_plus_length()
         => Assert.Equal(7, new MatchSpan(5, 2).End);
+
+    // ----- サロゲートペア（astral 文字, I-1） -----
+
+    [Fact]
+    public void Astral_literal_match_spans_full_surrogate_pair()
+    {
+        // 𠮷 = U+20BB7 はサロゲートペア（2 UTF-16 code unit）。リテラル一致は全体を覆う。
+        var span = Make("𠮷").FindNext("x𠮷y", 0);
+        Assert.Equal(new MatchSpan(1, 2), span);
+    }
+
+    [Fact]
+    public void Regex_dot_matches_per_utf16_code_unit_for_astral()
+    {
+        // .NET の正規表現 . はコードユニット単位（サロゲート半分にマッチし得る）。
+        // 仕様として固定し、Editor 側の境界スナップで破損を防ぐ前提を明示する。
+        var span = Make(".", useRegex: true).FindNext("𠮷", 0);
+        Assert.Equal(new MatchSpan(0, 1), span);
+    }
 }

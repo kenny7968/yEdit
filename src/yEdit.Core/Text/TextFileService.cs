@@ -10,8 +10,18 @@ public static partial class TextFileService
     /// </summary>
     public static LoadedDocument Load(string path, int? forcedCodePage = null)
     {
-        EncodingCatalog.EnsureRegistered();
         byte[] bytes = File.ReadAllBytes(path);
+        return DecodeBytes(bytes, forcedCodePage);
+    }
+
+    /// <summary>
+    /// 既に読み込んだバイト列を本文・文字コード・改行へ復号する（grep がバイトを 1 回だけ読んで
+    /// 流用するための抽出点。Load と完全に同じ判定・復号ロジック）。
+    /// forcedCodePage 指定時は自動判定せずそのコードページで読む。
+    /// </summary>
+    public static LoadedDocument DecodeBytes(byte[] bytes, int? forcedCodePage = null)
+    {
+        EncodingCatalog.EnsureRegistered();
 
         DetectedEncoding det = forcedCodePage is int cp
             ? new DetectedEncoding(cp, HasBomFor(bytes, cp))

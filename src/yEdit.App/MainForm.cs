@@ -78,7 +78,18 @@ public sealed partial class MainForm : Form
     {
         var doc = _docs.CreateNew();
         doc.State.Path = rec.OriginalPath;
-        doc.State.UntitledNumber = rec.OriginalPath is null ? ++_untitledSeq : 0;
+        // 無題は元の連番を保ち、ダイアログ表示と復元後タブの番号を一致させる。連番カウンタは
+        // 既存の最大値以上へ進め、以後の新規無題と衝突しないようにする。
+        if (rec.OriginalPath is null)
+        {
+            int n = rec.UntitledNumber > 0 ? rec.UntitledNumber : ++_untitledSeq;
+            if (n > _untitledSeq) _untitledSeq = n;
+            doc.State.UntitledNumber = n;
+        }
+        else
+        {
+            doc.State.UntitledNumber = 0;
+        }
         doc.State.Encoding = EncodingCatalog.Get(rec.CodePage);
         doc.State.HasBom = rec.HasBom;
         doc.State.LineEnding = (LineEnding)rec.LineEndingId;
@@ -107,14 +118,20 @@ public sealed partial class MainForm : Form
                 return;
             }
         }
-        // 全タブの未保存確認を通過＝クリーン終了。バックアップを停止し孤児を残さない。
-        _backup.Shutdown();
         // ウィンドウサイズを設定に保存（最大化中は RestoreBounds を使う・M1 同様）。
         var b = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
         _settings.WindowWidth = b.Width;
         _settings.WindowHeight = b.Height;
         try { SettingsStore.Save(_settingsPath, _settings); } catch { /* 設定保存失敗は致命でない */ }
         base.OnFormClosing(e);
+    }
+
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        // 閉じが確定した後にバックアップを停止する（OnFormClosing 後に取消される余地を残さない）。
+        // 当セッション管理分のバックアップを削除し、孤児（=前回異常終了の印）を残さない。
+        _backup.Shutdown();
+        base.OnFormClosed(e);
     }
 
     // ==================== キー操作（タブ切替・クローズ） ====================

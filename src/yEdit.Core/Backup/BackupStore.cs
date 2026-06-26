@@ -55,11 +55,19 @@ public static class BackupStore
     /// <summary>指定 Id のバックアップを削除する（存在しなくても無害）。</summary>
     public static void Delete(string dir, string id) => TryDelete(Path.Combine(dir, id + ".json"));
 
-    /// <summary>全バックアップ（*.json）を削除する。クリーン終了時に呼ぶ＝孤児を残さない印。</summary>
+    /// <summary>全バックアップ（*.json）と書込中残骸（*.tmp）を削除する（復元の「すべて破棄」用）。</summary>
     public static void DeleteAll(string dir)
     {
         if (!Directory.Exists(dir)) return;
         foreach (string file in Directory.EnumerateFiles(dir, "*.json")) TryDelete(file);
+        SweepTempFiles(dir);
+    }
+
+    /// <summary>書込中のクラッシュで残った *.tmp（不完全な中間ファイル）を掃除する。起動時に呼ぶ。</summary>
+    public static void SweepTempFiles(string dir)
+    {
+        if (!Directory.Exists(dir)) return;
+        foreach (string file in Directory.EnumerateFiles(dir, "*.tmp")) TryDelete(file);
     }
 
     private static void TryDelete(string p)

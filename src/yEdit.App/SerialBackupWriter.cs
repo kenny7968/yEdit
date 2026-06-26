@@ -31,11 +31,17 @@ public sealed class SerialBackupWriter : IDisposable
 
     private void Run()
     {
-        foreach (var job in _queue.GetConsumingEnumerable())
+        // 列挙自体（MoveNext）も保護する。Dispose 競合で ObjectDisposedException が出ても
+        // 背景スレッドを巻き添えに落とさない（未捕捉例外はプロセス終了に直結するため）。
+        try
         {
-            try { job(); }
-            catch { /* バックアップ失敗は致命でない・無音 */ }
+            foreach (var job in _queue.GetConsumingEnumerable())
+            {
+                try { job(); }
+                catch { /* バックアップ失敗は致命でない・無音 */ }
+            }
         }
+        catch { /* Dispose 競合等。ワーカーを静かに終える */ }
     }
 
     public void Dispose()
@@ -43,7 +49,11 @@ public sealed class SerialBackupWriter : IDisposable
         if (_disposed) return;
         _disposed = true;
         _queue.CompleteAdding();
-        try { _worker.Join(TimeSpan.FromSeconds(5)); } catch { /* 参加待ち失敗は無視 */ }
-        _queue.Dispose();
+        // 保留ジョブのドレインを十分待つ（クリーン終了でバックアップ/削除を取りこぼさない）。
+        bool finished = false;
+        try { finished = _worker.Join(TimeSpan.FromSeconds(15)); } catch { /* 参加待ち失敗は無視 */ }
+        // ワーカーがまだ走行中に Dispose すると MoveNext が ObjectDisposedException を投げるため、
+        // 完全終了を確認できたときだけ破棄する。未終了なら放置（プロセス終了時で実害なし）。
+        if (finished) { try { _queue.Dispose(); } catch { } }
     }
 }

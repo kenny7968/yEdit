@@ -65,6 +65,9 @@ public sealed class RestoreDialog : Form
             AutoSize = true,
             Text = "前回 yEdit が正常に終了しなかったため、未保存の変更が残っています。復元するファイルを選んでください。",
         };
+        // ダイアログ自体の説明にも載せ、SR が開いた直後に文脈を読めるようにする。
+        AccessibleName = Text;
+        AccessibleDescription = info.Text;
 
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.RightToLeft };
         var restore = new Button { Text = "選択を復元(&R)", AutoSize = true };

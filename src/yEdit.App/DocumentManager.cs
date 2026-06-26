@@ -18,6 +18,7 @@ public sealed class DocumentManager
     {
         _editorFactory = editorFactory;
         _tabs.Selected += (_, _) => OnSelectedTabChanged();
+        _tabs.KeyDown += OnTabKeyDown; // タブ列で Enter → エディタへ（編集開始）
     }
 
     /// <summary>MainForm の Controls へ載せるためのビュー（実体は TabControl）。</summary>
@@ -54,7 +55,8 @@ public sealed class DocumentManager
         _docs.Add(doc);
         _tabs.TabPages.Add(page);
         UpdateLabel(doc);
-        _tabs.SelectedTab = page; // 既存タブがあれば Selected 発火→フォーカス＋ActiveDocumentChanged
+        _tabs.SelectedTab = page;  // 既存タブがあれば Selected 発火→ActiveDocumentChanged
+        FocusActiveEditor();       // 新規/開く直後はエディタで即編集できるようにする
         return doc;
     }
 
@@ -70,8 +72,8 @@ public sealed class DocumentManager
 
     public void Activate(Document doc)
     {
-        if (_tabs.SelectedTab != doc.Page) _tabs.SelectedTab = doc.Page; // Selected 経由でフォーカス
-        else doc.Editor.Focus();
+        if (_tabs.SelectedTab != doc.Page) _tabs.SelectedTab = doc.Page;
+        doc.Editor.Focus(); // 開いた/呼び出したタブで即編集できるようにする
     }
 
     /// <summary>confirm が続行可を返したら閉じてネイティブ資源を解放する。閉じたら true。</summary>
@@ -91,24 +93,36 @@ public sealed class DocumentManager
         if (n == 0) return;
         int i = _tabs.SelectedIndex;
         _tabs.SelectedIndex = ((i + dir) % n + n) % n; // 端は巡回
+        FocusTabStrip(); // タブ列にフォーカスを留め、SR が選択タブ（ファイル名＋位置）を読む
     }
 
     public void SelectAt(int index)
     {
-        if (index >= 0 && index < _tabs.TabPages.Count) _tabs.SelectedIndex = index;
+        if (index < 0 || index >= _tabs.TabPages.Count) return;
+        _tabs.SelectedIndex = index;
+        FocusTabStrip();
     }
 
     public void UpdateLabel(Document doc) => doc.Page.Text = doc.TabLabel;
 
-    private void OnSelectedTabChanged()
+    // 選択変更そのものはフォーカスを動かさない（フォーカス先は呼び出し側が決める：
+    // 新規/開く/閉じる→エディタ、Ctrl+Tab/番号での切替→タブ列）。UI 更新のみ通知。
+    private void OnSelectedTabChanged() => ActiveDocumentChanged?.Invoke(this, EventArgs.Empty);
+
+    private void FocusActiveEditor() => Active?.Editor.Focus();
+
+    private void FocusTabStrip() => _tabs.Focus();
+
+    private void OnTabKeyDown(object? sender, KeyEventArgs e)
     {
-        // NVDA は「フォーカスした要素」を読む。まずタブ列へフォーカスして標準のタブ読み上げ
-        // （ファイル名＋位置）を促し、続けてエディタへフォーカスを戻して編集を継続できるようにする
-        // （案2: 一瞬タブ→エディタ）。BeginInvoke でタブのフォーカスイベントを先に処理させる。
-        _tabs.Focus();
-        // 連続切替に備え、遅延実行時点で選択中のエディタへフォーカスする（古いタブを掴まない）。
-        if (Active is not null) _tabs.BeginInvoke(new Action(() => Active?.Editor.Focus()));
-        ActiveDocumentChanged?.Invoke(this, EventArgs.Empty);
+        // タブ列にフォーカスがある状態で Enter を押したらエディタへ移って編集を開始する
+        // （Ctrl+Tab で SR がファイル名を読む→Enter で本文へ、という流れ）。
+        if (e.KeyCode == Keys.Enter)
+        {
+            FocusActiveEditor();
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+        }
     }
 
     private void OnDirtyChanged(Document doc)

@@ -1,0 +1,49 @@
+using System.Collections.Concurrent;
+using System.Threading;
+
+namespace yEdit.App;
+
+/// <summary>
+/// バックアップの背景直列ライター。UI スレッドが投入したジョブ（Core への書込/削除）を、
+/// 単一の背景スレッドで投入順に実行する。各ジョブの失敗は致命でないため握り潰す（無音）。
+/// Dispose で投入を締め切り、保留ジョブをドレインしてから戻る。
+/// </summary>
+public sealed class SerialBackupWriter : IDisposable
+{
+    private readonly BlockingCollection<Action> _queue = new();
+    private readonly Thread _worker;
+    private bool _disposed;
+
+    public SerialBackupWriter()
+    {
+        _worker = new Thread(Run) { IsBackground = true, Name = "yEdit backup writer" };
+        _worker.Start();
+    }
+
+    /// <summary>ジョブを投入する（締め切り後・破棄後は無視）。</summary>
+    public void Enqueue(Action job)
+    {
+        if (_queue.IsAddingCompleted) return;
+        // 競合で AddingCompleted 済み／破棄済み（ObjectDisposedException は InvalidOperationException 派生）。
+        try { _queue.Add(job); }
+        catch (InvalidOperationException) { }
+    }
+
+    private void Run()
+    {
+        foreach (var job in _queue.GetConsumingEnumerable())
+        {
+            try { job(); }
+            catch { /* バックアップ失敗は致命でない・無音 */ }
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _queue.CompleteAdding();
+        try { _worker.Join(TimeSpan.FromSeconds(5)); } catch { /* 参加待ち失敗は無視 */ }
+        _queue.Dispose();
+    }
+}

@@ -1,3 +1,4 @@
+using yEdit.Core.Backup;
 using yEdit.Core.Search;
 using yEdit.Core.Settings;
 using yEdit.Core.Text;
@@ -10,6 +11,8 @@ public sealed partial class MainForm : Form
     private readonly DocumentManager _docs;
     private SearchController _search = null!; // コンストラクタで生成
     private GrepController _grep = null!;     // コンストラクタで生成
+    private BackupCoordinator _backup = null!; // コンストラクタで生成
+    private bool _restoreOffered;             // 起動時の復元提案を一度だけ行う
     private readonly ToolStripStatusLabel _posLabel = new("行 1, 桁 1");
     private readonly ToolStripStatusLabel _encLabel = new("UTF-8");
     private readonly ToolStripStatusLabel _eolLabel = new("CRLF");
@@ -33,6 +36,7 @@ public sealed partial class MainForm : Form
         _search = new SearchController(_docs, this);
         _grep = new GrepController(_docs, this,
             hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength));
+        _backup = new BackupCoordinator(_docs, _settings.BackupEnabled, _settings.BackupIntervalSeconds);
 
         var menu = BuildMenu();
         var status = BuildStatusBar();
@@ -60,6 +64,33 @@ public sealed partial class MainForm : Form
         _docs.Active?.Editor.Focus();
         UpdateTitle();
         UpdateStatus();
+
+        // 前回の異常終了で残ったバックアップがあれば復元提案（起動時に一度だけ）。
+        if (!_restoreOffered)
+        {
+            _restoreOffered = true;
+            _backup.OfferRestoreOnStartup(this, RestoreFromBackup);
+        }
+    }
+
+    /// <summary>バックアップ記録を新タブへ復元する。本文・メタを載せ、保存点は打たず dirty のままにする。</summary>
+    private Document RestoreFromBackup(BackupRecord rec)
+    {
+        var doc = _docs.CreateNew();
+        doc.State.Path = rec.OriginalPath;
+        doc.State.UntitledNumber = rec.OriginalPath is null ? ++_untitledSeq : 0;
+        doc.State.Encoding = EncodingCatalog.Get(rec.CodePage);
+        doc.State.HasBom = rec.HasBom;
+        doc.State.LineEnding = (LineEnding)rec.LineEndingId;
+
+        doc.Editor.Text = rec.Content;
+        ApplyEol(doc);
+        doc.Editor.EmptyUndoBuffer();
+        // SetSavePoint しない → Modified=true のまま（ユーザーが保存できる）。
+        _docs.UpdateLabel(doc);
+        UpdateTitle();
+        UpdateStatus();
+        return doc;
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -76,6 +107,8 @@ public sealed partial class MainForm : Form
                 return;
             }
         }
+        // 全タブの未保存確認を通過＝クリーン終了。バックアップを停止し孤児を残さない。
+        _backup.Shutdown();
         // ウィンドウサイズを設定に保存（最大化中は RestoreBounds を使う・M1 同様）。
         var b = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
         _settings.WindowWidth = b.Width;

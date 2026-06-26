@@ -1,5 +1,3 @@
-using System.Windows.Forms.Automation;
-
 namespace yEdit.App;
 
 /// <summary>
@@ -70,20 +68,8 @@ public sealed class FindReplaceDialog : Form
 
     public void SetStatus(string text) => _status.Text = text;
 
-    /// <summary>ステータス Label の UIA プロバイダから通知を上げて SR に読ませる。</summary>
-    public void RaiseNotification(string message)
-    {
-        if (string.IsNullOrEmpty(message)) return;
-        SetStatus(message);
-        try
-        {
-            _status.AccessibilityObject.RaiseAutomationNotification(
-                AutomationNotificationKind.ActionCompleted,
-                AutomationNotificationProcessing.MostRecent,
-                message);
-        }
-        catch { /* 通知非対応環境では視覚表示＋選択移動の自動読みにフォールバック */ }
-    }
+    /// <summary>ステータス Label の UIA プロバイダから通知を上げて SR に読ませる（共通実装は SrNotify）。</summary>
+    public void RaiseNotification(string message) => SrNotify.Raise(_status, message);
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {

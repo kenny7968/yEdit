@@ -1,5 +1,4 @@
 using System.IO;
-using System.Windows.Forms.Automation;
 
 namespace yEdit.App;
 
@@ -67,20 +66,8 @@ public sealed class GrepDialog : Form
 
     public void SetStatus(string text) => _status.Text = text;
 
-    /// <summary>ステータス Label の UIA プロバイダから通知を上げて SR に読ませる（検索結果と同じ流儀）。</summary>
-    public void RaiseNotification(string message)
-    {
-        if (string.IsNullOrEmpty(message)) return;
-        SetStatus(message);
-        try
-        {
-            _status.AccessibilityObject.RaiseAutomationNotification(
-                AutomationNotificationKind.ActionCompleted,
-                AutomationNotificationProcessing.MostRecent,
-                message);
-        }
-        catch { /* 通知非対応環境では視覚表示にフォールバック */ }
-    }
+    /// <summary>ステータス Label の UIA プロバイダから通知を上げて SR に読ませる（共通実装は SrNotify）。</summary>
+    public void RaiseNotification(string message) => SrNotify.Raise(_status, message);
 
     private void BrowseFolder()
     {

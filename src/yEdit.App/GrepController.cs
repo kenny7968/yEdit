@@ -16,6 +16,7 @@ public sealed class GrepController
     private GrepDialog? _dialog;
     private GrepResultsWindow? _results;
     private CancellationTokenSource? _cts;
+    private bool _closing; // アプリ終了中は結果反映を抑止
 
     public GrepController(DocumentManager docs, Form owner, Action<GrepHit> jumpTo)
     {
@@ -70,7 +71,8 @@ public sealed class GrepController
         var ct = cts.Token;
         var progress = new Progress<GrepProgress>(p =>
         {
-            if (d.IsDisposed) return; // 破棄済みダイアログへは触れない
+            // 破棄済み・後発実行に追い越された・終了中なら、古い進捗で新しい状態を上書きしない。
+            if (d.IsDisposed || !ReferenceEquals(_cts, cts) || _closing) return;
             d.SetStatus(p.CurrentFile is null
                 ? $"{p.FilesScanned} ファイル走査・{p.HitCount} 件"
                 : $"{p.FilesScanned} ファイル走査中… {p.HitCount} 件");
@@ -84,8 +86,8 @@ public sealed class GrepController
             // GrepService は協調キャンセルで部分結果＋Cancelled を返す（例外で打ち切らない）。
             var outcome = await Task.Run(() => GrepService.Search(req, progress, ct));
 
-            // ダイアログ破棄済み・後発の実行に追い越された場合は UI を触らない。
-            if (d.IsDisposed || !ReferenceEquals(_cts, cts)) return;
+            // ダイアログ破棄済み・後発の実行に追い越された・終了中なら UI を触らない（結果窓も出さない）。
+            if (d.IsDisposed || !ReferenceEquals(_cts, cts) || _closing) return;
 
             ShowResults(pattern, folder, outcome);
             // ヒットがあれば結果窓のフォーカスが SR を駆動するので二重読みを避ける。ただし
@@ -113,6 +115,12 @@ public sealed class GrepController
     }
 
     public void Cancel() => _cts?.Cancel();
+
+    /// <summary>アプリ終了開始: 実行中の grep を中止し、以後の結果反映を抑止する。</summary>
+    public void BeginClose() { _closing = true; _cts?.Cancel(); }
+
+    /// <summary>終了がキャンセルされた場合に通常運用へ戻す。</summary>
+    public void CancelClose() => _closing = false;
 
     private static string Summary(GrepOutcome o)
     {

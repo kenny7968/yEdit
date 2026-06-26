@@ -118,6 +118,8 @@ public sealed partial class MainForm : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        // 終了開始: 実行中の grep を中止し、終了確認中に結果窓が湧くのを抑止する。
+        _grep.BeginClose();
         // 全タブの未保存を順に確認（どれかでキャンセルなら終了中止）。
         foreach (var doc in _docs.Documents.ToArray())
         {
@@ -126,6 +128,7 @@ public sealed partial class MainForm : Form
             if (!ConfirmDiscardIfDirty(doc))
             {
                 e.Cancel = true;
+                _grep.CancelClose(); // 終了を取りやめたので grep を通常運用へ戻す
                 base.OnFormClosing(e);
                 return;
             }
@@ -144,6 +147,13 @@ public sealed partial class MainForm : Form
         // 当セッション管理分のバックアップを削除し、孤児（=前回異常終了の印）を残さない。
         _backup.Shutdown();
         base.OnFormClosed(e);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        // 異常系（OnFormClosed 未経由）でも Timer/背景スレッドを確実に解放する。Shutdown 済みなら冪等で無害。
+        if (disposing) _backup?.Dispose();
+        base.Dispose(disposing);
     }
 
     // ==================== キー操作（タブ切替・クローズ） ====================
@@ -562,6 +572,7 @@ public sealed partial class MainForm : Form
         doc.State.Path = dlg.FileName;
         _docs.UpdateLabel(doc);
         UpdateTitle();
+        RegisterRecent(dlg.FileName); // 保存先も最近のファイルへ
         return true;
     }
 

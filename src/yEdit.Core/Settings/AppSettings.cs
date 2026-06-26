@@ -11,4 +11,9 @@ public sealed class AppSettings
     public int DefaultCodePage { get; set; } = 65001;
     /// <summary>新規ファイルの既定改行（0=CRLF,1=LF,2=CR）。</summary>
     public int DefaultLineEnding { get; set; } = 0;
+
+    /// <summary>自動バックアップ（クラッシュ復元）を有効にするか。</summary>
+    public bool BackupEnabled { get; set; } = true;
+    /// <summary>自動バックアップの間隔（秒）。</summary>
+    public int BackupIntervalSeconds { get; set; } = 30;
 }

@@ -1,3 +1,4 @@
+using yEdit.Core.Backup;
 using yEdit.Core.Search;
 using yEdit.Core.Settings;
 using yEdit.Core.Text;
@@ -10,6 +11,8 @@ public sealed partial class MainForm : Form
     private readonly DocumentManager _docs;
     private SearchController _search = null!; // コンストラクタで生成
     private GrepController _grep = null!;     // コンストラクタで生成
+    private BackupCoordinator _backup = null!; // コンストラクタで生成
+    private bool _restoreOffered;             // 起動時の復元提案を一度だけ行う
     private readonly ToolStripStatusLabel _posLabel = new("行 1, 桁 1");
     private readonly ToolStripStatusLabel _encLabel = new("UTF-8");
     private readonly ToolStripStatusLabel _eolLabel = new("CRLF");
@@ -33,6 +36,7 @@ public sealed partial class MainForm : Form
         _search = new SearchController(_docs, this);
         _grep = new GrepController(_docs, this,
             hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength));
+        _backup = new BackupCoordinator(_docs, _settings.BackupEnabled, _settings.BackupIntervalSeconds);
 
         var menu = BuildMenu();
         var status = BuildStatusBar();
@@ -60,6 +64,44 @@ public sealed partial class MainForm : Form
         _docs.Active?.Editor.Focus();
         UpdateTitle();
         UpdateStatus();
+
+        // 前回の異常終了で残ったバックアップがあれば復元提案（起動時に一度だけ）。
+        if (!_restoreOffered)
+        {
+            _restoreOffered = true;
+            _backup.OfferRestoreOnStartup(this, RestoreFromBackup);
+        }
+    }
+
+    /// <summary>バックアップ記録を新タブへ復元する。本文・メタを載せ、保存点は打たず dirty のままにする。</summary>
+    private Document RestoreFromBackup(BackupRecord rec)
+    {
+        var doc = _docs.CreateNew();
+        doc.State.Path = rec.OriginalPath;
+        // 無題は元の連番を保ち、ダイアログ表示と復元後タブの番号を一致させる。連番カウンタは
+        // 既存の最大値以上へ進め、以後の新規無題と衝突しないようにする。
+        if (rec.OriginalPath is null)
+        {
+            int n = rec.UntitledNumber > 0 ? rec.UntitledNumber : ++_untitledSeq;
+            if (n > _untitledSeq) _untitledSeq = n;
+            doc.State.UntitledNumber = n;
+        }
+        else
+        {
+            doc.State.UntitledNumber = 0;
+        }
+        doc.State.Encoding = EncodingCatalog.Get(rec.CodePage);
+        doc.State.HasBom = rec.HasBom;
+        doc.State.LineEnding = (LineEnding)rec.LineEndingId;
+
+        doc.Editor.Text = rec.Content;
+        ApplyEol(doc);
+        doc.Editor.EmptyUndoBuffer();
+        // SetSavePoint しない → Modified=true のまま（ユーザーが保存できる）。
+        _docs.UpdateLabel(doc);
+        UpdateTitle();
+        UpdateStatus();
+        return doc;
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -82,6 +124,14 @@ public sealed partial class MainForm : Form
         _settings.WindowHeight = b.Height;
         try { SettingsStore.Save(_settingsPath, _settings); } catch { /* 設定保存失敗は致命でない */ }
         base.OnFormClosing(e);
+    }
+
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        // 閉じが確定した後にバックアップを停止する（OnFormClosing 後に取消される余地を残さない）。
+        // 当セッション管理分のバックアップを削除し、孤児（=前回異常終了の印）を残さない。
+        _backup.Shutdown();
+        base.OnFormClosed(e);
     }
 
     // ==================== キー操作（タブ切替・クローズ） ====================

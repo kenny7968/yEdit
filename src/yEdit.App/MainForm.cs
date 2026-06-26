@@ -1,3 +1,4 @@
+using yEdit.Core.Search;
 using yEdit.Core.Settings;
 using yEdit.Core.Text;
 using yEdit.Editor;
@@ -8,6 +9,7 @@ public sealed partial class MainForm : Form
 {
     private readonly DocumentManager _docs;
     private SearchController _search = null!; // コンストラクタで生成
+    private GrepController _grep = null!;     // コンストラクタで生成
     private readonly ToolStripStatusLabel _posLabel = new("行 1, 桁 1");
     private readonly ToolStripStatusLabel _encLabel = new("UTF-8");
     private readonly ToolStripStatusLabel _eolLabel = new("CRLF");
@@ -29,6 +31,8 @@ public sealed partial class MainForm : Form
         _docs.ActiveDirtyChanged += (_, _) => UpdateTitle();
         _docs.ActiveCaretChanged += (_, _) => UpdateStatus();
         _search = new SearchController(_docs, this);
+        _grep = new GrepController(_docs, this,
+            hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength));
 
         var menu = BuildMenu();
         var status = BuildStatusBar();
@@ -141,6 +145,8 @@ public sealed partial class MainForm : Form
         { ShortcutKeyDisplayString = "Shift+F3" };
         edit.DropDownItems.Add(findNext);
         edit.DropDownItems.Add(findPrev);
+        edit.DropDownItems.Add(new ToolStripSeparator());
+        AddMenuItem(edit, "フォルダ検索(grep)(&G)...", (_, _) => _grep.Open(), Keys.Control | Keys.Shift | Keys.F);
 
         var help = new ToolStripMenuItem("ヘルプ(&H)");
         help.DropDownItems.Add("バージョン情報(&A)", null, (_, _) =>
@@ -248,6 +254,34 @@ public sealed partial class MainForm : Form
             _docs.TryClose(doc, _ => true); // 読込失敗→作りかけタブを破棄
             if (prev is not null) _docs.Activate(prev); // 直前のアクティブへ戻す
         }
+    }
+
+    /// <summary>
+    /// grep ジャンプ用: path を開き（既存タブがあれば再利用）、文字オフセット範囲を選択して
+    /// エディタへフォーカスする。選択移動でエディタの UIA が一致行を SR に読ませる。
+    /// offset は grep が算出した UTF-16 文字位置で、同じ復号経路（TextFileService）を通るため
+    /// エディタのスナップショットと同一空間に揃う。
+    /// </summary>
+    internal void OpenAndSelect(string path, int offset, int length)
+    {
+        var doc = _docs.FindByPath(path);
+        if (doc is null)
+        {
+            var prev = _docs.Active; // 読込失敗時に戻る先
+            doc = _docs.CreateNew();
+            if (!LoadInto(doc, path, forcedCodePage: null))
+            {
+                _docs.TryClose(doc, _ => true);
+                if (prev is not null) _docs.Activate(prev);
+                return;
+            }
+        }
+        else
+        {
+            _docs.Activate(doc);
+        }
+        doc.Editor.SelectCharRange(offset, length);
+        doc.Editor.Focus();
     }
 
     /// <summary>

@@ -395,6 +395,8 @@ public sealed partial class MainForm : Form
         _settings.Theme = dlg.ThemeId;
         _settings.DefaultCodePage = dlg.DefaultCodePage;
         _settings.DefaultLineEnding = dlg.DefaultLineEnding;
+        _settings.WrapColumnEnabled = dlg.WrapColumnEnabled;
+        _settings.WrapColumn = dlg.WrapColumn;
         foreach (var doc in _docs.Documents) EditorAppearance.Apply(doc.Editor, _settings);
         try { SettingsStore.Save(_settingsPath, _settings); } catch { /* 設定保存失敗は致命でない */ }
         _announcer.Say("設定を適用しました");

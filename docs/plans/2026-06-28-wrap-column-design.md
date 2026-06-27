@@ -102,7 +102,7 @@ _settings.WrapColumn        = dlg.WrapColumn;
 ### `Sci.cs` 追加定数
 
 ```csharp
-public const int SCI_SETMARGINRIGHT = 2156;  // (unused, pixelWidth) テキスト右側の空白マージン
+public const int SCI_SETMARGINRIGHT = 2157;  // (unused, pixelWidth) テキスト右側の空白マージン（標準 Scintilla: SETMARGINLEFT=2155/GETMARGINLEFT=2156/SETMARGINRIGHT=2157/GETMARGINRIGHT=2158）
 public const int SCI_TEXTWIDTH      = 2276;  // (style, const char*) 文字列のピクセル幅
 public const int STYLE_DEFAULT      = 32;
 ```
@@ -143,7 +143,9 @@ public static class WrapGeometry
 - 破損設定（桁数 0/負/極大）: `ClampColumns` で 10〜1000 にクランプ。0 以下は無効扱い。
 - プロポーショナルフォント: 半角幅は代表文字で測るため厳密一致しない（桁折り返しは等幅前提と注記）。
 - ハンドル未生成: `Apply` は既存どおりハンドル生成後の経路に乗せる（`SizeChanged` 初回でも再計算される）。
-- `SizeChanged` 二重購読防止: 購読フラグを持ち、無効化時に解除。
+- `SizeChanged` 二重購読防止: 購読フラグ（`_wrapSizeHooked`）で一度だけ購読。無効化時は購読解除せず、
+  `RecomputeWrapMargin` 側の `_wrapColumns<=0` 早期 return で無害化する（再有効化時の再購読も防げる。
+  ハンドラはコントロール自身のイベントで自己参照のため寿命はコントロールと一致し、リークしない）。
 
 ## 8. テスト戦略
 

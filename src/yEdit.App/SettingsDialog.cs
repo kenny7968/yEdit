@@ -18,6 +18,11 @@ public sealed class SettingsDialog : Form
     private readonly ComboBox _theme = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240, AccessibleName = "配色テーマ" };
     private readonly ComboBox _encoding = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240, AccessibleName = "既定の文字コード" };
     private readonly ComboBox _eol = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240, AccessibleName = "既定の改行" };
+    private readonly CheckBox _wrapEnabled = new() { Text = "指定文字数で折り返す(&W)", AutoSize = true };
+    private readonly NumericUpDown _wrapColumn = new()
+    {
+        Minimum = 10, Maximum = 1000, Width = 100, AccessibleName = "折り返し桁数",
+    };
 
     private static readonly IReadOnlyList<EncodingCatalog.EncodingOption> Encodings = EncodingCatalog.SelectableEncodings;
     private static readonly (string Name, int Id)[] Eols =
@@ -58,6 +63,11 @@ public sealed class SettingsDialog : Form
         }
         _eol.SelectedIndex = eolSel;
 
+        _wrapEnabled.Checked = s.WrapColumnEnabled;
+        _wrapColumn.Value = Math.Clamp(s.WrapColumn, (int)_wrapColumn.Minimum, (int)_wrapColumn.Maximum);
+        _wrapColumn.Enabled = _wrapEnabled.Checked;       // OFF 時は桁数入力を無効化
+        _wrapEnabled.CheckedChanged += (_, _) => _wrapColumn.Enabled = _wrapEnabled.Checked;
+
         _fontButton.Click += (_, _) => PickFont();
         UpdateFontLabel();
         BuildLayout();
@@ -68,6 +78,8 @@ public sealed class SettingsDialog : Form
     public string ThemeId => AppearanceThemes.All[_theme.SelectedIndex].Id;
     public int DefaultCodePage => Encodings[_encoding.SelectedIndex].CodePage;
     public int DefaultLineEnding => Eols[_eol.SelectedIndex].Id;
+    public bool WrapColumnEnabled => _wrapEnabled.Checked;
+    public int WrapColumn => (int)_wrapColumn.Value;
 
     private static int IndexOfTheme(string id)
     {
@@ -118,13 +130,23 @@ public sealed class SettingsDialog : Form
         AddRow(root, 2, "既定の文字コード(&E):", _encoding, tabBase: 4);
         AddRow(root, 3, "既定の改行(&L):", _eol, tabBase: 6);
 
+        // 折り返し: チェックボックス（行ラベル兼用）＋ 桁数入力。
+        root.Controls.Add(_wrapEnabled, 0, 4);
+        var wrapPanel = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, TabIndex = 9 };
+        var wrapLbl = new Label { Text = "折り返し桁数(&K):", AutoSize = true, TabIndex = 9, Anchor = AnchorStyles.Left };
+        _wrapColumn.TabIndex = 10;
+        wrapPanel.Controls.Add(wrapLbl);
+        wrapPanel.Controls.Add(_wrapColumn);
+        root.Controls.Add(wrapPanel, 1, 4);
+        _wrapEnabled.TabIndex = 8;
+
         var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true, TabIndex = 1 };
         var cancel = new Button { Text = "キャンセル", DialogResult = DialogResult.Cancel, AutoSize = true, TabIndex = 2 };
         // ボタン群は設定コントロール（TabIndex 0..7）より後にする。パネル自身の TabIndex が
         // root 内の並びを決めるため、十分大きい値を明示（未設定だと既定 0 で先頭に来てしまう）。
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, TabIndex = 100 };
         buttons.Controls.AddRange(new Control[] { ok, cancel });
-        root.Controls.Add(buttons, 0, 4);
+        root.Controls.Add(buttons, 0, 5);   // 折り返し行(4)の下へ
         root.SetColumnSpan(buttons, 2);
 
         Controls.Add(root);

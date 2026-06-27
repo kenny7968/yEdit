@@ -487,7 +487,7 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     /// <summary>半角1文字（"0"）の描画幅(px)を STYLE_DEFAULT で測る。</summary>
     private int MeasureHalfWidthPx()
     {
-        byte[] one = System.Text.Encoding.ASCII.GetBytes("0");
+        byte[] one = Encoding.ASCII.GetBytes("0");
         nint buf = Marshal.AllocHGlobal(one.Length + 1);
         try
         {

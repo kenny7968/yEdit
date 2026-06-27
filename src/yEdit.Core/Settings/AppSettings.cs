@@ -19,6 +19,12 @@ public sealed class AppSettings
 
     /// <summary>配色テーマ Id（AppearanceThemes.All の Id・既定は標準）。</summary>
     public string Theme { get; set; } = "default";
+
+    /// <summary>編集画面で指定桁数の表示折り返しを行うか（保存内容は不変）。</summary>
+    public bool WrapColumnEnabled { get; set; } = false;
+    /// <summary>表示折り返しの桁数（半角換算・全角=2桁）。既定80・範囲10〜1000。</summary>
+    public int WrapColumn { get; set; } = 80;
+
     /// <summary>最近開いたファイル（先頭が最新）。</summary>
     public List<string> RecentFiles { get; set; } = new();
 }

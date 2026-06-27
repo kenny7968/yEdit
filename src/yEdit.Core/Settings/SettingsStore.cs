@@ -42,6 +42,7 @@ public static class SettingsStore
         if (s.WindowWidth < 200) s.WindowWidth = def.WindowWidth;
         if (s.WindowHeight < 150) s.WindowHeight = def.WindowHeight;
         if (s.BackupIntervalSeconds < 5) s.BackupIntervalSeconds = def.BackupIntervalSeconds;
+        s.WrapColumn = WrapGeometry.ClampColumns(s.WrapColumn);  // 範囲外/破損値を 10〜1000 へ
         return s;
     }
 

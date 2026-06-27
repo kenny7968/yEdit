@@ -21,6 +21,8 @@ public class WrapGeometryTests
 
     [Theory]
     [InlineData(80, 80)]
+    [InlineData(10, 10)]      // 下限境界
+    [InlineData(1000, 1000)]  // 上限境界
     [InlineData(5, 10)]        // 下限クランプ
     [InlineData(0, 10)]
     [InlineData(-3, 10)]

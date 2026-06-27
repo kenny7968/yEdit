@@ -62,4 +62,40 @@ public class SettingsStoreTests
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
+
+    [Fact]
+    public void Defaults_wrap_is_disabled_with_80_columns()
+    {
+        var def = new AppSettings();
+        Assert.False(def.WrapColumnEnabled);
+        Assert.Equal(80, def.WrapColumn);
+    }
+
+    [Fact]
+    public void Save_then_load_roundtrips_wrap_settings()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            var s = new AppSettings { WrapColumnEnabled = true, WrapColumn = 60 };
+            SettingsStore.Save(path, s);
+            var loaded = SettingsStore.Load(path);
+            Assert.True(loaded.WrapColumnEnabled);
+            Assert.Equal(60, loaded.WrapColumn);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public void Load_clamps_out_of_range_wrap_column()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            File.WriteAllText(path, "{\"WrapColumnEnabled\":true,\"WrapColumn\":99999}");
+            var s = SettingsStore.Load(path);
+            Assert.Equal(1000, s.WrapColumn);   // 上限へクランプ
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
 }

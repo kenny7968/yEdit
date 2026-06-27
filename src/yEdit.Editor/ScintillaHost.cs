@@ -5,6 +5,7 @@ using System.Windows.Automation;
 using System.Windows.Automation.Provider;
 using ScintillaNET;
 using yEdit.Accessibility;
+using yEdit.Core.Settings;
 using WpfRect = System.Windows.Rect;
 
 namespace yEdit.Editor;
@@ -32,6 +33,10 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     private volatile bool _hasFocus;
     private volatile int _controlTypeId = System.Windows.Automation.ControlType.Document.Id;
     private nint _hwnd;
+
+    // ---- 表示折り返し（指定桁・本文不変） ----
+    private int _wrapColumns;       // 0 = 無効
+    private bool _wrapSizeHooked;   // SizeChanged 二重購読防止
 
     private readonly object _boundsSync = new();
     private WpfRect _bounds;
@@ -430,6 +435,67 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
         finally { Marshal.FreeHGlobal(buf); }
         RefreshSnapshot();
         RefreshSelection();
+    }
+
+    // ==================== 表示折り返し（指定桁・本文不変・UI スレッド専用） ====================
+
+    /// <summary>
+    /// 指定桁数の表示折り返しを適用する（本文不変・UI スレッド専用）。
+    /// columns&lt;=0 で無効化。有効時は WrapMode=Char にし、半角1文字幅×桁数を目標幅として
+    /// 右マージンで描画幅を制限する。ウィンドウ幅追従のため SizeChanged を購読する。
+    /// </summary>
+    public void ApplyWrapColumn(int columns)
+    {
+        if (columns <= 0)
+        {
+            _wrapColumns = 0;
+            WrapMode = WrapMode.None;
+            if (IsHandleCreated) DirectMessage(Sci.SCI_SETMARGINRIGHT, (nint)0, (nint)1); // 既定1px へ戻す
+            return;
+        }
+
+        _wrapColumns = WrapGeometry.ClampColumns(columns);
+        WrapMode = WrapMode.Char;
+        if (!_wrapSizeHooked)
+        {
+            SizeChanged += (_, _) => RecomputeWrapMargin();
+            _wrapSizeHooked = true;
+        }
+        RecomputeWrapMargin();
+    }
+
+    /// <summary>クライアント幅と桁目標から右マージン(px)を再計算して適用する（UI スレッド）。</summary>
+    private void RecomputeWrapMargin()
+    {
+        if (_wrapColumns <= 0 || !IsHandleCreated) return;
+
+        int halfWidth = MeasureHalfWidthPx();
+        if (halfWidth <= 0) return;
+
+        int targetPx = WrapGeometry.TargetWidthPx(_wrapColumns, halfWidth);
+
+        // テキスト領域幅 = クライアント幅 − 左テキストマージン − 左マージン群(0..4)。
+        int leftStuff = DirectMessage(Sci.SCI_GETMARGINLEFT).ToInt32();
+        for (int m = 0; m < 5; m++)
+            leftStuff += DirectMessage(Sci.SCI_GETMARGINWIDTHN, (nint)m).ToInt32();
+        int textAreaPx = ClientSize.Width - leftStuff;
+
+        int right = WrapGeometry.RightMargin(textAreaPx, targetPx);
+        DirectMessage(Sci.SCI_SETMARGINRIGHT, (nint)0, (nint)right);
+    }
+
+    /// <summary>半角1文字（"0"）の描画幅(px)を STYLE_DEFAULT で測る。</summary>
+    private int MeasureHalfWidthPx()
+    {
+        byte[] one = Encoding.ASCII.GetBytes("0");
+        nint buf = Marshal.AllocHGlobal(one.Length + 1);
+        try
+        {
+            Marshal.Copy(one, 0, buf, one.Length);
+            Marshal.WriteByte(buf, one.Length, 0);
+            return DirectMessage(Sci.SCI_TEXTWIDTH, (nint)Sci.STYLE_DEFAULT, buf).ToInt32();
+        }
+        finally { Marshal.FreeHGlobal(buf); }
     }
 
     // ==================== IUiaTextHost（RPC スレッドから呼ばれる） ====================

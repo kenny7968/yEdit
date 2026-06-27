@@ -35,4 +35,11 @@ internal static class Sci
     public const int SCI_GETMODIFY = 2159;          // 変更フラグ
     public const int SCI_SETSAVEPOINT = 2014;       // 保存点を設定（clean 化）
     public const int SCI_EMPTYUNDOBUFFER = 2175;    // Undo バッファ消去
+
+    // 表示折り返し（指定桁）。UI スレッドからのみ送る。
+    public const int SCI_SETMARGINRIGHT = 2157;   // (unused, pixelWidth) テキスト右側の空白マージン
+    public const int SCI_GETMARGINLEFT = 2156;    // → 左テキストマージン(px)
+    public const int SCI_GETMARGINWIDTHN = 2243;  // (margin) → 当該マージン幅(px)
+    public const int SCI_TEXTWIDTH = 2276;        // (style, const char* utf8) → 文字列のピクセル幅
+    public const int STYLE_DEFAULT = 32;
 }

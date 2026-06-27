@@ -93,7 +93,7 @@ public static class WrapGeometry
 **Step 4: テストを実行して成功を確認**
 
 Run: `dotnet test tests/yEdit.Core.Tests/yEdit.Core.Tests.csproj --filter "FullyQualifiedName~WrapGeometry"`
-Expected: PASS（10 件）。
+Expected: PASS（InlineData 件数ぶん。境界値 10/1000 を追加した場合は 13 件）。
 
 **Step 5: コミット**
 

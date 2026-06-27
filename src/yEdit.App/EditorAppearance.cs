@@ -23,6 +23,9 @@ public static class EditorAppearance
         // 選択範囲は前景/背景を反転して高コントラストにする（弱視で選択を視認しやすく）。
         ed.SelectionTextColor = back;
         ed.SelectionBackColor = fore;
+
+        // 表示折り返し（指定桁・本文不変）。フォント適用後に半角幅を測るためここで最後に呼ぶ。
+        ed.ApplyWrapColumn(settings.WrapColumnEnabled ? settings.WrapColumn : 0);
     }
 
     private static Color FromRgb(int rgb)

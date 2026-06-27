@@ -142,7 +142,7 @@ public sealed class SettingsDialog : Form
 
         var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true, TabIndex = 1 };
         var cancel = new Button { Text = "キャンセル", DialogResult = DialogResult.Cancel, AutoSize = true, TabIndex = 2 };
-        // ボタン群は設定コントロール（TabIndex 0..7）より後にする。パネル自身の TabIndex が
+        // ボタン群は設定コントロール（TabIndex 0..10）より後にする。パネル自身の TabIndex が
         // root 内の並びを決めるため、十分大きい値を明示（未設定だと既定 0 で先頭に来てしまう）。
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, TabIndex = 100 };
         buttons.Controls.AddRange(new Control[] { ok, cancel });

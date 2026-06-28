@@ -32,8 +32,9 @@ public sealed class CsvController
         if (ed is null) return;
 
         var csv = CsvParser.Parse(ed.SnapshotText);
-        if (!csv.Ok) { _announcer.Say(CsvAnnounceFormatter.ParseError); return; }
-        if (csv.Rows.Count == 0) { _announcer.Say(CsvAnnounceFormatter.NoData); return; }
+        // 有効なセルが無い状態では古い枠を残さない（視覚状態を読み上げと一致させる）。
+        if (!csv.Ok) { ed.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.ParseError); return; }
+        if (csv.Rows.Count == 0) { ed.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.NoData); return; }
 
         var (row, col) = csv.FindCell(ed.CaretCharOffset);
         var target = csv.MoveCell(row, col, dir);

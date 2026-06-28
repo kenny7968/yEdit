@@ -216,20 +216,22 @@ public sealed partial class MainForm : Form
         AddMenuItem(edit, "貼り付け(&P)", (_, _) => _docs.Active?.Editor.Paste(), Keys.Control | Keys.V);
         AddMenuItem(edit, "すべて選択(&A)", (_, _) => _docs.Active?.Editor.SelectAll(), Keys.Control | Keys.A);
         edit.DropDownItems.Add(new ToolStripSeparator());
-        AddMenuItem(edit, "検索(&F)...", (_, _) => _search.OpenFind(), Keys.Control | Keys.F);
-        AddMenuItem(edit, "置換(&H)...", (_, _) => _search.OpenReplace(), Keys.Control | Keys.H);
+        AddMenuItem(edit, "折り返し整形（禁則処理）(&K)", (_, _) => FormatWithKinsoku(),
+            Keys.Control | Keys.Shift | Keys.J);
+
+        // 検索系（旧「編集」メニューから分離。挙動・ショートカットは不変）。
+        var search = new ToolStripMenuItem("検索(&S)");
+        AddMenuItem(search, "検索(&F)...", (_, _) => _search.OpenFind(), Keys.Control | Keys.F);
+        AddMenuItem(search, "置換(&H)...", (_, _) => _search.OpenReplace(), Keys.Control | Keys.H);
         // F3/Shift+F3 は ProcessCmdKey で処理するため、メニューは表示専用（ShortcutKeys 未登録）にして二重発火を避ける。
         var findNext = new ToolStripMenuItem("次を検索(&N)", null, (_, _) => _search.FindNext())
         { ShortcutKeyDisplayString = "F3" };
         var findPrev = new ToolStripMenuItem("前を検索(&B)", null, (_, _) => _search.FindPrev())
         { ShortcutKeyDisplayString = "Shift+F3" };
-        edit.DropDownItems.Add(findNext);
-        edit.DropDownItems.Add(findPrev);
-        edit.DropDownItems.Add(new ToolStripSeparator());
-        AddMenuItem(edit, "フォルダ検索(grep)(&G)...", (_, _) => _grep.Open(), Keys.Control | Keys.Shift | Keys.F);
-        edit.DropDownItems.Add(new ToolStripSeparator());
-        AddMenuItem(edit, "折り返し整形（禁則処理）(&K)", (_, _) => FormatWithKinsoku(),
-            Keys.Control | Keys.Shift | Keys.J);
+        search.DropDownItems.Add(findNext);
+        search.DropDownItems.Add(findPrev);
+        search.DropDownItems.Add(new ToolStripSeparator());
+        AddMenuItem(search, "フォルダ検索(grep)(&G)...", (_, _) => _grep.Open(), Keys.Control | Keys.Shift | Keys.F);
 
         // 読み上げ（SR 照会）。キーは ProcessCmdKey で処理し、ここは表示のみ（二重発火回避・M3 同方式）。
         var read = new ToolStripMenuItem("読み上げ(&R)");
@@ -252,7 +254,7 @@ public sealed partial class MainForm : Form
         help.DropDownItems.Add("バージョン情報(&A)", null, (_, _) =>
             MessageBox.Show("yEdit v0.1", "バージョン情報", MessageBoxButtons.OK, MessageBoxIcon.Information));
 
-        menu.Items.AddRange(new ToolStripItem[] { file, edit, read, md, help });
+        menu.Items.AddRange(new ToolStripItem[] { file, edit, search, read, md, help });
         return menu;
     }
 

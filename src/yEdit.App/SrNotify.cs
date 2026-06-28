@@ -1,18 +1,18 @@
 using yEdit.App.Speech;
 using yEdit.Core.Speech;
-using yEdit.Editor;
 
 namespace yEdit.App;
 
 /// <summary>
 /// SR への能動通知の共通実装。Label を視覚表示しつつ、SR適応の音声出力層へ委譲する。
-/// PC-Talker 稼働時は PCTKUSR.dll で直接発声し、それ以外/失敗時は UIA 通知へフォールバック。
+/// PC-Talker 稼働時（PcTalkerSpeech.IsRunning＝DLLの PCTKStatus で判定）は PCTKUsr.dll で直接発声し、
+/// それ以外/失敗時は UIA 通知へフォールバック。
 /// 実機 SR 調整時の変更点を 1 箇所に集約する（Announcer / FindReplaceDialog / GrepDialog から共有）。
 /// </summary>
 internal static class SrNotify
 {
     private static readonly SpeechRouter _router =
-        new(new PcTalkerSpeech(), ScreenReaders.IsPcTalkerRunning);
+        new(new PcTalkerSpeech(), PcTalkerSpeech.IsRunning);
 
     public static void Raise(Label label, string message)
     {

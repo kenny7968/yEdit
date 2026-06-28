@@ -23,6 +23,9 @@ public sealed class SettingsDialog : Form
     {
         Minimum = 10, Maximum = 1000, Width = 100, AccessibleName = "折り返し桁数",
     };
+    private readonly TextBox _kinsokuStart = new() { Width = 320, AccessibleName = "行頭禁則文字" };
+    private readonly TextBox _kinsokuEnd = new() { Width = 320, AccessibleName = "行末禁則文字" };
+    private readonly TextBox _kinsokuHang = new() { Width = 320, AccessibleName = "ぶら下げ文字" };
 
     private static readonly IReadOnlyList<EncodingCatalog.EncodingOption> Encodings = EncodingCatalog.SelectableEncodings;
     private static readonly (string Name, int Id)[] Eols =
@@ -70,6 +73,9 @@ public sealed class SettingsDialog : Form
 
         _fontButton.Click += (_, _) => PickFont();
         UpdateFontLabel();
+        _kinsokuStart.Text = s.KinsokuLineStartChars;
+        _kinsokuEnd.Text = s.KinsokuLineEndChars;
+        _kinsokuHang.Text = s.KinsokuHangChars;
         BuildLayout();
     }
 
@@ -80,6 +86,9 @@ public sealed class SettingsDialog : Form
     public int DefaultLineEnding => Eols[_eol.SelectedIndex].Id;
     public bool WrapColumnEnabled => _wrapEnabled.Checked;
     public int WrapColumn => (int)_wrapColumn.Value;
+    public string KinsokuLineStartChars => _kinsokuStart.Text;
+    public string KinsokuLineEndChars => _kinsokuEnd.Text;
+    public string KinsokuHangChars => _kinsokuHang.Text;
 
     private static int IndexOfTheme(string id)
     {
@@ -140,13 +149,18 @@ public sealed class SettingsDialog : Form
         root.Controls.Add(wrapPanel, 1, 4);
         _wrapEnabled.TabIndex = 8;
 
+        // 禁則処理: 行頭/行末/ぶら下げの文字セット（TabIndex 11..16・OK/Cancel=100 の前）。
+        AddRow(root, 5, "行頭禁則文字(&1):", _kinsokuStart, tabBase: 11);
+        AddRow(root, 6, "行末禁則文字(&2):", _kinsokuEnd, tabBase: 13);
+        AddRow(root, 7, "ぶら下げ文字(&3):", _kinsokuHang, tabBase: 15);
+
         var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true, TabIndex = 1 };
         var cancel = new Button { Text = "キャンセル", DialogResult = DialogResult.Cancel, AutoSize = true, TabIndex = 2 };
         // ボタン群は設定コントロール（TabIndex 0..10）より後にする。パネル自身の TabIndex が
         // root 内の並びを決めるため、十分大きい値を明示（未設定だと既定 0 で先頭に来てしまう）。
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, TabIndex = 100 };
         buttons.Controls.AddRange(new Control[] { ok, cancel });
-        root.Controls.Add(buttons, 0, 5);   // 折り返し行(4)の下へ
+        root.Controls.Add(buttons, 0, 8);   // 禁則処理行(5..7)の下へ
         root.SetColumnSpan(buttons, 2);
 
         Controls.Add(root);

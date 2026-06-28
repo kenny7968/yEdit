@@ -8,7 +8,7 @@ namespace yEdit.App.Speech;
 /// NVDA・その他SR、および PC-Talker フォールバックを担う常設の最終手段。
 /// 呼び出し毎に通知元 Label に束縛して生成する。
 /// </summary>
-public sealed class UiaNotificationSpeech : ISpeechChannel
+internal sealed class UiaNotificationSpeech : ISpeechChannel
 {
     private readonly Label _label;
     public UiaNotificationSpeech(Label label) => _label = label;

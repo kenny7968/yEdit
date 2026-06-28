@@ -14,6 +14,7 @@ public sealed class DocumentState
     public Encoding Encoding { get; set; } = EncodingCatalog.Get(65001);
     public bool HasBom { get; set; }
     public LineEnding LineEnding { get; set; } = LineEnding.Crlf;
+    public bool CsvMode { get; set; }              // CSV モード（タブ毎・既定 false）
 
     public string DisplayName => Path is not null
         ? System.IO.Path.GetFileName(Path)

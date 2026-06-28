@@ -38,10 +38,11 @@ Announcer（UIA通知）依存が露呈した。**これはCSV固有ではなく
 
 ## 2. 調査結果（代替手段）
 
-- **PC-Talker 直接発声**: ベンダー（高知システム開発）公認の唯一の手段は共有DLL
-  `PCTKUSR.dll` の `SoundMessage(LPCWSTR text, int flags)`。**このDLLはPC-Talker本体が
-  Windowsフォルダに導入する**ため、PC-Talker稼働機では実行時に既在で、こちらが同梱しなくても
-  `LoadLibrary`/`GetProcAddress` で呼べる見込み。署名の確証は中〜高（第三者ホストのSDKヘッダ由来。実機検証必須）。
+- **PC-Talker 直接発声**: 共有DLL `PCTKUsr.dll`（PC-Talker本体が System32 に導入＝稼働機に既在・同梱不要）の
+  ネイティブ関数を `LoadLibrary`/`GetProcAddress` で呼ぶ。**実機検証（PC-Talker Neo 12.0.4.0）で判明**:
+  - 95Reader互換の `SoundMessage(LPCWSTR, int flags)` は **TRUE を返すが無音**（PC-Talker未起動でも 1 を返す＝発話に未結合）→ **使わない**。
+  - 本命は **`PCTKPReadW(LPCWSTR text, int priority, int analyze)`**（ネイティブの「テキストを読む」関数）。
+    `PCTKPReadW(text, 0, 1)` で**発話を確認済み**（priority=0/通常、analyze=1/記号・数字の読み解析を有効）。
 - **クロスSRライブラリ（Tolk / UniversalSpeech / SRAL）**: いずれも **PC-Talker 非対応**。使えない。
 - **NVDA**: 公式 `nvdaControllerClient.dll`（`nvdaController_speakText`）が堅牢だが、NVDAは
   現状の UIA 通知でも読めているため今回は不要（将来オプション）。
@@ -107,10 +108,10 @@ internal interface ISpeechChannel
 
 ### PcTalkerSpeech
 
-- 初回 `TrySpeak` 時に `LoadLibrary("PCTKUsr.dll")` ＋ `GetProcAddress("SoundMessage")` を試み、
+- 初回 `TrySpeak` 時に `LoadLibrary("PCTKUsr.dll")` ＋ `GetProcAddress("PCTKPReadW")` を試み、
   デリゲートと可否を**キャッシュ**（毎回ロードしない）。
 - 取得不可・例外時は `false`（→ ルータが UIA へフォールバック）。
-- `SoundMessage(message, 0)` を呼ぶ。Unicode（`LPCWSTR`）。
+- `PCTKPReadW(message, 0, 1)` を呼ぶ。Unicode（`LPCWSTR`）、戻り値 void。priority=0/analyze=1。
 - P/Invoke は遅延束縛（`LoadLibrary`/`GetProcAddress`＋`Marshal.GetDelegateForFunctionPointer`）。
   `[DllImport]` の静的束縛だと非PC-Talker機で `DllNotFoundException` を誘発し得るため避ける。
 
@@ -159,14 +160,15 @@ ProcessCmdKey(Ctrl+Shift+C)
   - PC-Talker: `Ctrl+Shift+C`／`Ctrl+Shift+↑↓←→`／検索件数／grep／モード切替が**全て聞こえる**こと。
   - NVDA: 従来どおり全アナウンスが聞こえること（無改修の退行が無いこと）。
 
-## 9. 実機検証が必須の未確定点
+## 9. 実機検証の状況
 
-1. **`SoundMessage` の正確な署名・`flags` 意味**: 公開情報は第三者ホストのSDKヘッダ由来で確証中〜高。
-   `GetProcAddress("SoundMessage")` の成否、`flags=0` の挙動を実機で確認。
-2. **二重読みの懸念**: `Ctrl+Shift+↑/↓` はキャレットが別の物理行へ飛ぶため、PC-Talkerが
-   物理行を勝手に読む＋こちらの `SoundMessage` で二重になり得る。`flags` での割り込み指定 or
-   抑制の要否を実機で調整（必要なら別タスク）。
-3. **NVDA無改修の退行確認**: 設計上は無改修だが、実機で全アナウンスの読み上げを確認。
+1. ~~`SoundMessage` の署名・`flags`~~ → **解決**。実機検証で `SoundMessage` は無音と判明し、
+   本命を `PCTKPReadW(text, 0, 1)` に確定（発話確認済み）。`PcTalkerSpeech` 単体の発話は実機で確認済み。
+2. **二重読みの懸念（未確認）**: `Ctrl+Shift+↑/↓` はキャレットが別の物理行へ飛ぶため、PC-Talkerが
+   物理行を勝手に読む＋こちらの `PCTKPReadW` で二重になり得る。yEdit 実機操作で確認し、必要なら
+   `priority` 引数での割り込み指定 or 抑制を別タスクで調整。
+3. **yEdit 実機操作での通し確認（未実施）**: アプリ上で `Ctrl+Shift+C` 等が SrNotify 経由で
+   実際に読まれること、NVDA で従来どおり全アナウンスが聞こえること（UIA温存の退行が無いこと）。
 
 ## 10. 既知の割り切り / 将来拡張（今回スコープ外）
 

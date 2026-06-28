@@ -35,6 +35,11 @@ public static class SettingsStore
         if (string.IsNullOrEmpty(s.Theme)) s.Theme = def.Theme;
         if (string.IsNullOrEmpty(s.FontName)) s.FontName = def.FontName;
 
+        // 禁則文字セットは明示 null のみ既定へ補正する。空文字 "" は「そのルール無効」の意図なので保持する。
+        if (s.KinsokuLineStartChars is null) s.KinsokuLineStartChars = def.KinsokuLineStartChars;
+        if (s.KinsokuLineEndChars is null) s.KinsokuLineEndChars = def.KinsokuLineEndChars;
+        if (s.KinsokuHangChars is null) s.KinsokuHangChars = def.KinsokuHangChars;
+
         // 数値の健全化（手編集等で壊れた設定が起動時クラッシュ／不可視を招かないように）。
         if (!IsSelectableCodePage(s.DefaultCodePage)) s.DefaultCodePage = def.DefaultCodePage;
         if (s.DefaultLineEnding is < 0 or > 2) s.DefaultLineEnding = def.DefaultLineEnding;

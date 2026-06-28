@@ -227,6 +227,9 @@ public sealed partial class MainForm : Form
         edit.DropDownItems.Add(findPrev);
         edit.DropDownItems.Add(new ToolStripSeparator());
         AddMenuItem(edit, "フォルダ検索(grep)(&G)...", (_, _) => _grep.Open(), Keys.Control | Keys.Shift | Keys.F);
+        edit.DropDownItems.Add(new ToolStripSeparator());
+        AddMenuItem(edit, "折り返し整形（禁則処理）(&K)", (_, _) => FormatWithKinsoku(),
+            Keys.Control | Keys.Shift | Keys.J);
 
         // 読み上げ（SR 照会）。キーは ProcessCmdKey で処理し、ここは表示のみ（二重発火回避・M3 同方式）。
         var read = new ToolStripMenuItem("読み上げ(&R)");
@@ -397,6 +400,9 @@ public sealed partial class MainForm : Form
         _settings.DefaultLineEnding = dlg.DefaultLineEnding;
         _settings.WrapColumnEnabled = dlg.WrapColumnEnabled;
         _settings.WrapColumn = dlg.WrapColumn;
+        _settings.KinsokuLineStartChars = dlg.KinsokuLineStartChars;
+        _settings.KinsokuLineEndChars = dlg.KinsokuLineEndChars;
+        _settings.KinsokuHangChars = dlg.KinsokuHangChars;
         foreach (var doc in _docs.Documents) EditorAppearance.Apply(doc.Editor, _settings);
         try { SettingsStore.Save(_settingsPath, _settings); } catch { /* 設定保存失敗は致命でない */ }
         _announcer.Say("設定を適用しました");
@@ -479,6 +485,43 @@ public sealed partial class MainForm : Form
         ed.Overtype = !ed.Overtype;
         _announcer.Say(ed.Overtype ? "上書きモード" : "挿入モード");
     }
+
+    /// <summary>選択範囲（無ければ全文）を WrapColumn 桁で禁則整形する（実改行挿入・1 Undo）。</summary>
+    private void FormatWithKinsoku()
+    {
+        var doc = _docs.Active;
+        var ed = doc?.Editor;
+        if (ed is null) return;
+
+        string text = ed.SnapshotText;
+        var (selStart, selEnd) = ed.GetSelectionCharRange();
+        bool whole = selStart == selEnd;
+        int start = whole ? 0 : selStart;
+        int len = whole ? text.Length : selEnd - selStart;
+        if (len <= 0) return;
+
+        string target = text.Substring(start, len);
+        string eol = EolString(doc!.State.LineEnding);
+        string formatted = KinsokuFormatter.Format(
+            target, _settings.WrapColumn,
+            _settings.KinsokuLineStartChars, _settings.KinsokuLineEndChars, _settings.KinsokuHangChars,
+            eol);
+
+        if (formatted == target) { _announcer.Say("変更なし"); return; }
+        ed.ReplaceCharRange(start, len, formatted);   // SCI_REPLACETARGET = 1 アンドゥ
+        // 部分選択なら変化箇所を選択して提示。全文整形では全選択を避け、先頭へキャレットを置く。
+        if (whole) ed.SelectCharRange(0, 0);
+        else ed.SelectCharRange(start, formatted.Length);
+        ed.Focus();
+        _announcer.Say("整形しました");
+    }
+
+    private static string EolString(LineEnding eol) => eol switch
+    {
+        LineEnding.Lf => "\n",
+        LineEnding.Cr => "\r",
+        _ => "\r\n",
+    };
 
     /// <summary>
     /// ファイルを読み込み、本文・文字コード・改行を対象タブへ反映する。

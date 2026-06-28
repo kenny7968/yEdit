@@ -98,4 +98,64 @@ public class SettingsStoreTests
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
+
+    [Fact]
+    public void Defaults_kinsoku_sets_are_conservative_symbols()
+    {
+        var def = new AppSettings();
+        Assert.Contains("、", def.KinsokuLineStartChars);
+        Assert.Contains("）", def.KinsokuLineStartChars);
+        Assert.DoesNotContain("ー", def.KinsokuLineStartChars);   // 長音は既定で入れない
+        Assert.Contains("（", def.KinsokuLineEndChars);
+        Assert.Equal("、。，．", def.KinsokuHangChars);
+    }
+
+    [Fact]
+    public void Save_then_load_roundtrips_kinsoku_settings()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            var s = new AppSettings { KinsokuLineStartChars = ")】", KinsokuLineEndChars = "(【", KinsokuHangChars = "。" };
+            SettingsStore.Save(path, s);
+            var loaded = SettingsStore.Load(path);
+            Assert.Equal(")】", loaded.KinsokuLineStartChars);
+            Assert.Equal("(【", loaded.KinsokuLineEndChars);
+            Assert.Equal("。", loaded.KinsokuHangChars);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public void Load_restores_default_kinsoku_when_null()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            File.WriteAllText(path,
+                "{\"KinsokuLineStartChars\":null,\"KinsokuLineEndChars\":null,\"KinsokuHangChars\":null}");
+            var s = SettingsStore.Load(path);
+            var def = new AppSettings();
+            Assert.Equal(def.KinsokuLineStartChars, s.KinsokuLineStartChars);  // null→既定
+            Assert.Equal(def.KinsokuLineEndChars, s.KinsokuLineEndChars);
+            Assert.Equal(def.KinsokuHangChars, s.KinsokuHangChars);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public void Load_preserves_empty_kinsoku_as_disabled()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            File.WriteAllText(path,
+                "{\"KinsokuLineStartChars\":\"\",\"KinsokuLineEndChars\":\"\",\"KinsokuHangChars\":\"\"}");
+            var s = SettingsStore.Load(path);
+            Assert.Equal("", s.KinsokuLineStartChars);  // 空文字＝そのルール無効。保持する
+            Assert.Equal("", s.KinsokuLineEndChars);
+            Assert.Equal("", s.KinsokuHangChars);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
 }

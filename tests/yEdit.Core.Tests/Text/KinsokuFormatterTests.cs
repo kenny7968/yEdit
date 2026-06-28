@@ -9,6 +9,10 @@ public class KinsokuFormatterTests
     private static string Wrap(string text, int columns, string eol = "\n")
         => KinsokuFormatter.Format(text, columns, "", "", "", eol);
 
+    // 行頭禁則のみを有効にしたヘルパ
+    private static string Start(string text, int columns, string startChars)
+        => KinsokuFormatter.Format(text, columns, startChars, "", "", "\n");
+
     [Fact]
     public void Empty_or_zero_columns_returns_as_is()
     {
@@ -66,4 +70,15 @@ public class KinsokuFormatterTests
     public void Cr_terminator_preserved_and_inserts_given_eol()
         // 既存の \r 終端は保持し、挿入改行は eol(="\n")。長行 "cde" は2桁で分割
         => Assert.Equal("ab\rcd\ne", Wrap("ab\rcde", 2));
+
+    [Fact]
+    public void LineStart_kinsoku_pushes_forbidden_char_down()
+        // columns=6(全角3)で "あいう" の後 "。" が行頭に来るのを避け、"う" ごと次行へ追い出す。
+        // 追い出し後の "う。え"(=6桁) は収まるので再分割は起きない。
+        => Assert.Equal("あい\nう。え", Start("あいう。え", 6, "。"));
+
+    [Fact]
+    public void LineStart_kinsoku_skips_when_previous_also_forbidden()
+        // 直前も禁則文字(。)なら処理しない＝幾何位置で折る（違反許容・連鎖防止）
+        => Assert.Equal("あ。\n。い", Start("あ。。い", 4, "。"));
 }

@@ -22,6 +22,7 @@ public sealed class GrepDialog : Form
     private readonly Button _stop = new() { Text = "中止(&T)", AutoSize = true, Enabled = false };
     private readonly Button _close = new() { Text = "閉じる(&X)", AutoSize = true };
     private readonly Label _status = new() { AutoSize = true, Text = "", AccessibleName = "状態" };
+    private readonly IAnnouncer _announcer;
 
     public GrepDialog(GrepController controller)
     {
@@ -35,6 +36,7 @@ public sealed class GrepDialog : Form
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
 
         BuildLayout();
+        _announcer = AnnouncerFactory.Create(_status);
 
         _browse.Click += (_, _) => BrowseFolder();
         _run.Click += (_, _) => _controller.Run();
@@ -66,8 +68,8 @@ public sealed class GrepDialog : Form
 
     public void SetStatus(string text) => _status.Text = text;
 
-    /// <summary>ステータス Label の UIA プロバイダから通知を上げて SR に読ませる（共通実装は SrNotify）。</summary>
-    public void RaiseNotification(string message) => SrNotify.Raise(_status, message);
+    /// <summary>ステータス Label を視覚表示しつつ SR 別手段で読ませる。</summary>
+    public void RaiseNotification(string message) => _announcer.Say(message);
 
     private void BrowseFolder()
     {

@@ -43,7 +43,11 @@ public sealed class CsvController
         var f = csv.GetField(tr, tc);
         if (f is null) { _announcer.Say(CsvAnnounceFormatter.CannotMove); return; }
 
-        ed.SelectCharRange(f.Start, f.Length);
+        // 文字列選択はしない（Ctrl+Shift+矢印で選択が走らないようにする）。
+        // 現在セルはインジケータで視覚ハイライトし、キャレットはセル先頭へ。
+        // セル値の読み上げは選択ではなく Announcer が担う。
+        ed.HighlightCharRange(f.Start, f.Length);
+        ed.MoveCaretCharOffset(f.Start);
         ed.Focus();
         _announcer.Say(CsvAnnounceFormatter.Cell(f.Value, tr + 1, tc + 1));
     }
@@ -69,6 +73,7 @@ public sealed class CsvController
         var doc = _docs.Active;
         if (doc is null) return;
         doc.State.CsvMode = !doc.State.CsvMode;
+        if (!doc.State.CsvMode) doc.Editor.ClearHighlight(); // OFF にしたらセルハイライトを消す
         _announcer.Say(doc.State.CsvMode ? CsvAnnounceFormatter.ModeOn : CsvAnnounceFormatter.ModeOff);
     }
 

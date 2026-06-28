@@ -42,4 +42,14 @@ internal static class Sci
     public const int SCI_GETMARGINWIDTHN = 2243;  // (margin) → 当該マージン幅(px)
     public const int SCI_TEXTWIDTH = 2276;        // (style, const char* utf8) → 文字列のピクセル幅
     public const int STYLE_DEFAULT = 32;
+
+    // インジケータ（CSV 現在セルの視覚ハイライト等。テキスト選択とは独立した装飾）。
+    public const int SCI_INDICSETSTYLE = 2080;        // (indicator, style)
+    public const int SCI_INDICSETFORE = 2082;         // (indicator, colour 0x00BBGGRR)
+    public const int SCI_INDICSETALPHA = 2523;        // (indicator, alpha 0-255) 塗りの不透明度
+    public const int SCI_INDICSETOUTLINEALPHA = 2558; // (indicator, alpha 0-255) 枠線の不透明度
+    public const int SCI_SETINDICATORCURRENT = 2500;  // (indicator) 以降の FILL/CLEAR の対象
+    public const int SCI_INDICATORFILLRANGE = 2504;   // (bytePos, byteLen) 現インジケータで塗る
+    public const int SCI_INDICATORCLEARRANGE = 2505;  // (bytePos, byteLen) 現インジケータを消す
+    public const int INDIC_STRAIGHTBOX = 8;           // 半透明の塗り＋矩形枠
 }

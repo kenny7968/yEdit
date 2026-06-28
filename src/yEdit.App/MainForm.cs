@@ -647,6 +647,7 @@ public sealed partial class MainForm : Form
         doc.State.CsvMode = CsvFile.IsCsvPath(doc.State.Path)
             && CsvParser.Parse(doc.Editor.SnapshotText).Ok;
         if (doc.State.CsvMode && !was) _announcer.Say(CsvAnnounceFormatter.ModeOn);
+        if (!doc.State.CsvMode && was) doc.Editor.ClearHighlight(); // OFF へ転じたらセルハイライトを消す
     }
 
     /// <summary>doc.State.LineEnding をそのエディタの EOL モードへ反映する。</summary>

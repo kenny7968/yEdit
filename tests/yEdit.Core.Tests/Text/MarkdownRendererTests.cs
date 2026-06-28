@@ -43,5 +43,21 @@ public class MarkdownRendererTests
 
     [Fact]
     public void Null_markdown_does_not_throw()
-        => Assert.Contains("<html", MarkdownRenderer.Render(null!, Base));
+        => Assert.Contains("<html", MarkdownRenderer.Render(null, Base));
+
+    [Fact]
+    public void Empty_base_href_omits_base_tag()
+        => Assert.DoesNotContain("<base", MarkdownRenderer.Render("x", ""));
+
+    [Fact]
+    public void Base_href_is_attribute_escaped()
+        => Assert.Contains("<base href=\"a&amp;b&quot;c\">", MarkdownRenderer.Render("x", "a&b\"c"));
+
+    [Fact]
+    public void Document_includes_csp_blocking_scripts()
+    {
+        string html = MarkdownRenderer.Render("x", Base);
+        Assert.Contains("Content-Security-Policy", html);
+        Assert.Contains("default-src 'none'", html);
+    }
 }

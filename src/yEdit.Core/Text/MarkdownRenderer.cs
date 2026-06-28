@@ -13,7 +13,7 @@ public static class MarkdownRenderer
     /// markdown を HTML 化し、&lt;base href&gt;・charset・読みやすい CSS を備えた
     /// 完結した HTML 文書文字列を返す。baseHref は相対リソース解決の基準 URL。
     /// </summary>
-    public static string Render(string markdown, string baseHref)
+    public static string Render(string? markdown, string baseHref)
     {
         string body = Markdown.ToHtml(markdown ?? string.Empty, Pipeline);
         string baseTag = string.IsNullOrEmpty(baseHref)
@@ -24,6 +24,7 @@ public static class MarkdownRenderer
             <html lang="ja">
             <head>
             <meta charset="utf-8">
+            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://yedit.preview data:; media-src https://yedit.preview; style-src 'unsafe-inline' https://yedit.preview; font-src https://yedit.preview data:;">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             {{baseTag}}
             <style>{{Css}}</style>

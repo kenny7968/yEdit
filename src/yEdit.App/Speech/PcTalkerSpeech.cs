@@ -6,9 +6,9 @@ namespace yEdit.App.Speech;
 /// PC-Talker（高知システム開発／AOK）への直接発声。共有DLL PCTKUsr.dll（PC-Talker本体が System32 に導入）の
 /// ネイティブ関数を遅延束縛で呼ぶ。同梱不要。
 /// - 稼働判定: PCTKStatus()（PC-Talker稼働中=非0、停止中=0）。ブランド・バージョン非依存。
-/// - 発話: 既定 PCTKPReadW(text, 1, 1)（priority=1 割り込み・analyze=1）。yEdit 実行時の文脈で
-///   priority=0（キュー）が埋もれ無音化したため割り込みを既定にする。実機で無音なら Speak() の
-///   呼び出し行のみを差し替えて再検証する（下記コメント参照）。
+/// - 発話: 既定 PCTKPReadW(text, 1, 1)（priority=1 割り込み・analyze=1）。yEdit 内で無音になる根本原因は
+///   未確定だが、実行時の文脈で priority=0（キュー）が埋もれ無音化する可能性が高いという仮説に基づき
+///   割り込みを既定として採用。実機で無音なら Speak() の呼び出し行のみを差し替えて再検証する（下記コメント参照）。
 /// 非PC-Talker機ではDLL/関数が見つからず IsRunning=false・Speak=false（→ 呼び出し側が UIA へ退避）。
 /// 静的 [DllImport("PCTKUsr.dll")] は非PC-Talker機で DllNotFoundException を誘発し得るため避け、LoadLibrary/GetProcAddress を使う。
 /// </summary>

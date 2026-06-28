@@ -11,7 +11,7 @@ namespace yEdit.App;
 public sealed class MarkdownPreviewForm : Form
 {
     private const string VirtualHost = "yedit.preview";
-    private readonly WebView2 _web = new() { Dock = DockStyle.Fill };
+    private readonly WebView2 _web = new() { Dock = DockStyle.Fill, AccessibleName = "プレビュー" };
     private readonly Button _close = new()
     {
         Text = "閉じる(&C)", AccessibleName = "閉じる", Left = 6, Top = 6, Width = 100, Height = 26,
@@ -29,7 +29,6 @@ public sealed class MarkdownPreviewForm : Form
         Height = 700;
         StartPosition = FormStartPosition.CenterParent;
         ShowInTaskbar = false;
-        KeyPreview = true;
         CancelButton = _close; // ボタン/フォーム側フォーカス時の Esc を担保
 
         var top = new Panel { Dock = DockStyle.Top, Height = 38 };
@@ -55,7 +54,9 @@ public sealed class MarkdownPreviewForm : Form
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "yEdit", "WebView2");
             var env = await CoreWebView2Environment.CreateAsync(userDataFolder: userData);
+            if (IsDisposed || Disposing) return;
             await _web.EnsureCoreWebView2Async(env);
+            if (IsDisposed || Disposing) return;
 
             var core = _web.CoreWebView2;
 
@@ -72,21 +73,27 @@ public sealed class MarkdownPreviewForm : Form
 
             // WebView2 にフォーカスがある時の Esc を JS 経由で拾って閉じる。
             // このスクリプトは CDP 経由で注入されページ CSP の影響を受けずに実行される。
-            core.WebMessageReceived += (_, _) => Close();
+            core.WebMessageReceived += (_, e) =>
+            {
+                if (e.TryGetWebMessageAsString() == "close") Close();
+            };
             await core.AddScriptToExecuteOnDocumentCreatedAsync(
                 "document.addEventListener('keydown', e => {" +
                 " if (e.key === 'Escape') window.chrome.webview.postMessage('close'); });");
+            if (IsDisposed || Disposing) return;
 
             core.NavigateToString(_html);
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this,
-                "マークダウンプレビューには Microsoft Edge WebView2 ランタイムが必要です。\n" +
-                "インストール後に再度お試しください。\n\n" +
-                $"詳細: {ex.Message}",
+            if (IsDisposed || Disposing) return; // フォーム破棄後（初期化中に閉じられた等）は何もしない
+            string head = ex is WebView2RuntimeNotFoundException
+                ? "マークダウンプレビューには Microsoft Edge WebView2 ランタイムが必要です。\n" +
+                  "インストール後に再度お試しください。"
+                : "マークダウンプレビューを表示できませんでした。";
+            MessageBox.Show(this, $"{head}\n\n詳細: {ex.Message}",
                 "プレビューを表示できません", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            Close();
+            if (!IsDisposed) Close();
         }
     }
 }

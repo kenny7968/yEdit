@@ -340,7 +340,7 @@ public sealed partial class MainForm : Form
 
     private void OpenFile()
     {
-        using var dlg = new OpenFileDialog { Filter = "テキスト ファイル (*.txt)|*.txt|マークダウン ファイル (*.md)|*.md|すべてのファイル (*.*)|*.*" };
+        using var dlg = new OpenFileDialog { Filter = "対応ファイル (*.txt, *.md, *.csv)|*.txt;*.md;*.csv|すべてのファイル (*.*)|*.*" };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
         OpenExistingPath(dlg.FileName);
     }
@@ -634,7 +634,7 @@ public sealed partial class MainForm : Form
     /// <summary>指定ドキュメントを名前を付けて保存。成功で State.Path とラベルを更新する。</summary>
     private bool SaveAsDocument(Document doc)
     {
-        using var dlg = new SaveFileDialog { Filter = "テキスト ファイル (*.txt)|*.txt|マークダウン ファイル (*.md)|*.md|すべてのファイル (*.*)|*.*" };
+        using var dlg = new SaveFileDialog { Filter = "テキスト ファイル (*.txt)|*.txt|マークダウン ファイル (*.md)|*.md|CSV ファイル (*.csv)|*.csv|すべてのファイル (*.*)|*.*" };
         if (doc.State.Path is not null) dlg.FileName = System.IO.Path.GetFileName(doc.State.Path);
         if (dlg.ShowDialog(this) != DialogResult.OK) return false;
         if (!WriteToPath(doc, dlg.FileName)) return false;

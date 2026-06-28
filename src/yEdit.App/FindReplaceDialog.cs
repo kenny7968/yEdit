@@ -21,6 +21,7 @@ public sealed class FindReplaceDialog : Form
     private readonly Button _replaceAll = new() { Text = "すべて置換(&A)", AutoSize = true };
     private readonly Button _close = new() { Text = "閉じる(&X)", AutoSize = true };
     private readonly Label _status = new() { AutoSize = true, Text = "" };
+    private readonly IAnnouncer _announcer;
 
     public FindReplaceDialog(SearchController controller)
     {
@@ -34,6 +35,7 @@ public sealed class FindReplaceDialog : Form
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
 
         BuildLayout();
+        _announcer = AnnouncerFactory.Create(_status);
 
         _next.Click += (_, _) => _controller.FindNext();
         _prev.Click += (_, _) => _controller.FindPrev();
@@ -68,8 +70,8 @@ public sealed class FindReplaceDialog : Form
 
     public void SetStatus(string text) => _status.Text = text;
 
-    /// <summary>ステータス Label の UIA プロバイダから通知を上げて SR に読ませる（共通実装は SrNotify）。</summary>
-    public void RaiseNotification(string message) => SrNotify.Raise(_status, message);
+    /// <summary>ステータス Label を視覚表示しつつ SR 別手段で読ませる。</summary>
+    public void RaiseNotification(string message) => _announcer.Say(message);
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {

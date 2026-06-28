@@ -25,7 +25,7 @@ public sealed partial class MainForm : Form
         Dock = DockStyle.Bottom, Height = 22, AutoSize = false,
         TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "通知",
     };
-    private Announcer _announcer = null!; // コンストラクタで生成
+    private IAnnouncer _announcer = null!; // AnnouncerFactory で生成（起動時モード確定）
     private ToolStripMenuItem _recentMenu = null!; // BuildMenu で生成
     private const int MaxRecent = 10;
     private readonly string _settingsPath = SettingsStore.DefaultPath;
@@ -49,7 +49,7 @@ public sealed partial class MainForm : Form
         _grep = new GrepController(_docs, this,
             hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength));
         _backup = new BackupCoordinator(_docs, _settings.BackupEnabled, _settings.BackupIntervalSeconds);
-        _announcer = new Announcer(_announceLabel);
+        _announcer = AnnouncerFactory.Create(_announceLabel);
         _csv = new CsvController(_docs, _announcer);
 
         var menu = BuildMenu();

@@ -10,9 +10,9 @@ namespace yEdit.App;
 public sealed class CsvController
 {
     private readonly DocumentManager _docs;
-    private readonly Announcer _announcer;
+    private readonly IAnnouncer _announcer;
 
-    public CsvController(DocumentManager docs, Announcer announcer)
+    public CsvController(DocumentManager docs, IAnnouncer announcer)
     {
         _docs = docs;
         _announcer = announcer;

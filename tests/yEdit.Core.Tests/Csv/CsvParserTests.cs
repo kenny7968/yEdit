@@ -68,6 +68,17 @@ public class CsvParserTests
         Assert.Equal("b,\"c\"", d.Rows[0][1].Value);
         Assert.Equal("d", d.Rows[0][2].Value);
         Assert.Equal('"', "a,\"b,\"\"c\"\"\",d"[d.Rows[0][1].Start]);
+        // 生スパンは外側の引用符を含む丸ごとのトークン "b,""c""" を覆う（9文字）。
+        Assert.Equal(9, d.Rows[0][1].Length);
+    }
+
+    [Fact]
+    public void Crlf_advances_offset_by_two()
+    {
+        var d = CsvParser.Parse("a\r\nbb");
+        Assert.True(d.Ok);
+        Assert.Equal(2, d.Rows.Count);
+        Assert.Equal(3, d.Rows[1][0].Start);
     }
 
     [Fact]

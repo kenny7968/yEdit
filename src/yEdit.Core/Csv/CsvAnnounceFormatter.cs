@@ -11,6 +11,17 @@ public static class CsvAnnounceFormatter
     public static string Header(string value)
         => string.IsNullOrEmpty(value) ? "空" : value;
 
+    /// <summary>CSV モードをオンにしたときの読み上げ。</summary>
+    public const string ModeOn = "CSVモード オン";
+    /// <summary>CSV モードをオフにしたときの読み上げ。</summary>
+    public const string ModeOff = "CSVモード オフ";
+    /// <summary>オープン時に CSV として解析できず、テキストとして開いたときの読み上げ。</summary>
+    public const string OpenParseFailed = "CSVとして解析できませんでした。テキストとして開きます";
+    /// <summary>操作時に CSV として解析できないときの読み上げ。</summary>
+    public const string ParseError = "CSVとして解析できません";
+    /// <summary>移動先セルが取得できない異常時のフォールバック読み上げ。</summary>
+    public const string CannotMove = "移動できません";
+
     /// <summary>左端で左移動したときの読み上げ。</summary>
     public const string LeftEdge = "左端です";
     /// <summary>右端で右移動したときの読み上げ。</summary>

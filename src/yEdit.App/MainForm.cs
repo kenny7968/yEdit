@@ -617,8 +617,8 @@ public sealed partial class MainForm : Form
             if (CsvFile.IsCsvPath(path))
             {
                 var csv = CsvParser.Parse(loaded.Text);
-                if (csv.Ok) { doc.State.CsvMode = true; _announcer.Say("CSVモード オン"); }
-                else { _announcer.Say("CSVとして解析できませんでした。テキストとして開きます"); }
+                if (csv.Ok) { doc.State.CsvMode = true; _announcer.Say(CsvAnnounceFormatter.ModeOn); }
+                else { _announcer.Say(CsvAnnounceFormatter.OpenParseFailed); }
             }
 
             if (loaded.HadReplacementChar)

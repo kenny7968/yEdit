@@ -32,7 +32,7 @@ public sealed class CsvController
         if (ed is null) return;
 
         var csv = CsvParser.Parse(ed.SnapshotText);
-        if (!csv.Ok || csv.Rows.Count == 0) { _announcer.Say("CSVとして解析できません"); return; }
+        if (!csv.Ok || csv.Rows.Count == 0) { _announcer.Say(CsvAnnounceFormatter.ParseError); return; }
 
         var (row, col) = csv.FindCell(ed.CaretCharOffset);
         var target = csv.MoveCell(row, col, dir);
@@ -40,7 +40,7 @@ public sealed class CsvController
 
         var (tr, tc) = target.Value;
         var f = csv.GetField(tr, tc);
-        if (f is null) { _announcer.Say(EdgeMessage(dir)); return; }
+        if (f is null) { _announcer.Say(CsvAnnounceFormatter.CannotMove); return; }
 
         ed.SelectCharRange(f.Start, f.Length);
         ed.Focus();
@@ -54,11 +54,11 @@ public sealed class CsvController
         if (ed is null) return;
 
         var csv = CsvParser.Parse(ed.SnapshotText);
-        if (!csv.Ok || csv.Rows.Count == 0) { _announcer.Say("CSVとして解析できません"); return; }
+        if (!csv.Ok || csv.Rows.Count == 0) { _announcer.Say(CsvAnnounceFormatter.ParseError); return; }
 
         var (_, col) = csv.FindCell(ed.CaretCharOffset);
         var h = csv.Header(col);
-        _announcer.Say(h is null ? "空" : CsvAnnounceFormatter.Header(h.Value));
+        _announcer.Say(CsvAnnounceFormatter.Header(h?.Value ?? ""));
     }
 
     /// <summary>CSV モードを手動でトグルする（自動判定の救済・任意拡張子での利用）。</summary>
@@ -67,7 +67,7 @@ public sealed class CsvController
         var doc = _docs.Active;
         if (doc is null) return;
         doc.State.CsvMode = !doc.State.CsvMode;
-        _announcer.Say(doc.State.CsvMode ? "CSVモード オン" : "CSVモード オフ");
+        _announcer.Say(doc.State.CsvMode ? CsvAnnounceFormatter.ModeOn : CsvAnnounceFormatter.ModeOff);
     }
 
     private static string EdgeMessage(Direction dir) => dir switch

@@ -38,6 +38,10 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     private int _wrapColumns;       // 0 = 無効
     private bool _wrapSizeHooked;   // SizeChanged 二重購読防止
 
+    // ---- 範囲ハイライト（CSV 現在セル等。テキスト選択とは独立した装飾・単一アクティブ） ----
+    private const int CellIndicator = 8;   // INDICATOR_CONTAINER（0-7 はレキサ予約域を避ける）
+    private bool _cellIndicatorReady;      // スタイル初期化済みか（遅延設定）
+
     private readonly object _boundsSync = new();
     private WpfRect _bounds;
 
@@ -413,6 +417,53 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
         DirectMessage(Sci.SCI_SETSEL, (nint)bs, (nint)be);
         DirectMessage(Sci.SCI_SCROLLCARET);
         RefreshSelection();
+    }
+
+    /// <summary>
+    /// 選択を作らずキャレットだけ offset（UTF-16）へ移動する。
+    /// CSV セルナビ等、Shift 同時押しでも文字列選択を発生させたくない移動に使う
+    /// （長さ0の SCI_SETSEL = 空選択＝キャレットのみ）。
+    /// </summary>
+    public void MoveCaretCharOffset(int offset) => SelectCharRange(offset, 0);
+
+    /// <summary>
+    /// 文字オフセット範囲をインジケータで視覚ハイライトする（テキスト選択ではない・単一アクティブ）。
+    /// 直前のハイライトは全文からクリアしてから塗り直すため、常に1セルだけが強調される。
+    /// SR への読み上げは別経路（Announcer）が担うため、本装飾は晴眼/弱視向けの視覚手がかり専用。
+    /// </summary>
+    public void HighlightCharRange(int start, int length)
+    {
+        if (!IsHandleCreated || IsDisposed) return;
+        if (InvokeRequired) { BeginInvoke(new Action(() => HighlightCharRange(start, length))); return; }
+        EnsureCellIndicator();
+        DirectMessage(Sci.SCI_SETINDICATORCURRENT, (nint)CellIndicator);
+        int docLen = DirectMessage(Sci.SCI_GETLENGTH).ToInt32();
+        DirectMessage(Sci.SCI_INDICATORCLEARRANGE, (nint)0, (nint)docLen);
+        int bs = Utf16ToByte(SnapToCodepoint(Clamp16(start)));
+        int be = Utf16ToByte(SnapToCodepoint(Clamp16(start + length)));
+        if (be > bs) DirectMessage(Sci.SCI_INDICATORFILLRANGE, (nint)bs, (nint)(be - bs));
+    }
+
+    /// <summary>範囲ハイライトを全て消す（CSV モード解除時など）。</summary>
+    public void ClearHighlight()
+    {
+        if (!IsHandleCreated || IsDisposed) return;
+        if (InvokeRequired) { BeginInvoke(new Action(ClearHighlight)); return; }
+        if (!_cellIndicatorReady) return; // 一度も塗っていなければ何もしない
+        DirectMessage(Sci.SCI_SETINDICATORCURRENT, (nint)CellIndicator);
+        int docLen = DirectMessage(Sci.SCI_GETLENGTH).ToInt32();
+        DirectMessage(Sci.SCI_INDICATORCLEARRANGE, (nint)0, (nint)docLen);
+    }
+
+    /// <summary>セルハイライト用インジケータのスタイルを一度だけ設定する（半透明の青枠）。</summary>
+    private void EnsureCellIndicator()
+    {
+        if (_cellIndicatorReady) return;
+        DirectMessage(Sci.SCI_INDICSETSTYLE, (nint)CellIndicator, (nint)Sci.INDIC_STRAIGHTBOX);
+        DirectMessage(Sci.SCI_INDICSETFORE, (nint)CellIndicator, (nint)0x00D77800); // 0x00BBGGRR = RGB(0,120,215)
+        DirectMessage(Sci.SCI_INDICSETALPHA, (nint)CellIndicator, (nint)60);          // 塗りは薄く（本文可読性維持）
+        DirectMessage(Sci.SCI_INDICSETOUTLINEALPHA, (nint)CellIndicator, (nint)255);  // 枠線ははっきり
+        _cellIndicatorReady = true;
     }
 
     /// <summary>文字オフセット範囲を replacement で置換する（SCI_REPLACETARGET = 1 アンドゥ）。</summary>

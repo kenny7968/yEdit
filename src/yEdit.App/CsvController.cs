@@ -32,8 +32,9 @@ public sealed class CsvController
         if (ed is null) return;
 
         var csv = CsvParser.Parse(ed.SnapshotText);
-        if (!csv.Ok) { _announcer.Say(CsvAnnounceFormatter.ParseError); return; }
-        if (csv.Rows.Count == 0) { _announcer.Say(CsvAnnounceFormatter.NoData); return; }
+        // 有効なセルが無い状態では古い枠を残さない（視覚状態を読み上げと一致させる）。
+        if (!csv.Ok) { ed.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.ParseError); return; }
+        if (csv.Rows.Count == 0) { ed.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.NoData); return; }
 
         var (row, col) = csv.FindCell(ed.CaretCharOffset);
         var target = csv.MoveCell(row, col, dir);
@@ -43,7 +44,11 @@ public sealed class CsvController
         var f = csv.GetField(tr, tc);
         if (f is null) { _announcer.Say(CsvAnnounceFormatter.CannotMove); return; }
 
-        ed.SelectCharRange(f.Start, f.Length);
+        // 文字列選択はしない（Ctrl+Shift+矢印で選択が走らないようにする）。
+        // 現在セルはインジケータで視覚ハイライトし、キャレットはセル先頭へ。
+        // セル値の読み上げは選択ではなく Announcer が担う。
+        ed.HighlightCharRange(f.Start, f.Length);
+        ed.MoveCaretCharOffset(f.Start);
         ed.Focus();
         _announcer.Say(CsvAnnounceFormatter.Cell(f.Value, tr + 1, tc + 1));
     }
@@ -69,6 +74,7 @@ public sealed class CsvController
         var doc = _docs.Active;
         if (doc is null) return;
         doc.State.CsvMode = !doc.State.CsvMode;
+        if (!doc.State.CsvMode) doc.Editor.ClearHighlight(); // OFF にしたらセルハイライトを消す
         _announcer.Say(doc.State.CsvMode ? CsvAnnounceFormatter.ModeOn : CsvAnnounceFormatter.ModeOff);
     }
 

@@ -125,4 +125,37 @@ public class SettingsStoreTests
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
+
+    [Fact]
+    public void Load_restores_default_kinsoku_when_null()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            File.WriteAllText(path,
+                "{\"KinsokuLineStartChars\":null,\"KinsokuLineEndChars\":null,\"KinsokuHangChars\":null}");
+            var s = SettingsStore.Load(path);
+            var def = new AppSettings();
+            Assert.Equal(def.KinsokuLineStartChars, s.KinsokuLineStartChars);  // null→既定
+            Assert.Equal(def.KinsokuLineEndChars, s.KinsokuLineEndChars);
+            Assert.Equal(def.KinsokuHangChars, s.KinsokuHangChars);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public void Load_preserves_empty_kinsoku_as_disabled()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            File.WriteAllText(path,
+                "{\"KinsokuLineStartChars\":\"\",\"KinsokuLineEndChars\":\"\",\"KinsokuHangChars\":\"\"}");
+            var s = SettingsStore.Load(path);
+            Assert.Equal("", s.KinsokuLineStartChars);  // 空文字＝そのルール無効。保持する
+            Assert.Equal("", s.KinsokuLineEndChars);
+            Assert.Equal("", s.KinsokuHangChars);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
 }

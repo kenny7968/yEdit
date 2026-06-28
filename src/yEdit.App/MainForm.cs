@@ -509,7 +509,9 @@ public sealed partial class MainForm : Form
 
         if (formatted == target) { _announcer.Say("変更なし"); return; }
         ed.ReplaceCharRange(start, len, formatted);   // SCI_REPLACETARGET = 1 アンドゥ
-        ed.SelectCharRange(start, formatted.Length);  // 変化箇所を選択して提示
+        // 部分選択なら変化箇所を選択して提示。全文整形では全選択を避け、先頭へキャレットを置く。
+        if (whole) ed.SelectCharRange(0, 0);
+        else ed.SelectCharRange(start, formatted.Length);
         ed.Focus();
         _announcer.Say("整形しました");
     }

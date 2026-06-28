@@ -11,8 +11,12 @@ public static class CsvAnnounceFormatter
     public static string Header(string value)
         => string.IsNullOrEmpty(value) ? "空" : value;
 
+    /// <summary>左端で左移動したときの読み上げ。</summary>
     public const string LeftEdge = "左端です";
+    /// <summary>右端で右移動したときの読み上げ。</summary>
     public const string RightEdge = "右端です";
+    /// <summary>先頭行で上移動したときの読み上げ。</summary>
     public const string TopEdge = "先頭行です";
+    /// <summary>最終行で下移動したときの読み上げ。</summary>
     public const string BottomEdge = "最終行です";
 }

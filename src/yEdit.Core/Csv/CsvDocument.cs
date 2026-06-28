@@ -35,26 +35,25 @@ public sealed partial class CsvDocument
         return found ? best : (0, 0);
     }
 
-    /// <summary>row,col から方向 dir に1セル移動した座標。端で動けなければ null。上下移動は列数不足の行で末尾列にクランプ。</summary>
+    /// <summary>row,col から方向 dir に1セル移動した座標。範囲外・端で動けなければ null。上下移動は列数不足の行で末尾列にクランプ。</summary>
     public (int row, int col)? MoveCell(int row, int col, Direction dir)
     {
-        switch (dir)
+        if (row < 0 || row >= Rows.Count) return null;
+        if (col < 0 || col >= Rows[row].Count) return null;
+        return dir switch
         {
-            case Direction.Left:
-                return col > 0 ? (row, col - 1) : null;
-            case Direction.Right:
-                return col < Rows[row].Count - 1 ? (row, col + 1) : ((int, int)?)null;
-            case Direction.Up:
-                return row > 0 ? (row - 1, ClampCol(row - 1, col)) : ((int, int)?)null;
-            case Direction.Down:
-                return row < Rows.Count - 1 ? (row + 1, ClampCol(row + 1, col)) : ((int, int)?)null;
-        }
-        return null;
+            Direction.Left => col > 0 ? (row, col - 1) : null,
+            Direction.Right => col < Rows[row].Count - 1 ? (row, col + 1) : null,
+            Direction.Up => row > 0 ? (row - 1, ClampCol(row - 1, col)) : null,
+            Direction.Down => row < Rows.Count - 1 ? (row + 1, ClampCol(row + 1, col)) : null,
+            _ => null,
+        };
     }
 
     private int ClampCol(int row, int col)
     {
         int last = Rows[row].Count - 1;
+        if (last < 0) return 0;   // 空行（Parser は生成しないが、手組み CsvDocument 対策）
         return col > last ? last : col;
     }
 

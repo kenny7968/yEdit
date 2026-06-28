@@ -5,6 +5,12 @@ namespace yEdit.Core.Text;
 /// <summary>マークダウン本文を、プレビュー表示用の完結した HTML 文書へ変換する。</summary>
 public static class MarkdownRenderer
 {
+    /// <summary>プレビュー用の仮想ホスト名（相対リソース解決の基準。App 側のマッピングと一致させる）。</summary>
+    public const string PreviewVirtualHost = "yedit.preview";
+
+    /// <summary>プレビュー HTML の base href（PreviewVirtualHost への https URL）。</summary>
+    public const string PreviewBaseHref = "https://" + PreviewVirtualHost + "/";
+
     // CommonMark + GFM 拡張（表・チェックリスト・自動リンク等）。スレッドセーフなので使い回す。
     private static readonly MarkdownPipeline Pipeline =
         new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
@@ -24,7 +30,7 @@ public static class MarkdownRenderer
             <html lang="ja">
             <head>
             <meta charset="utf-8">
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://yedit.preview data:; media-src https://yedit.preview; style-src 'unsafe-inline' https://yedit.preview; font-src https://yedit.preview data:;">
+            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://{{PreviewVirtualHost}} data:; media-src https://{{PreviewVirtualHost}}; style-src 'unsafe-inline' https://{{PreviewVirtualHost}}; font-src https://{{PreviewVirtualHost}} data:;">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             {{baseTag}}
             <style>{{Css}}</style>

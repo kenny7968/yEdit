@@ -503,7 +503,7 @@ public sealed partial class MainForm : Form
 
         string markdown = doc.Editor.SnapshotText;            // 編集中バッファ（未保存も反映）
         string? dir = System.IO.Path.GetDirectoryName(doc.State.Path);
-        string html = MarkdownRenderer.Render(markdown, "https://yedit.preview/");
+        string html = MarkdownRenderer.Render(markdown, MarkdownRenderer.PreviewBaseHref);
 
         using var f = new MarkdownPreviewForm(html, dir, doc.State.DisplayName);
         f.ShowDialog(this);

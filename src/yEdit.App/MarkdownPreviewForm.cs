@@ -1,5 +1,6 @@
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using yEdit.Core.Text;
 
 namespace yEdit.App;
 
@@ -10,7 +11,6 @@ namespace yEdit.App;
 /// </summary>
 public sealed class MarkdownPreviewForm : Form
 {
-    private const string VirtualHost = "yedit.preview";
     private readonly WebView2 _web = new() { Dock = DockStyle.Fill, AccessibleName = "プレビュー" };
     private readonly Button _close = new()
     {
@@ -64,7 +64,7 @@ public sealed class MarkdownPreviewForm : Form
             if (!string.IsNullOrEmpty(_baseDir) && System.IO.Directory.Exists(_baseDir))
             {
                 core.SetVirtualHostNameToFolderMapping(
-                    VirtualHost, _baseDir, CoreWebView2HostResourceAccessKind.Allow);
+                    MarkdownRenderer.PreviewVirtualHost, _baseDir, CoreWebView2HostResourceAccessKind.Allow);
             }
 
             // ローカル閲覧用途のため不要機能を抑止。

@@ -21,6 +21,7 @@ public static class KinsokuFormatter
         string eol, int tabWidth = 8)
     {
         if (string.IsNullOrEmpty(text) || columns <= 0) return text;
+        if (tabWidth <= 0) tabWidth = 8;   // 公開API防御: width % tabWidth のゼロ除算/負値を防ぐ
 
         var lineStart = ToSet(lineStartChars);
         var lineEnd = ToSet(lineEndChars);
@@ -93,7 +94,7 @@ public static class KinsokuFormatter
     /// <summary>行頭禁則(追い出し)・行末禁則で cut を上限付きに戻す。隣も禁則/空行化なら処理せず違反許容。</summary>
     private static int AdjustForKinsoku(List<Cell> cells, int startCell, int cut, HashSet<int> lineStart, HashSet<int> lineEnd)
     {
-        const int maxPush = 8;
+        const int maxPush = 8;   // 戻し回数の上限。通常は連鎖ガードで早く止まる。超えたら違反を許容して幾何位置で折る。
         for (int g = 0; g < maxPush; g++)
         {
             bool startBad = cut < cells.Count && lineStart.Contains(cells[cut].Cp);

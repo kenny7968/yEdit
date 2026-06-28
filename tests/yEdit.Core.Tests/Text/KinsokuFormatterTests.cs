@@ -51,4 +51,19 @@ public class KinsokuFormatterTests
     public void Oversized_single_char_still_progresses()
         // columns=1 でも全角1文字は1行に出して前進（無限ループしない）
         => Assert.Equal("あ\nい", Wrap("あい", 1));
+
+    [Fact]
+    public void Tab_expands_to_tabwidth_and_wraps()
+        // tabWidth=8: 行頭タブで8桁に達し、続く "x" は次行へ折れる
+        => Assert.Equal("\t\nx", Wrap("\tx", 8));
+
+    [Fact]
+    public void Lf_terminator_roundtrip_only_long_line_splits()
+        // 既存の \n は保持。短行 "ab" は無変更、長行 "cdef" のみ2桁で分割
+        => Assert.Equal("ab\ncd\nef", Wrap("ab\ncdef", 2));
+
+    [Fact]
+    public void Cr_terminator_preserved_and_inserts_given_eol()
+        // 既存の \r 終端は保持し、挿入改行は eol(="\n")。長行 "cde" は2桁で分割
+        => Assert.Equal("ab\rcd\ne", Wrap("ab\rcde", 2));
 }

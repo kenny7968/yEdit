@@ -2,18 +2,15 @@ namespace yEdit.App.Speech;
 
 /// <summary>
 /// PC-Talker 直叩きで発声する Announcer（起動時に PC-Talker 稼働＆NVDA非稼働で選択）。
-/// 視覚表示（label.Text）は無条件。発声のハード失敗（false/例外）時のみ UIA 通知へ退避する
-/// （無音は false にならないため audibility フォールバックではない）。
+/// 空ガード・視覚表示は <see cref="AnnouncerBase"/> が担う。発声のハード失敗（false/例外）時のみ
+/// UIA 通知へ退避する（無音は false にならないため audibility フォールバックではない）。
 /// </summary>
-internal sealed class PcTalkerAnnouncer : IAnnouncer
+internal sealed class PcTalkerAnnouncer : AnnouncerBase
 {
-    private readonly Label _label;
-    public PcTalkerAnnouncer(Label label) => _label = label;
+    public PcTalkerAnnouncer(Label label) : base(label) { }
 
-    public void Say(string message)
+    protected override void Speak(string message)
     {
-        if (string.IsNullOrEmpty(message)) return;
-        _label.Text = message; // 視覚フィードバックは無条件
         if (!PcTalkerSpeech.Speak(message))
             UiaAnnouncer.Raise(_label, message); // ハード失敗時のみ退避
     }

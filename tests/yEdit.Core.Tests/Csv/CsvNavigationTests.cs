@@ -31,4 +31,41 @@ public class CsvNavigationTests
     [Fact]
     public void FindCell_empty_doc_returns_origin()
         => Assert.Equal((0, 0), Doc("").FindCell(0));
+
+    [Fact]
+    public void MoveCell_left_right_within_row()
+    {
+        var d = Doc("a,b,c");
+        Assert.Equal((0, 0), d.MoveCell(0, 1, Direction.Left));
+        Assert.Equal((0, 2), d.MoveCell(0, 1, Direction.Right));
+        Assert.Null(d.MoveCell(0, 0, Direction.Left));    // 左端
+        Assert.Null(d.MoveCell(0, 2, Direction.Right));   // 右端
+    }
+
+    [Fact]
+    public void MoveCell_up_down_between_rows()
+    {
+        var d = Doc("a,b\nc,d\ne,f");
+        Assert.Equal((0, 1), d.MoveCell(1, 1, Direction.Up));
+        Assert.Equal((2, 1), d.MoveCell(1, 1, Direction.Down));
+        Assert.Null(d.MoveCell(0, 0, Direction.Up));      // 先頭行
+        Assert.Null(d.MoveCell(2, 0, Direction.Down));    // 最終行
+    }
+
+    [Fact]
+    public void MoveCell_down_clamps_to_last_col_on_ragged_row()
+    {
+        var d = Doc("a,b,c\nx");        // 2行目は1列
+        Assert.Equal((1, 0), d.MoveCell(0, 2, Direction.Down));
+    }
+
+    [Fact]
+    public void GetField_and_Header()
+    {
+        var d = Doc("name,age\ntaro,20");
+        Assert.Equal("20", d.GetField(1, 1)!.Value);
+        Assert.Null(d.GetField(5, 0));
+        Assert.Equal("age", d.Header(1)!.Value);
+        Assert.Null(d.Header(9));
+    }
 }

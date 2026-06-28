@@ -98,4 +98,31 @@ public class SettingsStoreTests
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
+
+    [Fact]
+    public void Defaults_kinsoku_sets_are_conservative_symbols()
+    {
+        var def = new AppSettings();
+        Assert.Contains("、", def.KinsokuLineStartChars);
+        Assert.Contains("）", def.KinsokuLineStartChars);
+        Assert.DoesNotContain("ー", def.KinsokuLineStartChars);   // 長音は既定で入れない
+        Assert.Contains("（", def.KinsokuLineEndChars);
+        Assert.Equal("、。，．", def.KinsokuHangChars);
+    }
+
+    [Fact]
+    public void Save_then_load_roundtrips_kinsoku_settings()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            var s = new AppSettings { KinsokuLineStartChars = ")】", KinsokuLineEndChars = "(【", KinsokuHangChars = "。" };
+            SettingsStore.Save(path, s);
+            var loaded = SettingsStore.Load(path);
+            Assert.Equal(")】", loaded.KinsokuLineStartChars);
+            Assert.Equal("(【", loaded.KinsokuLineEndChars);
+            Assert.Equal("。", loaded.KinsokuHangChars);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
 }

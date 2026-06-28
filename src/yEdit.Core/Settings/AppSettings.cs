@@ -25,6 +25,13 @@ public sealed class AppSettings
     /// <summary>表示折り返しの桁数（半角換算・全角=2桁）。既定80・範囲10〜1000。</summary>
     public int WrapColumn { get; set; } = 80;
 
+    /// <summary>行頭に来てはいけない文字（追い出し対象）。空で無効。</summary>
+    public string KinsokuLineStartChars { get; set; } = ")]}）］｝〕〉》」』】〗〙、。，．・：；！？";
+    /// <summary>行末に来てはいけない文字（開き括弧。次行へ送る）。空で無効。</summary>
+    public string KinsokuLineEndChars { get; set; } = "([{（［｛〔〈《「『【〖〘";
+    /// <summary>行末にぶら下げ可能な文字（句読点）。空で無効。</summary>
+    public string KinsokuHangChars { get; set; } = "、。，．";
+
     /// <summary>最近開いたファイル（先頭が最新）。</summary>
     public List<string> RecentFiles { get; set; } = new();
 }

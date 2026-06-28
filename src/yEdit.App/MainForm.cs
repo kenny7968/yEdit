@@ -1,4 +1,5 @@
 using yEdit.Core.Backup;
+using yEdit.Core.Csv;
 using yEdit.Core.Reading;
 using yEdit.Core.Search;
 using yEdit.Core.Settings;
@@ -13,6 +14,7 @@ public sealed partial class MainForm : Form
     private SearchController _search = null!; // コンストラクタで生成
     private GrepController _grep = null!;     // コンストラクタで生成
     private BackupCoordinator _backup = null!; // コンストラクタで生成
+    private CsvController _csv = null!;        // コンストラクタで生成
     private bool _restoreOffered;             // 起動時の復元提案を一度だけ行う
     private readonly ToolStripStatusLabel _posLabel = new("行 1, 桁 1");
     private readonly ToolStripStatusLabel _encLabel = new("UTF-8");
@@ -48,6 +50,7 @@ public sealed partial class MainForm : Form
             hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength));
         _backup = new BackupCoordinator(_docs, _settings.BackupEnabled, _settings.BackupIntervalSeconds);
         _announcer = new Announcer(_announceLabel);
+        _csv = new CsvController(_docs, _announcer);
 
         var menu = BuildMenu();
         var status = BuildStatusBar();
@@ -162,6 +165,20 @@ public sealed partial class MainForm : Form
     // フォームの ProcessCmdKey で横取りする。Ctrl+W はメニューのショートカットで処理。
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        // CSV モードのアクティブタブのみ Ctrl+Shift+矢印 / Ctrl+Shift+C を横取り。
+        // OFF の時はこのブロックを素通りし、通常の Scintilla 挙動を温存する。
+        if (_docs.Active?.State.CsvMode == true)
+        {
+            switch (keyData)
+            {
+                case Keys.Control | Keys.Shift | Keys.Up: _csv.Move(Direction.Up); return true;
+                case Keys.Control | Keys.Shift | Keys.Down: _csv.Move(Direction.Down); return true;
+                case Keys.Control | Keys.Shift | Keys.Left: _csv.Move(Direction.Left); return true;
+                case Keys.Control | Keys.Shift | Keys.Right: _csv.Move(Direction.Right); return true;
+                case Keys.Control | Keys.Shift | Keys.C: _csv.ReadColumnHeader(); return true;
+            }
+        }
+
         switch (keyData)
         {
             case Keys.Control | Keys.Tab: _docs.SelectNext(+1); return true;
@@ -250,11 +267,34 @@ public sealed partial class MainForm : Form
         md.DropDownOpening += (_, _) =>
             mdPreview.Enabled = MarkdownFile.IsMarkdownPath(_docs.Active?.State.Path);
 
+        var csv = new ToolStripMenuItem("CSV(&C)");
+        var csvToggle = new ToolStripMenuItem("CSVモード切替(&T)", null, (_, _) => _csv.ToggleMode());
+        var csvUp = new ToolStripMenuItem("上のセル(&U)", null, (_, _) => _csv.Move(Direction.Up))
+        { ShortcutKeyDisplayString = "Ctrl+Shift+↑" };
+        var csvDown = new ToolStripMenuItem("下のセル(&D)", null, (_, _) => _csv.Move(Direction.Down))
+        { ShortcutKeyDisplayString = "Ctrl+Shift+↓" };
+        var csvLeft = new ToolStripMenuItem("左のセル(&L)", null, (_, _) => _csv.Move(Direction.Left))
+        { ShortcutKeyDisplayString = "Ctrl+Shift+←" };
+        var csvRight = new ToolStripMenuItem("右のセル(&R)", null, (_, _) => _csv.Move(Direction.Right))
+        { ShortcutKeyDisplayString = "Ctrl+Shift+→" };
+        var csvHeader = new ToolStripMenuItem("列見出しを読み上げ(&C)", null, (_, _) => _csv.ReadColumnHeader())
+        { ShortcutKeyDisplayString = "Ctrl+Shift+C" };
+        csv.DropDownItems.Add(csvToggle);
+        csv.DropDownItems.Add(new ToolStripSeparator());
+        csv.DropDownItems.AddRange(new ToolStripItem[] { csvUp, csvDown, csvLeft, csvRight, csvHeader });
+        // 開く度に活性更新。移動系は CSV モード時のみ有効。トグルは常に有効＋チェック表示。
+        csv.DropDownOpening += (_, _) =>
+        {
+            bool on = _docs.Active?.State.CsvMode == true;
+            csvUp.Enabled = csvDown.Enabled = csvLeft.Enabled = csvRight.Enabled = csvHeader.Enabled = on;
+            csvToggle.Checked = on;
+        };
+
         var help = new ToolStripMenuItem("ヘルプ(&H)");
         help.DropDownItems.Add("バージョン情報(&A)", null, (_, _) =>
             MessageBox.Show("yEdit v0.1", "バージョン情報", MessageBoxButtons.OK, MessageBoxIcon.Information));
 
-        menu.Items.AddRange(new ToolStripItem[] { file, edit, search, read, md, help });
+        menu.Items.AddRange(new ToolStripItem[] { file, edit, search, read, md, csv, help });
         return menu;
     }
 
@@ -572,6 +612,14 @@ public sealed partial class MainForm : Form
             _docs.UpdateLabel(doc);
             UpdateTitle();
             UpdateStatus();
+
+            doc.State.CsvMode = false;
+            if (CsvFile.IsCsvPath(path))
+            {
+                var csv = CsvParser.Parse(loaded.Text);
+                if (csv.Ok) { doc.State.CsvMode = true; _announcer.Say("CSVモード オン"); }
+                else { _announcer.Say("CSVとして解析できませんでした。テキストとして開きます"); }
+            }
 
             if (loaded.HadReplacementChar)
             {

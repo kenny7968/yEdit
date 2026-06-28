@@ -32,7 +32,8 @@ public sealed class CsvController
         if (ed is null) return;
 
         var csv = CsvParser.Parse(ed.SnapshotText);
-        if (!csv.Ok || csv.Rows.Count == 0) { _announcer.Say(CsvAnnounceFormatter.ParseError); return; }
+        if (!csv.Ok) { _announcer.Say(CsvAnnounceFormatter.ParseError); return; }
+        if (csv.Rows.Count == 0) { _announcer.Say(CsvAnnounceFormatter.NoData); return; }
 
         var (row, col) = csv.FindCell(ed.CaretCharOffset);
         var target = csv.MoveCell(row, col, dir);
@@ -54,7 +55,8 @@ public sealed class CsvController
         if (ed is null) return;
 
         var csv = CsvParser.Parse(ed.SnapshotText);
-        if (!csv.Ok || csv.Rows.Count == 0) { _announcer.Say(CsvAnnounceFormatter.ParseError); return; }
+        if (!csv.Ok) { _announcer.Say(CsvAnnounceFormatter.ParseError); return; }
+        if (csv.Rows.Count == 0) { _announcer.Say(CsvAnnounceFormatter.NoData); return; }
 
         var (_, col) = csv.FindCell(ed.CaretCharOffset);
         var h = csv.Header(col);

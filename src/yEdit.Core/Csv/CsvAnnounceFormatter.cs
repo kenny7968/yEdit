@@ -19,6 +19,8 @@ public static class CsvAnnounceFormatter
     public const string OpenParseFailed = "CSVとして解析できませんでした。テキストとして開きます";
     /// <summary>操作時に CSV として解析できないときの読み上げ。</summary>
     public const string ParseError = "CSVとして解析できません";
+    /// <summary>CSV だが行データが無いときの読み上げ。</summary>
+    public const string NoData = "データがありません";
     /// <summary>移動先セルが取得できない異常時のフォールバック読み上げ。</summary>
     public const string CannotMove = "移動できません";
 

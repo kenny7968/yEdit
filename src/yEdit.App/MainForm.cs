@@ -639,6 +639,16 @@ public sealed partial class MainForm : Form
         }
     }
 
+    /// <summary>パスと本文から CSV モードを再判定して反映する。オンに変わったときだけ通知する。
+    /// オープン時の解析失敗通知は LoadInto 側で行うため、ここでは通知しない。</summary>
+    private void RedetectCsvMode(Document doc)
+    {
+        bool was = doc.State.CsvMode;
+        doc.State.CsvMode = CsvFile.IsCsvPath(doc.State.Path)
+            && CsvParser.Parse(doc.Editor.SnapshotText).Ok;
+        if (doc.State.CsvMode && !was) _announcer.Say(CsvAnnounceFormatter.ModeOn);
+    }
+
     /// <summary>doc.State.LineEnding をそのエディタの EOL モードへ反映する。</summary>
     private static void ApplyEol(Document doc)
         => doc.Editor.EolMode = doc.State.LineEnding switch
@@ -692,6 +702,7 @@ public sealed partial class MainForm : Form
         _docs.UpdateLabel(doc);
         UpdateTitle();
         RegisterRecent(dlg.FileName); // 保存先も最近のファイルへ
+        RedetectCsvMode(doc);         // パス変更に追従して CSV モードを再判定
         return true;
     }
 

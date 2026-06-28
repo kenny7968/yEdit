@@ -81,4 +81,20 @@ public class KinsokuFormatterTests
     public void LineStart_kinsoku_skips_when_previous_also_forbidden()
         // 直前も禁則文字(。)なら処理しない＝幾何位置で折る（違反許容・連鎖防止）
         => Assert.Equal("あ。\n。い", Start("あ。。い", 4, "。"));
+
+    [Fact]
+    public void LineEnd_kinsoku_pushes_opening_bracket_down()
+        // columns=6 で現在行末尾が開き括弧「（」になるのを避け、次行へ送る。
+        // "あい（" の末尾「（」を追い出し "あい" / "（うえ"(=6桁・収まる)。
+        => Assert.Equal("あい\n（うえ", KinsokuFormatter.Format("あい（うえ", 6, "", "（", "", "\n"));
+
+    [Fact]
+    public void Hang_punctuation_exceeds_column()
+        // columns=4(全角2) "あい" の直後の "。" はぶら下げて行末に残す（次行先頭にしない）
+        => Assert.Equal("あい。\nう", KinsokuFormatter.Format("あい。う", 4, "", "", "。", "\n"));
+
+    [Fact]
+    public void Hang_takes_precedence_over_linestart()
+        // 同じ "。" が行頭禁則とぶら下げ両方に入っていてもぶら下げが優先（行末に残る）
+        => Assert.Equal("あい。\nう", KinsokuFormatter.Format("あい。う", 4, "。", "", "。", "\n"));
 }

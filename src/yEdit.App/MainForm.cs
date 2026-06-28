@@ -240,11 +240,19 @@ public sealed partial class MainForm : Form
         read.DropDownItems.Add(new ToolStripMenuItem("行へ移動(&G)...", null, (_, _) => GoToLine())
         { ShortcutKeyDisplayString = "Ctrl+G" });
 
+        var md = new ToolStripMenuItem("マークダウン(&M)");
+        var mdPreview = new ToolStripMenuItem(
+            "マークダウンプレビュー(&P)", null, (_, _) => ShowMarkdownPreview());
+        md.DropDownItems.Add(mdPreview);
+        // 開く度に活性状態を更新（アクティブが .md の時だけ有効）。
+        md.DropDownOpening += (_, _) =>
+            mdPreview.Enabled = MarkdownFile.IsMarkdownPath(_docs.Active?.State.Path);
+
         var help = new ToolStripMenuItem("ヘルプ(&H)");
         help.DropDownItems.Add("バージョン情報(&A)", null, (_, _) =>
             MessageBox.Show("yEdit v0.1", "バージョン情報", MessageBoxButtons.OK, MessageBoxIcon.Information));
 
-        menu.Items.AddRange(new ToolStripItem[] { file, edit, read, help });
+        menu.Items.AddRange(new ToolStripItem[] { file, edit, read, md, help });
         return menu;
     }
 
@@ -484,6 +492,22 @@ public sealed partial class MainForm : Form
         if (ed is null) return;
         ed.Overtype = !ed.Overtype;
         _announcer.Say(ed.Overtype ? "上書きモード" : "挿入モード");
+    }
+
+    /// <summary>アクティブな .md タブの編集中内容を WebView2 プレビューで表示する。</summary>
+    private void ShowMarkdownPreview()
+    {
+        var doc = _docs.Active;
+        // メニュー無効化で基本到達しないが、保険として再ガードする。
+        if (doc is null || !MarkdownFile.IsMarkdownPath(doc.State.Path)) return;
+
+        string markdown = doc.Editor.SnapshotText;            // 編集中バッファ（未保存も反映）
+        string? dir = System.IO.Path.GetDirectoryName(doc.State.Path);
+        string html = MarkdownRenderer.Render(markdown, MarkdownRenderer.PreviewBaseHref);
+
+        using var f = new MarkdownPreviewForm(html, dir, doc.State.DisplayName);
+        f.ShowDialog(this);
+        _docs.Active?.Editor.Focus();                          // 戻り後はエディタへフォーカス
     }
 
     /// <summary>選択範囲（無ければ全文）を WrapColumn 桁で禁則整形する（実改行挿入・1 Undo）。</summary>

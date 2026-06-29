@@ -35,7 +35,7 @@ public sealed class CsvCellEditor
             AcceptsReturn = true,        // Enter は KeyDown で自前処理
             AcceptsTab = false,
             WordWrap = false,
-            ScrollBars = ScrollBars.None,
+            ScrollBars = ScrollBars.Vertical,
             BorderStyle = BorderStyle.FixedSingle,
             Text = field.Value,
             Location = local,
@@ -56,6 +56,7 @@ public sealed class CsvCellEditor
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
         if (_box is null) return;
+        if (e.KeyCode == Keys.ProcessKey) return;   // IME 変換確定の Enter 等は無視（誤コミット防止）
         if (e.KeyCode == Keys.Return && e.Alt)          // Alt+Enter → セル内改行
         {
             int at = _box.SelectionStart;
@@ -113,5 +114,8 @@ public sealed class CsvCellEditor
             box.Dispose();
         }
         _ed?.Focus();
+        _onCommit = null;
+        _onCancel = null;
+        _ed = null;
     }
 }

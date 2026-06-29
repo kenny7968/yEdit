@@ -3,13 +3,13 @@ namespace yEdit.Core.Csv;
 /// <summary>CSV モードの読み上げ文字列を組み立てる純ロジック（UI 非依存・テスト可能）。</summary>
 public static class CsvAnnounceFormatter
 {
-    /// <summary>セル移動時の読み上げ。内容→位置の順（例「田中 2行2列」）。空セルは「空」。row/col は 1 始まり。</summary>
+    /// <summary>セル移動時の読み上げ。内容→位置の順（例「田中 2行2列」）。空セルは「ブランク」。row/col は 1 始まり。</summary>
     public static string Cell(string value, int row, int col)
-        => $"{(string.IsNullOrEmpty(value) ? "空" : value)} {row}行{col}列";
+        => $"{(string.IsNullOrEmpty(value) ? "ブランク" : value)} {row}行{col}列";
 
-    /// <summary>見出し読み上げ。空なら「空」。</summary>
+    /// <summary>見出し読み上げ。空なら「ブランク」。</summary>
     public static string Header(string value)
-        => string.IsNullOrEmpty(value) ? "空" : value;
+        => string.IsNullOrEmpty(value) ? "ブランク" : value;
 
     /// <summary>CSV モードをオンにしたときの読み上げ。</summary>
     public const string ModeOn = "CSVモード オン";

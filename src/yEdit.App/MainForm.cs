@@ -31,6 +31,10 @@ public sealed partial class MainForm : Form
     private readonly string _settingsPath = SettingsStore.DefaultPath;
     private AppSettings _settings = new();
     private int _untitledSeq; // 無題タブの連番（新規作成毎に増加・セッション内で再利用しない）
+    // Alt 等でメニューがアクティブな間は CSV の素キー横取りを止め、矢印/文字キーをメニュー操作へ通す。
+    // メニューモードに入っても本文（Scintilla）はフォーカスを保持するため ContainsFocus では判別できず、
+    // MenuStrip の Activate/Deactivate イベントで明示的に追跡する。
+    private bool _menuActive;
 
     public MainForm()
     {
@@ -170,7 +174,8 @@ public sealed partial class MainForm : Form
         // F2 編集オーバーレイ表示中（_csv.IsEditing）は素通しし、TextBox に通常編集させる。
         // 横取りは本文（Scintilla）にフォーカスがある時だけに限定する。タブ列（Ctrl+Tab で
         // フォーカスが移る）に居るときは矢印/Home/End 等をタブ操作へ通す。
-        if (_docs.Active?.State.CsvMode == true && !_csv.IsEditing && _docs.Active.Editor.ContainsFocus)
+        // メニューがアクティブ（Alt 等）な間は横取りせず、矢印/文字キーをメニュー操作へ通す。
+        if (_docs.Active?.State.CsvMode == true && !_csv.IsEditing && _docs.Active.Editor.ContainsFocus && !_menuActive)
         {
             switch (keyData)
             {
@@ -221,6 +226,9 @@ public sealed partial class MainForm : Form
     private MenuStrip BuildMenu()
     {
         var menu = new MenuStrip();
+        // メニューモード中は CSV の素キー横取りを止める（ProcessCmdKey の _menuActive ガード参照）。
+        menu.MenuActivate += (_, _) => _menuActive = true;
+        menu.MenuDeactivate += (_, _) => _menuActive = false;
 
         var file = new ToolStripMenuItem("ファイル(&F)");
         AddMenuItem(file, "新規(&N)", (_, _) => NewFile(), Keys.Control | Keys.N);

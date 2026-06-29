@@ -165,17 +165,27 @@ public sealed partial class MainForm : Form
     // フォームの ProcessCmdKey で横取りする。Ctrl+W はメニューのショートカットで処理。
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
-        // CSV モードのアクティブタブのみ Ctrl+Shift+矢印 / Ctrl+Shift+C を横取り。
-        // OFF の時はこのブロックを素通りし、通常の Scintilla 挙動を温存する。
-        if (_docs.Active?.State.CsvMode == true)
+        // CSVモードのアクティブタブのみ、素のキーをグリッドナビ用に横取りする。
+        // F2 編集オーバーレイ表示中（_csv.IsEditing）は素通しし、TextBox に通常編集させる。
+        if (_docs.Active?.State.CsvMode == true && !_csv.IsEditing)
         {
             switch (keyData)
             {
-                case Keys.Control | Keys.Shift | Keys.Up: _csv.Move(Direction.Up); return true;
-                case Keys.Control | Keys.Shift | Keys.Down: _csv.Move(Direction.Down); return true;
-                case Keys.Control | Keys.Shift | Keys.Left: _csv.Move(Direction.Left); return true;
-                case Keys.Control | Keys.Shift | Keys.Right: _csv.Move(Direction.Right); return true;
-                case Keys.Control | Keys.Shift | Keys.C: _csv.ReadColumnHeader(); return true;
+                case Keys.Up: _csv.Move(Direction.Up); return true;
+                case Keys.Down: _csv.Move(Direction.Down); return true;
+                case Keys.Left: _csv.Move(Direction.Left); return true;
+                case Keys.Right: _csv.Move(Direction.Right); return true;
+                case Keys.Tab: _csv.ReadCurrent(); return true;
+                case Keys.C: _csv.ReadColumnTop(); return true;
+                case Keys.R: _csv.ReadRowHead(); return true;
+                case Keys.Home: _csv.MoveRowStart(); return true;
+                case Keys.End: _csv.MoveRowEnd(); return true;
+                case Keys.PageUp: _csv.MoveColumnTop(); return true;
+                case Keys.PageDown: _csv.MoveColumnBottom(); return true;
+                case Keys.Control | Keys.Home: _csv.MoveTopLeft(); return true;
+                case Keys.Control | Keys.End: _csv.MoveBottomRight(); return true;
+                case Keys.G: _csv.GoToCell(); return true;
+                case Keys.F2: _csv.BeginEdit(); return true;
             }
         }
 
@@ -268,26 +278,39 @@ public sealed partial class MainForm : Form
             mdPreview.Enabled = MarkdownFile.IsMarkdownPath(_docs.Active?.State.Path);
 
         var csv = new ToolStripMenuItem("CSV(&C)");
-        var csvToggle = new ToolStripMenuItem("CSVモード切替(&T)", null, (_, _) => _csv.ToggleMode());
-        var csvUp = new ToolStripMenuItem("上のセル(&U)", null, (_, _) => _csv.Move(Direction.Up))
-        { ShortcutKeyDisplayString = "Ctrl+Shift+↑" };
-        var csvDown = new ToolStripMenuItem("下のセル(&D)", null, (_, _) => _csv.Move(Direction.Down))
-        { ShortcutKeyDisplayString = "Ctrl+Shift+↓" };
-        var csvLeft = new ToolStripMenuItem("左のセル(&L)", null, (_, _) => _csv.Move(Direction.Left))
-        { ShortcutKeyDisplayString = "Ctrl+Shift+←" };
-        var csvRight = new ToolStripMenuItem("右のセル(&R)", null, (_, _) => _csv.Move(Direction.Right))
-        { ShortcutKeyDisplayString = "Ctrl+Shift+→" };
-        var csvHeader = new ToolStripMenuItem("列見出しを読み上げ(&C)", null, (_, _) => _csv.ReadColumnHeader())
-        { ShortcutKeyDisplayString = "Ctrl+Shift+C" };
+        var csvToggle = new ToolStripMenuItem("CSVモード(&M)", null, (_, _) => _csv.ToggleMode());
+        var navItems = new List<ToolStripMenuItem>();
+        ToolStripMenuItem Nav(string text, string keyHint, Action act)
+        {
+            var mi = new ToolStripMenuItem(text, null, (_, _) => act()) { ShortcutKeyDisplayString = keyHint };
+            navItems.Add(mi);
+            return mi;
+        }
         csv.DropDownItems.Add(csvToggle);
         csv.DropDownItems.Add(new ToolStripSeparator());
-        csv.DropDownItems.AddRange(new ToolStripItem[] { csvUp, csvDown, csvLeft, csvRight, csvHeader });
-        // 開く度に活性更新。移動系は CSV モード時のみ有効。トグルは常に有効＋チェック表示。
+        csv.DropDownItems.Add(Nav("上のセル(&U)", "↑", () => _csv.Move(Direction.Up)));
+        csv.DropDownItems.Add(Nav("下のセル(&D)", "↓", () => _csv.Move(Direction.Down)));
+        csv.DropDownItems.Add(Nav("左のセル(&L)", "←", () => _csv.Move(Direction.Left)));
+        csv.DropDownItems.Add(Nav("右のセル(&R)", "→", () => _csv.Move(Direction.Right)));
+        csv.DropDownItems.Add(new ToolStripSeparator());
+        csv.DropDownItems.Add(Nav("現在セルを読み上げ(&E)", "Tab", () => _csv.ReadCurrent()));
+        csv.DropDownItems.Add(Nav("列の見出しを読み上げ(&C)", "C", () => _csv.ReadColumnTop()));
+        csv.DropDownItems.Add(Nav("行の見出しを読み上げ(&H)", "R", () => _csv.ReadRowHead()));
+        csv.DropDownItems.Add(new ToolStripSeparator());
+        csv.DropDownItems.Add(Nav("行頭へ(&S)", "Home", () => _csv.MoveRowStart()));
+        csv.DropDownItems.Add(Nav("行末へ(&N)", "End", () => _csv.MoveRowEnd()));
+        csv.DropDownItems.Add(Nav("列頭へ(&T)", "PageUp", () => _csv.MoveColumnTop()));
+        csv.DropDownItems.Add(Nav("列末へ(&B)", "PageDown", () => _csv.MoveColumnBottom()));
+        csv.DropDownItems.Add(Nav("左上へ(&1)", "Ctrl+Home", () => _csv.MoveTopLeft()));
+        csv.DropDownItems.Add(Nav("右下へ(&9)", "Ctrl+End", () => _csv.MoveBottomRight()));
+        csv.DropDownItems.Add(new ToolStripSeparator());
+        csv.DropDownItems.Add(Nav("セルへ移動(&G)...", "G", () => _csv.GoToCell()));
+        csv.DropDownItems.Add(Nav("セルを編集(&F)", "F2", () => _csv.BeginEdit()));
         csv.DropDownOpening += (_, _) =>
         {
             bool on = _docs.Active?.State.CsvMode == true;
-            csvUp.Enabled = csvDown.Enabled = csvLeft.Enabled = csvRight.Enabled = csvHeader.Enabled = on;
             csvToggle.Checked = on;
+            foreach (var mi in navItems) mi.Enabled = on;
         };
 
         var help = new ToolStripMenuItem("ヘルプ(&H)");
@@ -613,13 +636,11 @@ public sealed partial class MainForm : Form
             UpdateTitle();
             UpdateStatus();
 
+            // CSV モードは自動判定しない（メニューから手動で有効化する）。
+            // 既存タブへロードし直す場合に備え、読取専用とハイライトを解除しておく。
             doc.State.CsvMode = false;
-            if (CsvFile.IsCsvPath(path))
-            {
-                var csv = CsvParser.Parse(loaded.Text);
-                if (csv.Ok) { doc.State.CsvMode = true; _announcer.Say(CsvAnnounceFormatter.ModeOn); }
-                else { _announcer.Say(CsvAnnounceFormatter.OpenParseFailed); }
-            }
+            doc.Editor.ReadOnly = false;
+            doc.Editor.ClearHighlight();
 
             if (loaded.HadReplacementChar)
             {
@@ -637,17 +658,6 @@ public sealed partial class MainForm : Form
             MessageBox.Show($"開けませんでした: {ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return false;
         }
-    }
-
-    /// <summary>パスと本文から CSV モードを再判定して反映する。オンに変わったときだけ通知する。
-    /// オープン時の解析失敗通知は LoadInto 側で行うため、ここでは通知しない。</summary>
-    private void RedetectCsvMode(Document doc)
-    {
-        bool was = doc.State.CsvMode;
-        doc.State.CsvMode = CsvFile.IsCsvPath(doc.State.Path)
-            && CsvParser.Parse(doc.Editor.SnapshotText).Ok;
-        if (doc.State.CsvMode && !was) _announcer.Say(CsvAnnounceFormatter.ModeOn);
-        if (!doc.State.CsvMode && was) doc.Editor.ClearHighlight(); // OFF へ転じたらセルハイライトを消す
     }
 
     /// <summary>doc.State.LineEnding をそのエディタの EOL モードへ反映する。</summary>
@@ -703,7 +713,6 @@ public sealed partial class MainForm : Form
         _docs.UpdateLabel(doc);
         UpdateTitle();
         RegisterRecent(dlg.FileName); // 保存先も最近のファイルへ
-        RedetectCsvMode(doc);         // パス変更に追従して CSV モードを再判定
         return true;
     }
 
@@ -716,7 +725,10 @@ public sealed partial class MainForm : Form
         try
         {
             ApplyEol(doc);
+            bool wasReadOnly = doc.Editor.ReadOnly;
+            if (wasReadOnly) doc.Editor.ReadOnly = false;
             doc.Editor.ConvertEols(doc.Editor.EolMode);
+            if (wasReadOnly) doc.Editor.ReadOnly = true;
             TextFileService.Save(path, doc.Editor.Text, doc.State.Encoding, doc.State.HasBom);
             doc.Editor.SetSavePoint();
             _docs.UpdateLabel(doc);

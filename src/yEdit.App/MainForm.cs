@@ -51,6 +51,7 @@ public sealed partial class MainForm : Form
         _backup = new BackupCoordinator(_docs, _settings.BackupEnabled, _settings.BackupIntervalSeconds);
         _announcer = AnnouncerFactory.Create(_announceLabel);
         _csv = new CsvController(_docs, _announcer);
+        _docs.BeforeActiveChange = () => _csv.AbortEdit(); // タブ切替直前に F2 編集を中断（焦点の引き戻し防止）
 
         var menu = BuildMenu();
         var status = BuildStatusBar();
@@ -747,6 +748,7 @@ public sealed partial class MainForm : Form
     /// <summary>アクティブタブを閉じる。変更確認→クローズ。最後の1つを閉じたらアプリ終了（Q1=B）。</summary>
     private void CloseActiveTab()
     {
+        _csv.AbortEdit(); // F2 編集中ならタブ破棄前にオーバーレイを除去（IsEditing 固着防止）
         var doc = _docs.Active;
         if (doc is null) return;
         if (!_docs.TryClose(doc, ConfirmDiscardIfDirty)) return;

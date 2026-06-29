@@ -25,6 +25,9 @@ public sealed class CsvController
     /// <summary>F2 編集オーバーレイ表示中か（MainForm がキー横取りを抑止するのに使う）。</summary>
     public bool IsEditing => _editor.IsEditing;
 
+    /// <summary>進行中の F2 編集を強制破棄する（タブ閉じ/切替時に呼ぶ・冪等）。</summary>
+    public void AbortEdit() => _editor.Abort();
+
     /// <summary>CSVモードを手動でトグルする。ON 時は読取専用化＋現在セルを確定して読み上げ。</summary>
     public void ToggleMode()
     {
@@ -160,6 +163,7 @@ public sealed class CsvController
     private bool TryContext(out ScintillaHost ed, out CsvDocument csv, out int row, out int col)
     {
         ed = null!; csv = null!; row = 0; col = 0;
+        if (_editor.IsEditing) return false;   // F2 編集中はメニュー経由のナビ/読み上げを抑止（マウス経路の保護）
         var e = ActiveCsvEditor();
         if (e is null) return false;
         ed = e;

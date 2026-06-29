@@ -102,7 +102,19 @@ public sealed class CsvCellEditor
         cb?.Invoke();
     }
 
-    private void Close()
+    private void Close() => Teardown(refocus: true);
+
+    /// <summary>進行中の編集を強制破棄する（タブ閉じ/切替時）。コールバックは呼ばず、
+    /// フォーカスも戻さない純粋な破棄。編集していなければ何もしない（冪等）。</summary>
+    public void Abort()
+    {
+        if (!IsEditing) return;
+        Teardown(refocus: false);
+    }
+
+    /// <summary>オーバーレイの後始末（イベント解除・親から除去・破棄・参照解放）。
+    /// refocus 時のみエディタへフォーカスを戻す。Close=true / Abort=false。</summary>
+    private void Teardown(bool refocus)
     {
         _closing = true;
         var box = _box; _box = null;
@@ -113,7 +125,7 @@ public sealed class CsvCellEditor
             box.Parent?.Controls.Remove(box);
             box.Dispose();
         }
-        _ed?.Focus();
+        if (refocus) _ed?.Focus();
         _onCommit = null;
         _onCancel = null;
         _ed = null;

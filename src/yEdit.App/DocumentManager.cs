@@ -18,11 +18,16 @@ public sealed class DocumentManager
     {
         _editorFactory = editorFactory;
         _tabs.Selected += (_, _) => OnSelectedTabChanged();
+        _tabs.Deselecting += (_, _) => BeforeActiveChange?.Invoke(); // 切替直前に通知（マウス操作を含む）
         _tabs.KeyDown += OnTabKeyDown; // タブ列で Enter → エディタへ（編集開始）
     }
 
     /// <summary>MainForm の Controls へ載せるためのビュー（実体は TabControl）。</summary>
     public Control TabHost => _tabs;
+
+    /// <summary>アクティブタブが切り替わる直前のフック（F2 編集中なら中断させる等）。
+    /// マウス操作は Deselecting で、キーボード/プログラム経路は各選択メソッドから発火する。</summary>
+    public Action? BeforeActiveChange { get; set; }
 
     public Document? Active => _tabs.SelectedTab?.Tag as Document;
     public IReadOnlyList<Document> Documents => _docs;
@@ -55,6 +60,7 @@ public sealed class DocumentManager
         _docs.Add(doc);
         _tabs.TabPages.Add(page);
         UpdateLabel(doc);
+        BeforeActiveChange?.Invoke();  // 既存タブから切り替わる前に F2 編集等を後始末
         _tabs.SelectedTab = page;  // 既存タブがあれば Selected 発火→ActiveDocumentChanged
         FocusActiveEditor();       // 新規/開く直後はエディタで即編集できるようにする
         return doc;
@@ -72,7 +78,7 @@ public sealed class DocumentManager
 
     public void Activate(Document doc)
     {
-        if (_tabs.SelectedTab != doc.Page) _tabs.SelectedTab = doc.Page;
+        if (_tabs.SelectedTab != doc.Page) { BeforeActiveChange?.Invoke(); _tabs.SelectedTab = doc.Page; }
         doc.Editor.Focus(); // 開いた/呼び出したタブで即編集できるようにする
     }
 
@@ -93,6 +99,7 @@ public sealed class DocumentManager
         int n = _tabs.TabPages.Count;
         if (n == 0) return;
         int i = _tabs.SelectedIndex;
+        BeforeActiveChange?.Invoke();   // 切替前に F2 編集等を後始末（キーボード経路）
         _tabs.SelectedIndex = ((i + dir) % n + n) % n; // 端は巡回
         FocusTabStrip(); // タブ列にフォーカスを留め、SR が選択タブ（ファイル名＋位置）を読む
     }
@@ -101,6 +108,7 @@ public sealed class DocumentManager
     public void SelectAt(int index)
     {
         if (index < 0 || index >= _tabs.TabPages.Count) return;
+        BeforeActiveChange?.Invoke();   // 切替前に F2 編集等を後始末（キーボード経路）
         _tabs.SelectedIndex = index;
         FocusTabStrip();
     }

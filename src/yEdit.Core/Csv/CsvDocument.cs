@@ -68,4 +68,46 @@ public sealed partial class CsvDocument
 
     /// <summary>col 列の先頭セル（見出し＝0行目）。範囲外は null。</summary>
     public CsvField? Header(int col) => GetField(0, col);
+
+    /// <summary>row 行の左端セル (row,0)。行が無い/空ならnull。</summary>
+    public (int row, int col)? RowStart(int row)
+        => (row >= 0 && row < Rows.Count && Rows[row].Count > 0) ? (row, 0) : null;
+
+    /// <summary>row 行の右端セル。行が無い/空ならnull。</summary>
+    public (int row, int col)? RowEnd(int row)
+        => (row >= 0 && row < Rows.Count && Rows[row].Count > 0) ? (row, Rows[row].Count - 1) : null;
+
+    /// <summary>col 列を持つ最初の行のセル (r,col)。どの行も持たなければnull。</summary>
+    public (int row, int col)? ColumnTop(int col)
+    {
+        if (col < 0) return null;
+        for (int r = 0; r < Rows.Count; r++)
+            if (Rows[r].Count > col) return (r, col);
+        return null;
+    }
+
+    /// <summary>col 列を持つ最後の行のセル (r,col)。どの行も持たなければnull。</summary>
+    public (int row, int col)? ColumnBottom(int col)
+    {
+        if (col < 0) return null;
+        for (int r = Rows.Count - 1; r >= 0; r--)
+            if (Rows[r].Count > col) return (r, col);
+        return null;
+    }
+
+    /// <summary>左上セル (0,0)。データ無しならnull。</summary>
+    public (int row, int col)? TopLeft()
+        => (Rows.Count > 0 && Rows[0].Count > 0) ? (0, 0) : null;
+
+    /// <summary>右下セル（最終行の最終列）。データ無しならnull。</summary>
+    public (int row, int col)? BottomRight()
+    {
+        if (Rows.Count == 0) return null;
+        int r = Rows.Count - 1;
+        return Rows[r].Count > 0 ? (r, Rows[r].Count - 1) : null;
+    }
+
+    /// <summary>(row,col) が有効なら そのまま返す。範囲外はnull。</summary>
+    public (int row, int col)? GoTo(int row, int col)
+        => (row >= 0 && row < Rows.Count && col >= 0 && col < Rows[row].Count) ? (row, col) : null;
 }

@@ -13,6 +13,8 @@ public sealed class CsvController
     private readonly DocumentManager _docs;
     private readonly IAnnouncer _announcer;
     private readonly CsvCellEditor _editor = new();
+    private string? _cachedText;
+    private CsvDocument? _cachedDoc;
 
     public CsvController(DocumentManager docs, IAnnouncer announcer)
     {
@@ -31,14 +33,17 @@ public sealed class CsvController
 
         if (!doc.State.CsvMode)
         {
-            var csv = CsvParser.Parse(doc.Editor.SnapshotText);
+            var csv = ParseCached(doc.Editor);
             if (!csv.Ok) { _announcer.Say(CsvAnnounceFormatter.ParseError); return; } // 解析不可ならモードに入らない
             doc.State.CsvMode = true;
             doc.Editor.ReadOnly = true;
-            _announcer.Say(CsvAnnounceFormatter.ModeOn);
-            if (csv.Rows.Count == 0) { doc.Editor.ClearHighlight(); return; }
+            if (csv.Rows.Count == 0) { doc.Editor.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.ModeOn); return; }
             var (row, col) = csv.FindCell(doc.Editor.CaretCharOffset);
-            ApplyCell(doc.Editor, csv, row, col, announce: true);
+            ApplyCell(doc.Editor, csv, row, col, announce: false);   // 移動＋ハイライトのみ（読み上げは下でまとめて）
+            var f = csv.GetField(row, col);
+            _announcer.Say(f is null
+                ? CsvAnnounceFormatter.ModeOn
+                : CsvAnnounceFormatter.ModeOn + " " + CsvAnnounceFormatter.Cell(f.Value, row + 1, col + 1));
         }
         else
         {
@@ -108,10 +113,10 @@ public sealed class CsvController
     public void BeginEdit()
     {
         if (_editor.IsEditing) return;
-        if (!TryContext(out var ed, out _, out var row, out var col)) return;
+        if (!TryContext(out var ed, out var csv, out var row, out var col)) return;
         // 開始時点のセル span（直列化対象）を確定。row/col はセル内容変更では不変。
-        var startCsv = CsvParser.Parse(ed.SnapshotText);
-        var f = startCsv.GetField(row, col);
+        // csv は TryContext がメモ化済みの現在パース（=開始時点のスナップショット）。
+        var f = csv.GetField(row, col);
         if (f is null) { _announcer.Say(CsvAnnounceFormatter.CannotMove); return; }
         int start = f.Start, length = f.Length;
 
@@ -123,12 +128,13 @@ public sealed class CsvController
                 ed.ReadOnly = false;
                 ed.ReplaceCharRange(start, length, serialized);
                 ed.ReadOnly = wasRo;
-                var csv2 = CsvParser.Parse(ed.SnapshotText);
+                var csv2 = ParseCached(ed);
                 if (csv2.Ok) ApplyCell(ed, csv2, row, col, announce: true);
+                else _announcer.Say(CsvAnnounceFormatter.ParseError);
             },
             onCancel: () =>
             {
-                var csv2 = CsvParser.Parse(ed.SnapshotText);
+                var csv2 = ParseCached(ed);
                 if (csv2.Ok && csv2.Rows.Count > 0) ApplyCell(ed, csv2, row, col, announce: false);
             });
     }
@@ -142,6 +148,14 @@ public sealed class CsvController
         return (doc is not null && doc.State.CsvMode) ? doc.Editor : null;
     }
 
+    /// <summary>SnapshotText の参照同一性でメモ化したパース。編集で _snapshot が差し替わると自動失効。</summary>
+    private CsvDocument ParseCached(ScintillaHost ed)
+    {
+        var text = ed.SnapshotText;
+        if (!ReferenceEquals(text, _cachedText)) { _cachedDoc = CsvParser.Parse(text); _cachedText = text; }
+        return _cachedDoc!;
+    }
+
     /// <summary>パースして現在 (row,col) を得る。CSVでない/解析不可/データ無しは読み上げて false。</summary>
     private bool TryContext(out ScintillaHost ed, out CsvDocument csv, out int row, out int col)
     {
@@ -149,7 +163,7 @@ public sealed class CsvController
         var e = ActiveCsvEditor();
         if (e is null) return false;
         ed = e;
-        csv = CsvParser.Parse(ed.SnapshotText);
+        csv = ParseCached(ed);
         if (!csv.Ok) { ed.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.ParseError); return false; }
         if (csv.Rows.Count == 0) { ed.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.NoData); return false; }
         (row, col) = csv.FindCell(ed.CaretCharOffset);

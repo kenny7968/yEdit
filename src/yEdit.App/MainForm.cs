@@ -167,7 +167,9 @@ public sealed partial class MainForm : Form
     {
         // CSVモードのアクティブタブのみ、素のキーをグリッドナビ用に横取りする。
         // F2 編集オーバーレイ表示中（_csv.IsEditing）は素通しし、TextBox に通常編集させる。
-        if (_docs.Active?.State.CsvMode == true && !_csv.IsEditing)
+        // 横取りは本文（Scintilla）にフォーカスがある時だけに限定する。タブ列（Ctrl+Tab で
+        // フォーカスが移る）に居るときは矢印/Home/End 等をタブ操作へ通す。
+        if (_docs.Active?.State.CsvMode == true && !_csv.IsEditing && _docs.Active.Editor.ContainsFocus)
         {
             switch (keyData)
             {
@@ -727,8 +729,8 @@ public sealed partial class MainForm : Form
             ApplyEol(doc);
             bool wasReadOnly = doc.Editor.ReadOnly;
             if (wasReadOnly) doc.Editor.ReadOnly = false;
-            doc.Editor.ConvertEols(doc.Editor.EolMode);
-            if (wasReadOnly) doc.Editor.ReadOnly = true;
+            try { doc.Editor.ConvertEols(doc.Editor.EolMode); }
+            finally { if (wasReadOnly) doc.Editor.ReadOnly = true; }
             TextFileService.Save(path, doc.Editor.Text, doc.State.Encoding, doc.State.HasBom);
             doc.Editor.SetSavePoint();
             _docs.UpdateLabel(doc);

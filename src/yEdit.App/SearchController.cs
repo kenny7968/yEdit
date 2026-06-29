@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using yEdit.Core.Csv;
 using yEdit.Core.Search;
 using yEdit.Editor;
 
@@ -29,6 +30,9 @@ public sealed class SearchController
     }
 
     private ScintillaHost? ActiveEditor => _docs.Active?.Editor;
+
+    // CSVモード中は本文が読取専用で置換が無反映になるため、置換系を抑止して誤成功通知を防ぐ。
+    private bool IsCsvModeActive => _docs.Active?.State.CsvMode == true;
 
     public void OpenFind() => Open(replaceMode: false);
     public void OpenReplace() => Open(replaceMode: true);
@@ -129,6 +133,7 @@ public sealed class SearchController
         var opts = CurrentOptions();
         var d = _dialog;
         if (ed is null || opts is null || d is null) return;
+        if (IsCsvModeActive) { Announce(CsvAnnounceFormatter.BlockedInCsvMode); d.SetStatus(CsvAnnounceFormatter.BlockedInCsvMode); return; }
         var searcher = new TextSearcher(opts);
         if (!searcher.IsValid) { Announce("正規表現が正しくありません"); return; }
 
@@ -187,6 +192,7 @@ public sealed class SearchController
         var opts = CurrentOptions();
         var d = _dialog;
         if (ed is null || opts is null || d is null) return;
+        if (IsCsvModeActive) { Announce(CsvAnnounceFormatter.BlockedInCsvMode); d.SetStatus(CsvAnnounceFormatter.BlockedInCsvMode); return; }
         var searcher = new TextSearcher(opts);
         if (!searcher.IsValid) { Announce("正規表現が正しくありません"); return; }
 

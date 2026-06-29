@@ -584,6 +584,8 @@ public sealed partial class MainForm : Form
         var doc = _docs.Active;
         var ed = doc?.Editor;
         if (ed is null) return;
+        // CSVモード中は本文が読取専用で整形が無反映になるため抑止（誤成功通知を防ぐ）。
+        if (doc!.State.CsvMode) { _announcer.Say(CsvAnnounceFormatter.BlockedInCsvMode); return; }
 
         string text = ed.SnapshotText;
         var (selStart, selEnd) = ed.GetSelectionCharRange();

@@ -27,6 +27,8 @@ public static class CsvAnnounceFormatter
     public const string OutOfRange = "範囲外です";
     /// <summary>セル指定の書式が不正なときの読み上げ。</summary>
     public const string BadCellFormat = "書式が不正です。行,列 の形式で入力してください";
+    /// <summary>CSVモード中に本文変更コマンド（置換/折り返し整形等）を試みたときの読み上げ。</summary>
+    public const string BlockedInCsvMode = "CSVモード中は実行できません";
 
     /// <summary>左端で左移動したときの読み上げ。</summary>
     public const string LeftEdge = "左端です";

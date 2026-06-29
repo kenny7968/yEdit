@@ -23,6 +23,10 @@ public static class CsvAnnounceFormatter
     public const string NoData = "データがありません";
     /// <summary>移動先セルが取得できない異常時のフォールバック読み上げ。</summary>
     public const string CannotMove = "移動できません";
+    /// <summary>セル指定移動で範囲外を指定したときの読み上げ。</summary>
+    public const string OutOfRange = "範囲外です";
+    /// <summary>セル指定の書式が不正なときの読み上げ。</summary>
+    public const string BadCellFormat = "書式が不正です。行,列 の形式で入力してください";
 
     /// <summary>左端で左移動したときの読み上げ。</summary>
     public const string LeftEdge = "左端です";

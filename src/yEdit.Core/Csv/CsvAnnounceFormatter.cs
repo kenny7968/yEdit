@@ -3,13 +3,13 @@ namespace yEdit.Core.Csv;
 /// <summary>CSV モードの読み上げ文字列を組み立てる純ロジック（UI 非依存・テスト可能）。</summary>
 public static class CsvAnnounceFormatter
 {
-    /// <summary>セル移動時の読み上げ。内容→位置の順（例「田中 2行2列」）。空セルは「空」。row/col は 1 始まり。</summary>
+    /// <summary>セル移動時の読み上げ。内容→位置の順（例「田中 2行2列」）。空セルは「ブランク」。row/col は 1 始まり。</summary>
     public static string Cell(string value, int row, int col)
-        => $"{(string.IsNullOrEmpty(value) ? "空" : value)} {row}行{col}列";
+        => $"{(string.IsNullOrEmpty(value) ? "ブランク" : value)} {row}行{col}列";
 
-    /// <summary>見出し読み上げ。空なら「空」。</summary>
+    /// <summary>見出し読み上げ。空なら「ブランク」。</summary>
     public static string Header(string value)
-        => string.IsNullOrEmpty(value) ? "空" : value;
+        => string.IsNullOrEmpty(value) ? "ブランク" : value;
 
     /// <summary>CSV モードをオンにしたときの読み上げ。</summary>
     public const string ModeOn = "CSVモード オン";
@@ -23,6 +23,12 @@ public static class CsvAnnounceFormatter
     public const string NoData = "データがありません";
     /// <summary>移動先セルが取得できない異常時のフォールバック読み上げ。</summary>
     public const string CannotMove = "移動できません";
+    /// <summary>セル指定移動で範囲外を指定したときの読み上げ。</summary>
+    public const string OutOfRange = "範囲外です";
+    /// <summary>セル指定の書式が不正なときの読み上げ。</summary>
+    public const string BadCellFormat = "書式が不正です。行,列 の形式で入力してください";
+    /// <summary>CSVモード中に本文変更コマンド（置換/折り返し整形等）を試みたときの読み上げ。</summary>
+    public const string BlockedInCsvMode = "CSVモード中は実行できません";
 
     /// <summary>左端で左移動したときの読み上げ。</summary>
     public const string LeftEdge = "左端です";

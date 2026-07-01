@@ -549,6 +549,23 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
         finally { Marshal.FreeHGlobal(buf); }
     }
 
+    // ==================== CSV グリッド編集支援（UI スレッド専用） ====================
+
+    /// <summary>文字オフセット(UTF-16)のクライアント座標(px)。F2 セル編集オーバーレイの配置に使う
+    /// （SCI_POINTX/YFROMPOSITION。lParam=byte position）。</summary>
+    public System.Drawing.Point PointFromCharOffset(int offset)
+    {
+        if (!IsHandleCreated) return System.Drawing.Point.Empty;
+        int bytePos = Utf16ToByte(SnapToCodepoint(Clamp16(offset)));
+        int x = DirectMessage(Sci.SCI_POINTXFROMPOSITION, nint.Zero, (nint)bytePos).ToInt32();
+        int y = DirectMessage(Sci.SCI_POINTYFROMPOSITION, nint.Zero, (nint)bytePos).ToInt32();
+        return new System.Drawing.Point(x, y);
+    }
+
+    /// <summary>1 行の表示高さ(px)。セル編集ボックスの高さ決定に使う。</summary>
+    public int LineHeightPx
+        => IsHandleCreated ? DirectMessage(Sci.SCI_TEXTHEIGHT, (nint)0).ToInt32() : 16;
+
     // ==================== IUiaTextHost（RPC スレッドから呼ばれる） ====================
 
     string IUiaTextHost.GetText() => _snapshot;

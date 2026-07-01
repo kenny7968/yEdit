@@ -4,19 +4,145 @@ using yEdit.Editor;
 namespace yEdit.App;
 
 /// <summary>
-/// CSV モードのセルナビゲーション・読み上げ配線（SearchController/GrepController と同型）。
-/// 現在セルはキャレットの文字オフセットから毎回導出するため、自由編集後も状態が陳腐化しない。
+/// 新CSVモード（グリッド型ナビゲーション）の配線。CSVモード中は ScintillaHost.ReadOnly=true で
+/// 本文を編集不可にし、素キーのコマンドでセル移動・読み上げを行う。現在セルはキャレットの文字
+/// オフセットから毎回導出するため、編集後も状態が陳腐化しない。F2 は CsvCellEditor に委譲する。
 /// </summary>
 public sealed class CsvController
 {
     private readonly DocumentManager _docs;
     private readonly IAnnouncer _announcer;
+    private readonly CsvCellEditor _editor = new();
+    private string? _cachedText;
+    private CsvDocument? _cachedDoc;
 
     public CsvController(DocumentManager docs, IAnnouncer announcer)
     {
         _docs = docs;
         _announcer = announcer;
     }
+
+    /// <summary>F2 編集オーバーレイ表示中か（MainForm がキー横取りを抑止するのに使う）。</summary>
+    public bool IsEditing => _editor.IsEditing;
+
+    /// <summary>進行中の F2 編集を強制破棄する（タブ閉じ/切替時に呼ぶ・冪等）。</summary>
+    public void AbortEdit() => _editor.Abort();
+
+    /// <summary>CSVモードを手動でトグルする。ON 時は読取専用化＋現在セルを確定して読み上げ。</summary>
+    public void ToggleMode()
+    {
+        var doc = _docs.Active;
+        if (doc is null || _editor.IsEditing) return;
+
+        if (!doc.State.CsvMode)
+        {
+            var csv = ParseCached(doc.Editor);
+            if (!csv.Ok) { _announcer.Say(CsvAnnounceFormatter.ParseError); return; } // 解析不可ならモードに入らない
+            doc.State.CsvMode = true;
+            doc.Editor.ReadOnly = true;
+            if (csv.Rows.Count == 0) { doc.Editor.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.ModeOn); return; }
+            var (row, col) = csv.FindCell(doc.Editor.CaretCharOffset);
+            ApplyCell(doc.Editor, csv, row, col, announce: false);   // 移動＋ハイライトのみ（読み上げは下でまとめて）
+            var f = csv.GetField(row, col);
+            _announcer.Say(f is null
+                ? CsvAnnounceFormatter.ModeOn
+                : CsvAnnounceFormatter.ModeOn + " " + CsvAnnounceFormatter.Cell(f.Value, row + 1, col + 1));
+        }
+        else
+        {
+            doc.State.CsvMode = false;
+            doc.Editor.ReadOnly = false;
+            doc.Editor.ClearHighlight();
+            _announcer.Say(CsvAnnounceFormatter.ModeOff);
+        }
+    }
+
+    // ---- 移動（読み上げ付き） ----
+    public void Move(Direction dir)
+    {
+        if (!TryContext(out var ed, out var csv, out var row, out var col)) return;
+        var t = csv.MoveCell(row, col, dir);
+        if (t is null) { _announcer.Say(EdgeMessage(dir)); return; }
+        ApplyCell(ed, csv, t.Value.row, t.Value.col, announce: true);
+    }
+
+    public void MoveRowStart()    { if (TryContext(out var ed, out var csv, out var r, out _)) ApplyTarget(ed, csv, csv.RowStart(r)); }
+    public void MoveRowEnd()      { if (TryContext(out var ed, out var csv, out var r, out _)) ApplyTarget(ed, csv, csv.RowEnd(r)); }
+    public void MoveColumnTop()   { if (TryContext(out var ed, out var csv, out _, out var c)) ApplyTarget(ed, csv, csv.ColumnTop(c)); }
+    public void MoveColumnBottom(){ if (TryContext(out var ed, out var csv, out _, out var c)) ApplyTarget(ed, csv, csv.ColumnBottom(c)); }
+    public void MoveTopLeft()     { if (TryContext(out var ed, out var csv, out _, out _))     ApplyTarget(ed, csv, csv.TopLeft()); }
+    public void MoveBottomRight() { if (TryContext(out var ed, out var csv, out _, out _))     ApplyTarget(ed, csv, csv.BottomRight()); }
+
+    /// <summary>セル指定移動（G）。「行,列」入力ボックス→範囲検証→移動。</summary>
+    public void GoToCell()
+    {
+        if (!TryContext(out var ed, out var csv, out var row, out var col)) return;
+        using var dlg = new CsvGoToCellDialog(row + 1, col + 1);
+        if (dlg.ShowDialog(ed.FindForm()) != DialogResult.OK) return;
+        if (!dlg.TryGetCell(out int r1, out int c1)) { _announcer.Say(CsvAnnounceFormatter.BadCellFormat); return; }
+        var t = csv.GoTo(r1 - 1, c1 - 1);
+        if (t is null) { _announcer.Say(CsvAnnounceFormatter.OutOfRange); return; }
+        ApplyCell(ed, csv, t.Value.row, t.Value.col, announce: true);
+    }
+
+    // ---- 読み上げのみ（移動なし） ----
+    /// <summary>現在セルを読み上げる（Tab）。</summary>
+    public void ReadCurrent()
+    {
+        if (!TryContext(out _, out var csv, out var row, out var col)) return;
+        var f = csv.GetField(row, col);
+        if (f is null) { _announcer.Say(CsvAnnounceFormatter.CannotMove); return; }
+        _announcer.Say(CsvAnnounceFormatter.Cell(f.Value, row + 1, col + 1));
+    }
+
+    /// <summary>現在列の最上段セルを読み上げる（C）。</summary>
+    public void ReadColumnTop()
+    {
+        if (!TryContext(out _, out var csv, out _, out var col)) return;
+        var t = csv.ColumnTop(col);
+        var f = t is null ? null : csv.GetField(t.Value.row, t.Value.col);
+        _announcer.Say(CsvAnnounceFormatter.Header(f?.Value ?? ""));
+    }
+
+    /// <summary>現在行の左端セルを読み上げる（R）。</summary>
+    public void ReadRowHead()
+    {
+        if (!TryContext(out _, out var csv, out var row, out _)) return;
+        var f = csv.GetField(row, 0);
+        _announcer.Say(CsvAnnounceFormatter.Header(f?.Value ?? ""));
+    }
+
+    /// <summary>現在セルを F2 編集する。確定で CSV 直列化→本文反映→再ハイライト＋読み上げ。</summary>
+    public void BeginEdit()
+    {
+        if (_editor.IsEditing) return;
+        if (!TryContext(out var ed, out var csv, out var row, out var col)) return;
+        // 開始時点のセル span（直列化対象）を確定。row/col はセル内容変更では不変。
+        // csv は TryContext がメモ化済みの現在パース（=開始時点のスナップショット）。
+        var f = csv.GetField(row, col);
+        if (f is null) { _announcer.Say(CsvAnnounceFormatter.CannotMove); return; }
+        int start = f.Start, length = f.Length;
+
+        _editor.Begin(ed, f,
+            onCommit: text =>
+            {
+                string serialized = CsvWriter.EscapeField(text);
+                bool wasRo = ed.ReadOnly;
+                ed.ReadOnly = false;
+                ed.ReplaceCharRange(start, length, serialized);
+                ed.ReadOnly = wasRo;
+                var csv2 = ParseCached(ed);
+                if (csv2.Ok) ApplyCell(ed, csv2, row, col, announce: true);
+                else _announcer.Say(CsvAnnounceFormatter.ParseError);
+            },
+            onCancel: () =>
+            {
+                var csv2 = ParseCached(ed);
+                if (csv2.Ok && csv2.Rows.Count > 0) ApplyCell(ed, csv2, row, col, announce: false);
+            });
+    }
+
+    // ==================== 内部 ====================
 
     /// <summary>アクティブが CSV モードならそのエディタ、でなければ null。</summary>
     private ScintillaHost? ActiveCsvEditor()
@@ -25,57 +151,44 @@ public sealed class CsvController
         return (doc is not null && doc.State.CsvMode) ? doc.Editor : null;
     }
 
-    /// <summary>方向 dir に1セル移動して選択・読み上げ。端では端アナウンス。</summary>
-    public void Move(Direction dir)
+    /// <summary>SnapshotText の参照同一性でメモ化したパース。編集で _snapshot が差し替わると自動失効。</summary>
+    private CsvDocument ParseCached(ScintillaHost ed)
     {
-        var ed = ActiveCsvEditor();
-        if (ed is null) return;
+        var text = ed.SnapshotText;
+        if (!ReferenceEquals(text, _cachedText)) { _cachedDoc = CsvParser.Parse(text); _cachedText = text; }
+        return _cachedDoc!;
+    }
 
-        var csv = CsvParser.Parse(ed.SnapshotText);
-        // 有効なセルが無い状態では古い枠を残さない（視覚状態を読み上げと一致させる）。
-        if (!csv.Ok) { ed.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.ParseError); return; }
-        if (csv.Rows.Count == 0) { ed.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.NoData); return; }
+    /// <summary>パースして現在 (row,col) を得る。CSVでない/解析不可/データ無しは読み上げて false。</summary>
+    private bool TryContext(out ScintillaHost ed, out CsvDocument csv, out int row, out int col)
+    {
+        ed = null!; csv = null!; row = 0; col = 0;
+        if (_editor.IsEditing) return false;   // F2 編集中はメニュー経由のナビ/読み上げを抑止（マウス経路の保護）
+        var e = ActiveCsvEditor();
+        if (e is null) return false;
+        ed = e;
+        csv = ParseCached(ed);
+        if (!csv.Ok) { ed.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.ParseError); return false; }
+        if (csv.Rows.Count == 0) { ed.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.NoData); return false; }
+        (row, col) = csv.FindCell(ed.CaretCharOffset);
+        return true;
+    }
 
-        var (row, col) = csv.FindCell(ed.CaretCharOffset);
-        var target = csv.MoveCell(row, col, dir);
-        if (target is null) { _announcer.Say(EdgeMessage(dir)); return; }
+    private void ApplyTarget(ScintillaHost ed, CsvDocument csv, (int row, int col)? t)
+    {
+        if (t is null) { _announcer.Say(CsvAnnounceFormatter.CannotMove); return; }
+        ApplyCell(ed, csv, t.Value.row, t.Value.col, announce: true);
+    }
 
-        var (tr, tc) = target.Value;
-        var f = csv.GetField(tr, tc);
+    /// <summary>(row,col) のセルへ ハイライト＋キャレット移動（選択は作らない）＋必要なら読み上げ。</summary>
+    private void ApplyCell(ScintillaHost ed, CsvDocument csv, int row, int col, bool announce)
+    {
+        var f = csv.GetField(row, col);
         if (f is null) { _announcer.Say(CsvAnnounceFormatter.CannotMove); return; }
-
-        // 文字列選択はしない（Ctrl+Shift+矢印で選択が走らないようにする）。
-        // 現在セルはインジケータで視覚ハイライトし、キャレットはセル先頭へ。
-        // セル値の読み上げは選択ではなく Announcer が担う。
         ed.HighlightCharRange(f.Start, f.Length);
         ed.MoveCaretCharOffset(f.Start);
         ed.Focus();
-        _announcer.Say(CsvAnnounceFormatter.Cell(f.Value, tr + 1, tc + 1));
-    }
-
-    /// <summary>現在列の先頭セル（見出し）を読み上げる（カーソル移動なし）。</summary>
-    public void ReadColumnHeader()
-    {
-        var ed = ActiveCsvEditor();
-        if (ed is null) return;
-
-        var csv = CsvParser.Parse(ed.SnapshotText);
-        if (!csv.Ok) { _announcer.Say(CsvAnnounceFormatter.ParseError); return; }
-        if (csv.Rows.Count == 0) { _announcer.Say(CsvAnnounceFormatter.NoData); return; }
-
-        var (_, col) = csv.FindCell(ed.CaretCharOffset);
-        var h = csv.Header(col);
-        _announcer.Say(CsvAnnounceFormatter.Header(h?.Value ?? ""));
-    }
-
-    /// <summary>CSV モードを手動でトグルする（自動判定の救済・任意拡張子での利用）。</summary>
-    public void ToggleMode()
-    {
-        var doc = _docs.Active;
-        if (doc is null) return;
-        doc.State.CsvMode = !doc.State.CsvMode;
-        if (!doc.State.CsvMode) doc.Editor.ClearHighlight(); // OFF にしたらセルハイライトを消す
-        _announcer.Say(doc.State.CsvMode ? CsvAnnounceFormatter.ModeOn : CsvAnnounceFormatter.ModeOff);
+        if (announce) _announcer.Say(CsvAnnounceFormatter.Cell(f.Value, row + 1, col + 1));
     }
 
     private static string EdgeMessage(Direction dir) => dir switch

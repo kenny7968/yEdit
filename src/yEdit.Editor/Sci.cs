@@ -41,6 +41,7 @@ internal static class Sci
     public const int SCI_GETMARGINLEFT = 2156;    // → 左テキストマージン(px)
     public const int SCI_GETMARGINWIDTHN = 2243;  // (margin) → 当該マージン幅(px)
     public const int SCI_TEXTWIDTH = 2276;        // (style, const char* utf8) → 文字列のピクセル幅
+    public const int SCI_TEXTHEIGHT = 2279;       // (line) → 当該行の表示高さ(px)
     public const int STYLE_DEFAULT = 32;
 
     // インジケータ（CSV 現在セルの視覚ハイライト等。テキスト選択とは独立した装飾）。

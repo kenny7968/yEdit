@@ -1,0 +1,133 @@
+using yEdit.Core.Csv;
+using yEdit.Editor;
+
+namespace yEdit.App;
+
+/// <summary>
+/// F2 セル編集のオーバーレイ TextBox。Scintilla 本文は読取専用のまま、セル値だけを
+/// 通常の EDIT コントロールで編集する（カーソルはセル内のみ＝この TextBox 内のみ）。
+/// 確定文字列の本文反映は呼び出し元（CsvController）が CSV 直列化して行う。本クラスは
+/// TextBox の生成・配置・キー処理（Enter=確定 / Alt+Enter=改行 / Esc=取消）・フォーカス復帰のみ担う。
+/// </summary>
+public sealed class CsvCellEditor
+{
+    private TextBox? _box;
+    private bool _closing;
+    private ScintillaHost? _ed;
+    private Action<string>? _onCommit;
+    private Action? _onCancel;
+
+    public bool IsEditing => _box is not null;
+
+    /// <summary>セル編集を開始する。onCommit は確定値（改行は \n 正規化済み）、onCancel は取消で呼ぶ。</summary>
+    public void Begin(ScintillaHost ed, CsvField field, Action<string> onCommit, Action onCancel)
+    {
+        if (IsEditing) return;
+        _ed = ed; _onCommit = onCommit; _onCancel = onCancel; _closing = false;
+
+        var host = (Control?)ed.Parent ?? ed;                 // 親(TabPage 等)に重ねる
+        var clientPt = ed.PointFromCharOffset(field.Start);   // Scintilla クライアント座標
+        var local = host.PointToClient(ed.PointToScreen(clientPt));
+
+        _box = new TextBox
+        {
+            Multiline = true,
+            AcceptsReturn = true,        // Enter は KeyDown で自前処理
+            AcceptsTab = false,
+            WordWrap = false,
+            ScrollBars = ScrollBars.Vertical,
+            BorderStyle = BorderStyle.FixedSingle,
+            Text = field.Value,
+            Location = local,
+            Width = Math.Max(140, ed.ClientSize.Width / 4),
+            Height = Math.Max(ed.LineHeightPx + 6, 24),
+            AccessibleName = "セル編集",
+            ImeMode = ImeMode.NoControl,
+        };
+        _box.KeyDown += OnKeyDown;
+        _box.LostFocus += OnLostFocus;
+
+        host.Controls.Add(_box);
+        _box.BringToFront();
+        _box.Focus();
+        _box.SelectAll();                 // 全選択（即上書きしやすく）
+    }
+
+    private void OnKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (_box is null) return;
+        if (e.KeyCode == Keys.ProcessKey) return;   // IME 変換確定の Enter 等は無視（誤コミット防止）
+        if (e.KeyCode == Keys.Return && e.Alt)          // Alt+Enter → セル内改行
+        {
+            int at = _box.SelectionStart;
+            _box.Text = _box.Text.Remove(at, _box.SelectionLength).Insert(at, "\r\n");
+            _box.SelectionStart = at + 2;
+            _box.SelectionLength = 0;
+            e.SuppressKeyPress = true;
+            return;
+        }
+        if (e.KeyCode == Keys.Return)                   // Enter → 確定
+        {
+            e.SuppressKeyPress = true;
+            Commit();
+            return;
+        }
+        if (e.KeyCode == Keys.Escape)                   // Esc → 取消
+        {
+            e.SuppressKeyPress = true;
+            CancelEdit();
+        }
+    }
+
+    // フォーカス喪失は取消扱い（誤変更を避ける）。確定/取消処理中は無視。
+    private void OnLostFocus(object? sender, EventArgs e)
+    {
+        if (!_closing) CancelEdit();
+    }
+
+    private void Commit()
+    {
+        if (_box is null || _closing) return;
+        string text = _box.Text.Replace("\r\n", "\n").Replace("\r", "\n");
+        var cb = _onCommit;
+        Close();
+        cb?.Invoke(text);
+    }
+
+    private void CancelEdit()
+    {
+        if (_box is null || _closing) return;
+        var cb = _onCancel;
+        Close();
+        cb?.Invoke();
+    }
+
+    private void Close() => Teardown(refocus: true);
+
+    /// <summary>進行中の編集を強制破棄する（タブ閉じ/切替時）。コールバックは呼ばず、
+    /// フォーカスも戻さない純粋な破棄。編集していなければ何もしない（冪等）。</summary>
+    public void Abort()
+    {
+        if (!IsEditing) return;
+        Teardown(refocus: false);
+    }
+
+    /// <summary>オーバーレイの後始末（イベント解除・親から除去・破棄・参照解放）。
+    /// refocus 時のみエディタへフォーカスを戻す。Close=true / Abort=false。</summary>
+    private void Teardown(bool refocus)
+    {
+        _closing = true;
+        var box = _box; _box = null;
+        if (box is not null)
+        {
+            box.KeyDown -= OnKeyDown;
+            box.LostFocus -= OnLostFocus;
+            box.Parent?.Controls.Remove(box);
+            box.Dispose();
+        }
+        if (refocus) _ed?.Focus();
+        _onCommit = null;
+        _onCancel = null;
+        _ed = null;
+    }
+}

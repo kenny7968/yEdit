@@ -444,6 +444,20 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
         if (be > bs) DirectMessage(Sci.SCI_INDICATORFILLRANGE, (nint)bs, (nint)(be - bs));
     }
 
+    /// <summary>
+    /// 指定した UTF-16 文字オフセット範囲を可視領域へスクロールする（キャレット位置は変えない）。
+    /// CSV セルナビのように、SR に自動読み上げさせないためキャレットを動かさない一方で、
+    /// 現在セルを画面上で追従表示したいときに使う。
+    /// </summary>
+    public void EnsureVisibleCharRange(int start, int length)
+    {
+        if (!IsHandleCreated || IsDisposed) return;
+        if (InvokeRequired) { BeginInvoke(new Action(() => EnsureVisibleCharRange(start, length))); return; }
+        int bs = Utf16ToByte(SnapToCodepoint(Clamp16(start)));
+        int be = Utf16ToByte(SnapToCodepoint(Clamp16(start + length)));
+        DirectMessage(Sci.SCI_SCROLLRANGE, (nint)be, (nint)bs); // primary=end, secondary=start
+    }
+
     /// <summary>範囲ハイライトを全て消す（CSV モード解除時など）。</summary>
     public void ClearHighlight()
     {

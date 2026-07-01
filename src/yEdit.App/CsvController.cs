@@ -5,8 +5,11 @@ namespace yEdit.App;
 
 /// <summary>
 /// 新CSVモード（グリッド型ナビゲーション）の配線。CSVモード中は ScintillaHost.ReadOnly=true で
-/// 本文を編集不可にし、素キーのコマンドでセル移動・読み上げを行う。現在セルはキャレットの文字
-/// オフセットから毎回導出するため、編集後も状態が陳腐化しない。F2 は CsvCellEditor に委譲する。
+/// 本文を編集不可にし、素キーのコマンドでセル移動・読み上げを行う。現在セルは
+/// DocumentState.CsvRow/CsvCol を真実源にする（システムキャレットは動かさない）。
+/// 目的: セル移動のたびに Scintilla の SCI_SETSEL が SR へ余計な選択変更通知を出し、
+/// Announcer の発話と二重に読み上げられるのを防ぐため。可視域スクロールは
+/// キャレット無移動の EnsureVisibleCharRange で行う。F2 は CsvCellEditor に委譲する。
 /// </summary>
 public sealed class CsvController
 {
@@ -41,8 +44,11 @@ public sealed class CsvController
             doc.State.CsvMode = true;
             doc.Editor.ReadOnly = true;
             if (csv.Rows.Count == 0) { doc.Editor.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.ModeOn); return; }
+            // ON 時のみ、その時点のキャレット位置から初期セルを導出する（以降はキャレットではなく状態を真実源にする）。
             var (row, col) = csv.FindCell(doc.Editor.CaretCharOffset);
-            ApplyCell(doc.Editor, csv, row, col, announce: false);   // 移動＋ハイライトのみ（読み上げは下でまとめて）
+            doc.State.CsvRow = row;
+            doc.State.CsvCol = col;
+            ApplyCell(doc.Editor, csv, row, col, announce: false);   // ハイライト＋可視域スクロールのみ（読み上げは下でまとめて）
             var f = csv.GetField(row, col);
             _announcer.Say(f is null
                 ? CsvAnnounceFormatter.ModeOn
@@ -50,6 +56,14 @@ public sealed class CsvController
         }
         else
         {
+            // OFF 時は、モード中に動かなかったキャレットを最終セル位置へ復帰させる。
+            // ここは通常のキャレット移動として扱ってよい（以降は本文編集モードに戻り、SR は通常挙動）。
+            var csv = ParseCached(doc.Editor);
+            if (csv.Ok && csv.Rows.Count > 0)
+            {
+                var f = csv.GetField(doc.State.CsvRow, doc.State.CsvCol);
+                if (f is not null) doc.Editor.MoveCaretCharOffset(f.Start);
+            }
             doc.State.CsvMode = false;
             doc.Editor.ReadOnly = false;
             doc.Editor.ClearHighlight();
@@ -122,6 +136,9 @@ public sealed class CsvController
         var f = csv.GetField(row, col);
         if (f is null) { _announcer.Say(CsvAnnounceFormatter.CannotMove); return; }
         int start = f.Start, length = f.Length;
+        // オーバーレイの配置座標（PointFromCharOffset）は可視領域基準なので、
+        // ナビ後にリサイズ等で当該セルが視野外へずれていた場合に備えて明示的に可視化する。
+        ed.EnsureVisibleCharRange(start, length);
 
         _editor.Begin(ed, f,
             onCommit: text =>
@@ -159,19 +176,33 @@ public sealed class CsvController
         return _cachedDoc!;
     }
 
-    /// <summary>パースして現在 (row,col) を得る。CSVでない/解析不可/データ無しは読み上げて false。</summary>
+    /// <summary>パースして現在 (row,col) を得る。CSVでない/解析不可/データ無しは読み上げて false。
+    /// (row,col) は DocumentState を真実源とし、パース結果の行列数へクランプする（本文編集で
+    /// 行/列が減っても範囲外を指さないように補正）。</summary>
     private bool TryContext(out ScintillaHost ed, out CsvDocument csv, out int row, out int col)
     {
         ed = null!; csv = null!; row = 0; col = 0;
         if (_editor.IsEditing) return false;   // F2 編集中はメニュー経由のナビ/読み上げを抑止（マウス経路の保護）
-        var e = ActiveCsvEditor();
-        if (e is null) return false;
-        ed = e;
+        var doc = _docs.Active;
+        if (doc is null || !doc.State.CsvMode) return false;
+        ed = doc.Editor;
         csv = ParseCached(ed);
         if (!csv.Ok) { ed.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.ParseError); return false; }
         if (csv.Rows.Count == 0) { ed.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.NoData); return false; }
-        (row, col) = csv.FindCell(ed.CaretCharOffset);
+        row = ClampRow(csv, doc.State.CsvRow);
+        col = ClampCol(csv, row, doc.State.CsvCol);
+        doc.State.CsvRow = row;                          // クランプ結果を書き戻し（次回以降の整合）
+        doc.State.CsvCol = col;
         return true;
+    }
+
+    private static int ClampRow(CsvDocument csv, int r) =>
+        r < 0 ? 0 : (r >= csv.Rows.Count ? csv.Rows.Count - 1 : r);
+    private static int ClampCol(CsvDocument csv, int row, int c)
+    {
+        int w = csv.Rows[row].Count;
+        if (w <= 0) return 0;
+        return c < 0 ? 0 : (c >= w ? w - 1 : c);
     }
 
     private void ApplyTarget(ScintillaHost ed, CsvDocument csv, (int row, int col)? t)
@@ -180,13 +211,16 @@ public sealed class CsvController
         ApplyCell(ed, csv, t.Value.row, t.Value.col, announce: true);
     }
 
-    /// <summary>(row,col) のセルへ ハイライト＋キャレット移動（選択は作らない）＋必要なら読み上げ。</summary>
+    /// <summary>(row,col) のセルへ ハイライト＋可視域スクロール＋DocumentState 更新＋必要なら読み上げ。
+    /// システムキャレットは動かさない（SR の自動読み上げ発火を避け、Announcer 一本に集約する）。</summary>
     private void ApplyCell(ScintillaHost ed, CsvDocument csv, int row, int col, bool announce)
     {
         var f = csv.GetField(row, col);
         if (f is null) { _announcer.Say(CsvAnnounceFormatter.CannotMove); return; }
         ed.HighlightCharRange(f.Start, f.Length);
-        ed.MoveCaretCharOffset(f.Start);
+        ed.EnsureVisibleCharRange(f.Start, f.Length);
+        var doc = _docs.Active;
+        if (doc is not null) { doc.State.CsvRow = row; doc.State.CsvCol = col; }
         ed.Focus();
         if (announce) _announcer.Say(CsvAnnounceFormatter.Cell(f.Value, row + 1, col + 1));
     }

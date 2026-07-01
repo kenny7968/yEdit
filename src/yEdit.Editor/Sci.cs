@@ -17,6 +17,7 @@ internal static class Sci
     public const int SCI_GETCURRENTPOS = 2008;      // キャレット（バイト）
     public const int SCI_SETSEL = 2160;             // (anchor, caret) 選択設定（バイト）
     public const int SCI_SCROLLCARET = 2169;        // キャレットを可視範囲へスクロール
+    public const int SCI_SCROLLRANGE = 2569;        // (secondary, primary) 指定バイト範囲を可視化（キャレット無移動）
 
     // 置換ターゲット（検索・置換で使用。バイト位置）。
     public const int SCI_SETTARGETSTART = 2190;     // 置換ターゲット開始（バイト）

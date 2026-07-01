@@ -15,6 +15,11 @@ public sealed class DocumentState
     public bool HasBom { get; set; }
     public LineEnding LineEnding { get; set; } = LineEnding.Crlf;
     public bool CsvMode { get; set; }              // CSV モード（タブ毎・既定 false）
+    // CSV モード中の論理カーソル位置（0始まり）。モード中はここが真実源で、Scintilla の
+    // システムキャレットは動かさない（SR の自動読み上げ二重発火を防ぐため）。モード ON 時に
+    // その時点のキャレット位置から初期導出し、以降のセル移動でここだけを更新する。
+    public int CsvRow { get; set; }
+    public int CsvCol { get; set; }
 
     public string DisplayName => Path is not null
         ? System.IO.Path.GetFileName(Path)

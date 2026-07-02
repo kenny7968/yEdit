@@ -21,8 +21,6 @@ public sealed class CsvController
     private readonly DocumentManager _docs;
     private readonly IAnnouncer _announcer;
     private readonly CsvCellEditor _editor = new();
-    private string? _cachedText;
-    private CsvDocument? _cachedDoc;
 
     public CsvController(DocumentManager docs, IAnnouncer announcer)
     {
@@ -44,7 +42,7 @@ public sealed class CsvController
 
         if (!doc.State.CsvMode)
         {
-            var csv = ParseCached(doc.Editor);
+            var csv = doc.ParseCsv();
             if (!csv.Ok) { _announcer.Say(CsvAnnounceFormatter.ParseError); return; } // 解析不可ならモードに入らない
             doc.State.CsvMode = true;
             doc.Editor.ReadOnly = true;
@@ -70,7 +68,7 @@ public sealed class CsvController
         }
         else
         {
-            var csv = ParseCached(doc.Editor);
+            var csv = doc.ParseCsv();
             doc.State.CsvMode = false;                 // 先に解除（エディタ GotFocus のシンク退避ガードを外す）
             doc.Editor.ReadOnly = false;
             doc.Editor.ClearHighlight();
@@ -86,6 +84,7 @@ public sealed class CsvController
             // 遅延し得るため遅延配送までは塞げない（PC-Talker の二重読み解消は実機で要確認）。
             doc.Editor.RaiseUiaSelectionEvents = true;
             doc.Editor.Focus();
+            doc.ClearCsvCache();   // 通常編集へ戻るのでパース結果を保持しない（メモリ解放）
             _announcer.Say(CsvAnnounceFormatter.ModeOff);
         }
     }
@@ -159,7 +158,9 @@ public sealed class CsvController
         // ナビ後にリサイズ等で当該セルが視野外へずれていた場合に備えて明示的に可視化する。
         ed.EnsureVisibleCharRange(start, length);
 
-        _editor.Begin(ed, f, _docs.Active!.CsvSink,   // TryContext 成功時は Active 非 null
+        var doc = _docs.Active!;   // TryContext 成功時は Active 非 null。タブ切替は AbortEdit が
+                                   // 先に走るため、確定/取消コールバック時点でも同一文書が対象。
+        _editor.Begin(ed, f, doc.CsvSink,
             onCommit: text =>
             {
                 string serialized = CsvWriter.EscapeField(text);
@@ -167,26 +168,18 @@ public sealed class CsvController
                 ed.ReadOnly = false;
                 ed.ReplaceCharRange(start, length, serialized);
                 ed.ReadOnly = wasRo;
-                var csv2 = ParseCached(ed);
+                var csv2 = doc.ParseCsv();
                 if (csv2.Ok) ApplyCell(ed, csv2, row, col, announce: true);
                 else _announcer.Say(CsvAnnounceFormatter.ParseError);
             },
             onCancel: () =>
             {
-                var csv2 = ParseCached(ed);
+                var csv2 = doc.ParseCsv();
                 if (csv2.Ok && csv2.Rows.Count > 0) ApplyCell(ed, csv2, row, col, announce: false);
             });
     }
 
     // ==================== 内部 ====================
-
-    /// <summary>SnapshotText の参照同一性でメモ化したパース。編集で _snapshot が差し替わると自動失効。</summary>
-    private CsvDocument ParseCached(ScintillaHost ed)
-    {
-        var text = ed.SnapshotText;
-        if (!ReferenceEquals(text, _cachedText)) { _cachedDoc = CsvParser.Parse(text); _cachedText = text; }
-        return _cachedDoc!;
-    }
 
     /// <summary>パースして現在 (row,col) を得る。CSVでない/解析不可/データ無しは読み上げて false。
     /// (row,col) は DocumentState を真実源とし、パース結果の行列数へクランプする（本文編集で
@@ -198,7 +191,7 @@ public sealed class CsvController
         var doc = _docs.Active;
         if (doc is null || !doc.State.CsvMode) return false;
         ed = doc.Editor;
-        csv = ParseCached(ed);
+        csv = doc.ParseCsv();
         if (!csv.Ok) { ed.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.ParseError); return false; }
         if (csv.Rows.Count == 0) { ed.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.NoData); return false; }
         row = ClampRow(csv, doc.State.CsvRow);

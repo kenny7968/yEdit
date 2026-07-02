@@ -653,6 +653,7 @@ public sealed partial class MainForm : Form
             // 既存タブへロードし直す場合に備え、読取専用とハイライトを解除しておく。
             // Scintilla の Text セッターは読取専用時 no-op のため、Text 代入前に ReadOnly を解除する必要がある。
             doc.State.CsvMode = false;
+            doc.ClearCsvCache(); // 旧本文のパース結果を持ち越さない（開き直し経路のメモリ解放）
             doc.Editor.ReadOnly = false;
             doc.Editor.RaiseUiaSelectionEvents = true; // モードON時に落とした UIA 抑止をここで確実に戻す（開き直し経路）
             doc.Editor.ClearHighlight();

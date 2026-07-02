@@ -12,10 +12,20 @@ public sealed class Document
     public TabPage Page { get; }
     public DocumentState State { get; } = new();
 
+    /// <summary>CSVモード中のフォーカス退避先。生成時に Page へ追加され、
+    /// Dock=Fill のエディタの背面に隠れる（視覚影響なし）。</summary>
+    public CsvFocusSink CsvSink { get; }
+
+    /// <summary>「編集領域」へフォーカスを戻すときの正しい行き先。CSVモード中はシンク、
+    /// 通常時はエディタ。編集領域への Focus() 呼び出しは必ずこれを経由すること。</summary>
+    public Control FocusTarget => State.CsvMode ? CsvSink : Editor;
+
     public Document(ScintillaHost editor, TabPage page)
     {
         Editor = editor;
         Page = page;
+        CsvSink = new CsvFocusSink();
+        page.Controls.Add(CsvSink);   // editor(Dock=Fill) より後に追加 → Z順で背面
     }
 
     /// <summary>タブに表示するラベル（ファイル名＋変更マーク）。</summary>

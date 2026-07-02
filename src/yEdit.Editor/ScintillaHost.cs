@@ -455,7 +455,7 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
         if (InvokeRequired) { BeginInvoke(new Action(() => EnsureVisibleCharRange(start, length))); return; }
         int bs = Utf16ToByte(SnapToCodepoint(Clamp16(start)));
         int be = Utf16ToByte(SnapToCodepoint(Clamp16(start + length)));
-        DirectMessage(Sci.SCI_SCROLLRANGE, (nint)be, (nint)bs); // primary=end, secondary=start
+        DirectMessage(Sci.SCI_SCROLLRANGE, (nint)be, (nint)bs); // wParam=secondary=end, lParam=primary=start（範囲先頭を優先して可視化）
     }
 
     /// <summary>範囲ハイライトを全て消す（CSV モード解除時など）。</summary>

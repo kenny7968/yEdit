@@ -180,13 +180,6 @@ public sealed class CsvController
 
     // ==================== 内部 ====================
 
-    /// <summary>アクティブが CSV モードならそのエディタ、でなければ null。</summary>
-    private ScintillaHost? ActiveCsvEditor()
-    {
-        var doc = _docs.Active;
-        return (doc is not null && doc.State.CsvMode) ? doc.Editor : null;
-    }
-
     /// <summary>SnapshotText の参照同一性でメモ化したパース。編集で _snapshot が差し替わると自動失効。</summary>
     private CsvDocument ParseCached(ScintillaHost ed)
     {

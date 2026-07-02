@@ -672,6 +672,7 @@ public sealed partial class MainForm : Form
             // 既存タブへロードし直す場合に備え、読取専用とハイライトを解除しておく。
             doc.State.CsvMode = false;
             doc.Editor.ReadOnly = false;
+            doc.Editor.RaiseUiaSelectionEvents = true; // モードON時に落とした UIA 抑止をここで確実に戻す（開き直し経路）
             doc.Editor.ClearHighlight();
 
             if (loaded.HadReplacementChar)
@@ -714,7 +715,10 @@ public sealed partial class MainForm : Form
         if (!ConfirmDiscardIfDirty(doc)) return;
         using var dlg = new EncodingPickDialog(doc.State.Encoding.CodePage);
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        LoadInto(doc, doc.State.Path, forcedCodePage: dlg.SelectedCodePage);
+        if (!LoadInto(doc, doc.State.Path, forcedCodePage: dlg.SelectedCodePage)) return;
+        // CSVモード中の開き直しでは、ダイアログ閉塞時に WinForms がシンクへフォーカスを復元する。
+        // LoadInto が CsvMode=false にした後なので、編集領域（この時点で FocusTarget=エディタ）へ明示的に戻す。
+        doc.FocusTarget.Focus();
     }
 
     // メニューから呼ぶ（アクティブタブ対象）。

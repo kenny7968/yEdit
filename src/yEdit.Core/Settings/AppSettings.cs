@@ -34,4 +34,12 @@ public sealed class AppSettings
 
     /// <summary>最近開いたファイル（先頭が最新）。</summary>
     public List<string> RecentFiles { get; set; } = new();
+
+    /// <summary>独立したコピーを返す（RecentFiles も複製）。設定ダイアログの編集用スナップショット。</summary>
+    public AppSettings Clone()
+    {
+        var c = (AppSettings)MemberwiseClone();
+        c.RecentFiles = new List<string>(RecentFiles);
+        return c;
+    }
 }

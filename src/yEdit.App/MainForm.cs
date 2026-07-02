@@ -486,21 +486,13 @@ public sealed partial class MainForm : Form
         }
     }
 
-    /// <summary>設定ダイアログを開き、OK なら全タブへ外観適用＋永続化する。</summary>
+    /// <summary>設定ダイアログを開き、OK なら全タブへ外観適用＋永続化する。
+    /// 項目→コントロールの対応はダイアログに閉じ、ここは Result を差し替えるだけにする。</summary>
     private void OpenSettings()
     {
         using var dlg = new SettingsDialog(_settings);
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        _settings.FontName = dlg.FontName;
-        _settings.FontSize = dlg.FontSize;
-        _settings.Theme = dlg.ThemeId;
-        _settings.DefaultCodePage = dlg.DefaultCodePage;
-        _settings.DefaultLineEnding = dlg.DefaultLineEnding;
-        _settings.WrapColumnEnabled = dlg.WrapColumnEnabled;
-        _settings.WrapColumn = dlg.WrapColumn;
-        _settings.KinsokuLineStartChars = dlg.KinsokuLineStartChars;
-        _settings.KinsokuLineEndChars = dlg.KinsokuLineEndChars;
-        _settings.KinsokuHangChars = dlg.KinsokuHangChars;
+        _settings = dlg.Result;
         foreach (var doc in _docs.Documents) EditorAppearance.Apply(doc.Editor, _settings);
         try { SettingsStore.Save(_settingsPath, _settings); } catch { /* 設定保存失敗は致命でない */ }
         _announcer.Say("設定を適用しました");

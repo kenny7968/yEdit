@@ -6,6 +6,7 @@ using System.Windows.Automation.Provider;
 using ScintillaNET;
 using yEdit.Accessibility;
 using yEdit.Core.Settings;
+using yEdit.Core.Text;
 using WpfRect = System.Windows.Rect;
 
 namespace yEdit.Editor;
@@ -394,6 +395,18 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
         RefreshSnapshot();
         RefreshSelection();
     }
+
+    /// <summary>
+    /// 文書の改行種別を Scintilla の EOL モードへ反映する（Enter で挿入される改行・ConvertEols の対象）。
+    /// LineEnding（Core）と ScintillaNET.Eol の対応はここに一本化する。
+    /// </summary>
+    public void ApplyLineEnding(LineEnding eol)
+        => EolMode = eol switch
+        {
+            LineEnding.Crlf => Eol.CrLf,
+            LineEnding.Lf => Eol.Lf,
+            _ => Eol.Cr,
+        };
 
     // ==================== 表示折り返し（指定桁・本文不変・UI スレッド専用） ====================
 

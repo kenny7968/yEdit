@@ -374,10 +374,7 @@ public sealed partial class MainForm : Form
         int col = doc.Editor.GetColumn(doc.Editor.CurrentPosition) + 1;
         _posLabel.Text = $"行 {line}, 桁 {col}";
         _encLabel.Text = EncodingDisplayName(doc.State.Encoding, doc.State.HasBom);
-        _eolLabel.Text = doc.State.LineEnding switch
-        {
-            LineEnding.Crlf => "CRLF", LineEnding.Lf => "LF", _ => "CR"
-        };
+        _eolLabel.Text = doc.State.LineEnding.ToDisplayString();
     }
 
     private void UpdateTitle()
@@ -622,7 +619,7 @@ public sealed partial class MainForm : Form
         if (len <= 0) return;
 
         string target = text.Substring(start, len);
-        string eol = EolString(doc!.State.LineEnding);
+        string eol = doc!.State.LineEnding.ToEolString();
         string formatted = KinsokuFormatter.Format(
             target, _settings.WrapColumn,
             _settings.KinsokuLineStartChars, _settings.KinsokuLineEndChars, _settings.KinsokuHangChars,
@@ -636,13 +633,6 @@ public sealed partial class MainForm : Form
         ed.Focus();
         _announcer.Say("整形しました");
     }
-
-    private static string EolString(LineEnding eol) => eol switch
-    {
-        LineEnding.Lf => "\n",
-        LineEnding.Cr => "\r",
-        _ => "\r\n",
-    };
 
     /// <summary>
     /// ファイルを読み込み、本文・文字コード・改行を対象タブへ反映する。
@@ -696,12 +686,7 @@ public sealed partial class MainForm : Form
 
     /// <summary>doc.State.LineEnding をそのエディタの EOL モードへ反映する。</summary>
     private static void ApplyEol(Document doc)
-        => doc.Editor.EolMode = doc.State.LineEnding switch
-        {
-            LineEnding.Crlf => ScintillaNET.Eol.CrLf,
-            LineEnding.Lf => ScintillaNET.Eol.Lf,
-            _ => ScintillaNET.Eol.Cr,
-        };
+        => doc.Editor.ApplyLineEnding(doc.State.LineEnding);
 
     /// <summary>アクティブタブを指定の文字コードで開き直す。Path 未確定なら案内表示して中止。</summary>
     private void ReopenWithEncoding()

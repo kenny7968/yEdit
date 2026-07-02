@@ -10,6 +10,13 @@ namespace yEdit.App;
 /// 目的: セル移動のたびに Scintilla の SCI_SETSEL が SR へ余計な選択変更通知を出し、
 /// Announcer の発話と二重に読み上げられるのを防ぐため。可視域スクロールは
 /// キャレット無移動の EnsureVisibleCharRange で行う。F2 は CsvCellEditor に委譲する。
+/// また、モード中は ScintillaHost.RaiseUiaSelectionEvents を false にする。これは
+/// メニュー閉塞後の再フォーカスで OnGotFocus が明示発火する TextSelectionChangedEvent に
+/// PC-Talker（UIA 経路）が反応して行内容を読む二重読みを防ぐため（NVDA はネイティブ
+/// Scintilla 統合で UIA 非依存に現在行を読むので、この抑止は NVDA には効かない）。
+/// ToggleMode ON では意図的にセル内容を発話しない（モード告知のみ）。理由: メニュー閉塞→
+/// 編集領域再フォーカスで NVDA が行を必ず読むため、Say とフォーカス復帰時読みが二重化する。
+/// 初期セルはハイライトで視覚提示し、耳の内容は Tab キーで再読み上げできる。
 /// </summary>
 public sealed class CsvController
 {
@@ -43,16 +50,20 @@ public sealed class CsvController
             if (!csv.Ok) { _announcer.Say(CsvAnnounceFormatter.ParseError); return; } // 解析不可ならモードに入らない
             doc.State.CsvMode = true;
             doc.Editor.ReadOnly = true;
+            // PC-Talker（UIA経路）側の二重読みを抑止する。NVDA はネイティブ Scintilla 統合で
+            // フォーカス復帰時に UIA 非依存で現在行を読むため、この抑止だけでは NVDA には効かない。
+            doc.Editor.RaiseUiaSelectionEvents = false;
             if (csv.Rows.Count == 0) { doc.Editor.ClearHighlight(); _announcer.Say(CsvAnnounceFormatter.ModeOn); return; }
             // ON 時のみ、その時点のキャレット位置から初期セルを導出する（以降はキャレットではなく状態を真実源にする）。
             var (row, col) = csv.FindCell(doc.Editor.CaretCharOffset);
             doc.State.CsvRow = row;
             doc.State.CsvCol = col;
-            ApplyCell(doc.Editor, csv, row, col, announce: false);   // ハイライト＋可視域スクロールのみ（読み上げは下でまとめて）
-            var f = csv.GetField(row, col);
-            _announcer.Say(f is null
-                ? CsvAnnounceFormatter.ModeOn
-                : CsvAnnounceFormatter.ModeOn + " " + CsvAnnounceFormatter.Cell(f.Value, row + 1, col + 1));
+            ApplyCell(doc.Editor, csv, row, col, announce: false);   // ハイライト＋可視域スクロールのみ
+            // ON 告知のみ発話し、セル内容は意図的に読み上げない。理由: NVDA はネイティブ
+            // Scintilla 統合により、メニュー閉塞→編集領域再フォーカス時に必ず現在行を読み上げる。
+            // ここでセル内容も Say すると、Announcer 発話とフォーカス復帰時の SR 自動読み上げが
+            // 二重化する。初期セルはハイライトで視覚提示し、耳で内容が要る場合は Tab で再読み上げできる。
+            _announcer.Say(CsvAnnounceFormatter.ModeOn);
         }
         else
         {
@@ -66,6 +77,7 @@ public sealed class CsvController
             }
             doc.State.CsvMode = false;
             doc.Editor.ReadOnly = false;
+            doc.Editor.RaiseUiaSelectionEvents = true; // 通常編集の SR 挙動へ復帰
             doc.Editor.ClearHighlight();
             _announcer.Say(CsvAnnounceFormatter.ModeOff);
         }

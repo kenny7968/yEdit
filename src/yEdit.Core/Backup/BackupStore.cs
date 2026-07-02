@@ -15,23 +15,13 @@ public static class BackupStore
     public static string DefaultDirectory =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "yEdit", "backups");
 
-    /// <summary>1 件のバックアップを原子的に書き込む（&lt;Id&gt;.json を temp 経由で差し替え）。</summary>
+    /// <summary>1 件のバックアップを原子的に書き込む（&lt;Id&gt;.json を temp 経由で差し替え）。
+    /// temp は「ファイル名.乱数.tmp」（AtomicFile 準拠）で、SweepTempFiles の "*.tmp" 掃除対象に収まる。</summary>
     public static void Write(string dir, BackupRecord record)
     {
         Directory.CreateDirectory(dir);
         string path = Path.Combine(dir, record.Id + ".json");
-        string tmp = Path.Combine(dir, record.Id + "." + Path.GetRandomFileName() + ".tmp");
-
-        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(record, Options);
-        try { File.WriteAllBytes(tmp, payload); }
-        catch { TryDelete(tmp); throw; }
-
-        try
-        {
-            if (File.Exists(path)) File.Replace(tmp, path, destinationBackupFileName: null);
-            else File.Move(tmp, path);
-        }
-        catch { TryDelete(tmp); throw; }
+        IO.AtomicFile.Write(path, JsonSerializer.SerializeToUtf8Bytes(record, Options));
     }
 
     /// <summary>ディレクトリ内の全バックアップを読み込む（破損・読めないファイルはスキップ）。</summary>

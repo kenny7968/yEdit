@@ -1,3 +1,4 @@
+using yEdit.Core.Csv;
 using yEdit.Editor;
 
 namespace yEdit.App;
@@ -33,4 +34,30 @@ public sealed class Document
 
     /// <summary>タブに表示するラベル（ファイル名＋変更マーク）。</summary>
     public string TabLabel => State.DisplayName + (Editor.Modified ? " *" : "");
+
+    // ---- CSV パースのメモ化（文書単位） ----
+    // コントローラ単位で持つとタブ横断で直近文書の全文＋パース結果が滞留し、
+    // 複数 CSV タブの行き来で毎回再パースになるため、文書と同寿命でここに持つ。
+    private string? _csvCachedText;
+    private CsvDocument? _csvCachedDoc;
+
+    /// <summary>SnapshotText の参照同一性でメモ化した CSV パース。編集でスナップショットが
+    /// 差し替わると自動失効する。キャッシュは文書と同寿命（タブを閉じれば解放）。</summary>
+    public CsvDocument ParseCsv()
+    {
+        string text = Editor.SnapshotText;
+        if (!ReferenceEquals(text, _csvCachedText))
+        {
+            _csvCachedDoc = CsvParser.Parse(text);
+            _csvCachedText = text;
+        }
+        return _csvCachedDoc!;
+    }
+
+    /// <summary>CSV パースキャッシュを明示解放する（CSVモード解除・開き直し時のメモリ解放）。</summary>
+    public void ClearCsvCache()
+    {
+        _csvCachedText = null;
+        _csvCachedDoc = null;
+    }
 }

@@ -1,7 +1,5 @@
-using yEdit.Core.Backup;
 using yEdit.Core.Csv;
 using yEdit.Core.Reading;
-using yEdit.Core.Search;
 using yEdit.Core.Settings;
 using yEdit.Core.Text;
 using yEdit.Editor;
@@ -11,6 +9,7 @@ namespace yEdit.App;
 public sealed partial class MainForm : Form
 {
     private readonly DocumentManager _docs;
+    private FileController _file = null!;      // コンストラクタで生成
     private SearchController _search = null!; // コンストラクタで生成
     private GrepController _grep = null!;     // コンストラクタで生成
     private BackupCoordinator _backup = null!; // コンストラクタで生成
@@ -27,10 +26,8 @@ public sealed partial class MainForm : Form
     };
     private IAnnouncer _announcer = null!; // AnnouncerFactory で生成（起動時モード確定）
     private ToolStripMenuItem _recentMenu = null!; // BuildMenu で生成
-    private const int MaxRecent = 10;
     private readonly string _settingsPath = SettingsStore.DefaultPath;
     private AppSettings _settings = new();
-    private int _untitledSeq; // 無題タブの連番（新規作成毎に増加・セッション内で再利用しない）
     // Alt 等でメニューがアクティブな間は CSV の素キー横取りを止め、矢印/文字キーをメニュー操作へ通す。
     // メニューモードに入っても本文（Scintilla）はフォーカスを保持するため ContainsFocus では判別できず、
     // MenuStrip の Activate/Deactivate イベントで明示的に追跡する。
@@ -49,6 +46,9 @@ public sealed partial class MainForm : Form
         _docs.ActiveDocumentChanged += (_, _) => { UpdateTitle(); UpdateStatus(); };
         _docs.ActiveDirtyChanged += (_, _) => UpdateTitle();
         _docs.ActiveCaretChanged += (_, _) => UpdateStatus();
+        // 設定は OpenSettings で参照が差し替わるため Func で都度解決させる。
+        _file = new FileController(_docs, this, () => _settings,
+            SaveSettingsSafe, RebuildRecentMenu, () => { UpdateTitle(); UpdateStatus(); });
         _search = new SearchController(_docs, this);
         _grep = new GrepController(_docs, this,
             hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength));
@@ -77,7 +77,7 @@ public sealed partial class MainForm : Form
         Controls.Add(menu);
         MainMenuStrip = menu;
 
-        NewFile(); // 起動時の無題タブ1つ（Q1=B：常に新規タブ）
+        _file.NewFile(); // 起動時の無題タブ1つ（Q1=B：常に新規タブ）
     }
 
     /// <summary>タブ毎の ScintillaHost を生成する。SR 適応はハンドル生成前に確定させる（M1 と同順）。</summary>
@@ -100,39 +100,8 @@ public sealed partial class MainForm : Form
         if (!_restoreOffered)
         {
             _restoreOffered = true;
-            _backup.OfferRestoreOnStartup(this, RestoreFromBackup);
+            _backup.OfferRestoreOnStartup(this, _file.RestoreFromBackup);
         }
-    }
-
-    /// <summary>バックアップ記録を新タブへ復元する。本文・メタを載せ、保存点は打たず dirty のままにする。</summary>
-    private Document RestoreFromBackup(BackupRecord rec)
-    {
-        var doc = _docs.CreateNew();
-        doc.State.Path = rec.OriginalPath;
-        // 無題は元の連番を保ち、ダイアログ表示と復元後タブの番号を一致させる。連番カウンタは
-        // 既存の最大値以上へ進め、以後の新規無題と衝突しないようにする。
-        if (rec.OriginalPath is null)
-        {
-            int n = rec.UntitledNumber > 0 ? rec.UntitledNumber : ++_untitledSeq;
-            if (n > _untitledSeq) _untitledSeq = n;
-            doc.State.UntitledNumber = n;
-        }
-        else
-        {
-            doc.State.UntitledNumber = 0;
-        }
-        doc.State.Encoding = EncodingCatalog.Get(rec.CodePage);
-        doc.State.HasBom = rec.HasBom;
-        doc.State.LineEnding = (LineEnding)rec.LineEndingId;
-
-        doc.Editor.Text = rec.Content;
-        ApplyEol(doc);
-        doc.Editor.EmptyUndoBuffer();
-        // SetSavePoint しない → Modified=true のまま（ユーザーが保存できる）。
-        _docs.UpdateLabel(doc);
-        UpdateTitle();
-        UpdateStatus();
-        return doc;
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -144,7 +113,7 @@ public sealed partial class MainForm : Form
         {
             if (!doc.Editor.Modified) continue;
             _docs.Activate(doc); // どのファイルの確認かを SR/視覚で示す
-            if (!ConfirmDiscardIfDirty(doc))
+            if (!_file.ConfirmDiscardIfDirty(doc))
             {
                 e.Cancel = true;
                 _grep.CancelClose(); // 終了を取りやめたので grep を通常運用へ戻す
@@ -156,7 +125,7 @@ public sealed partial class MainForm : Form
         var b = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
         _settings.WindowWidth = b.Width;
         _settings.WindowHeight = b.Height;
-        try { SettingsStore.Save(_settingsPath, _settings); } catch { /* 設定保存失敗は致命でない */ }
+        SaveSettingsSafe();
         base.OnFormClosing(e);
     }
 
@@ -190,28 +159,11 @@ public sealed partial class MainForm : Form
         // メニュー操作へ通す。
         var activeDoc = _docs.Active;
         if (activeDoc?.State.CsvMode == true && !_csv.IsEditing && !_menuActive &&
-            (activeDoc.Editor.ContainsFocus || activeDoc.CsvSink.Focused))
+            (activeDoc.Editor.ContainsFocus || activeDoc.CsvSink.Focused) &&
+            CsvCommands.ByKey.TryGetValue(keyData, out var csvCmd))
         {
-            switch (keyData)
-            {
-                case Keys.Up: _csv.Move(Direction.Up); return true;
-                case Keys.Down: _csv.Move(Direction.Down); return true;
-                case Keys.Left: _csv.Move(Direction.Left); return true;
-                case Keys.Right: _csv.Move(Direction.Right); return true;
-                case Keys.Tab: _csv.ReadCurrent(); return true;
-                case Keys.C: _csv.ReadColumnTop(); return true;
-                case Keys.R: _csv.ReadRowHead(); return true;
-                case Keys.Home: _csv.MoveRowStart(); return true;
-                case Keys.End: _csv.MoveRowEnd(); return true;
-                case Keys.PageUp: _csv.MoveColumnTop(); return true;
-                case Keys.PageDown: _csv.MoveColumnBottom(); return true;
-                case Keys.Control | Keys.Home: _csv.MoveTopLeft(); return true;
-                case Keys.Control | Keys.End: _csv.MoveBottomRight(); return true;
-                case Keys.G: _csv.GoToCell(); return true;
-                case Keys.F2: _csv.BeginEdit(); return true;
-                case Keys.Shift | Keys.Tab: _csv.ReadCurrent(); return true; // Shift+Tab でフォーカスがシンクから逃げるのを防ぐ
-                case Keys.Control | Keys.G: _csv.GoToCell(); return true;    // 行ジャンプはCSVモード中セル指定に読み替え（素通りするとキャレット移動＋生読みを誘発）
-            }
+            csvCmd.Execute(_csv);
+            return true;
         }
 
         switch (keyData)
@@ -248,14 +200,14 @@ public sealed partial class MainForm : Form
         menu.MenuDeactivate += (_, _) => _menuActive = false;
 
         var file = new ToolStripMenuItem("ファイル(&F)");
-        AddMenuItem(file, "新規(&N)", (_, _) => NewFile(), Keys.Control | Keys.N);
-        AddMenuItem(file, "開く(&O)...", (_, _) => OpenFile(), Keys.Control | Keys.O);
-        AddMenuItem(file, "文字コードを指定して開き直す(&R)...", (_, _) => ReopenWithEncoding());
+        AddMenuItem(file, "新規(&N)", (_, _) => _file.NewFile(), Keys.Control | Keys.N);
+        AddMenuItem(file, "開く(&O)...", (_, _) => _file.OpenFileWithDialog(), Keys.Control | Keys.O);
+        AddMenuItem(file, "文字コードを指定して開き直す(&R)...", (_, _) => _file.ReopenWithEncoding());
         _recentMenu = new ToolStripMenuItem("最近のファイル(&Y)");
         file.DropDownItems.Add(_recentMenu);
         file.DropDownItems.Add(new ToolStripSeparator());
-        AddMenuItem(file, "上書き保存(&S)", (_, _) => Save(), Keys.Control | Keys.S);
-        AddMenuItem(file, "名前を付けて保存(&A)...", (_, _) => SaveAs());
+        AddMenuItem(file, "上書き保存(&S)", (_, _) => _file.Save(), Keys.Control | Keys.S);
+        AddMenuItem(file, "名前を付けて保存(&A)...", (_, _) => _file.SaveAs());
         file.DropDownItems.Add(new ToolStripSeparator());
         AddMenuItem(file, "設定(&P)...", (_, _) => OpenSettings());
         AddMenuItem(file, "タブを閉じる(&W)", (_, _) => CloseActiveTab(), Keys.Control | Keys.W);
@@ -305,35 +257,26 @@ public sealed partial class MainForm : Form
         md.DropDownOpening += (_, _) =>
             mdPreview.Enabled = MarkdownFile.IsMarkdownPath(_docs.Active?.State.Path);
 
+        // CSV メニューはコマンドテーブル（CsvCommands）から生成する。キー横取り
+        // （ProcessCmdKey）と定義を共有し、二重管理を避ける。Group の境界にセパレータを挿む。
         var csv = new ToolStripMenuItem("CSV(&C)");
         var csvToggle = new ToolStripMenuItem("CSVモード(&M)", null, (_, _) => _csv.ToggleMode());
-        var navItems = new List<ToolStripMenuItem>();
-        ToolStripMenuItem Nav(string text, string keyHint, Action act)
-        {
-            var mi = new ToolStripMenuItem(text, null, (_, _) => act()) { ShortcutKeyDisplayString = keyHint };
-            navItems.Add(mi);
-            return mi;
-        }
         csv.DropDownItems.Add(csvToggle);
-        csv.DropDownItems.Add(new ToolStripSeparator());
-        csv.DropDownItems.Add(Nav("上のセル(&U)", "↑", () => _csv.Move(Direction.Up)));
-        csv.DropDownItems.Add(Nav("下のセル(&D)", "↓", () => _csv.Move(Direction.Down)));
-        csv.DropDownItems.Add(Nav("左のセル(&L)", "←", () => _csv.Move(Direction.Left)));
-        csv.DropDownItems.Add(Nav("右のセル(&R)", "→", () => _csv.Move(Direction.Right)));
-        csv.DropDownItems.Add(new ToolStripSeparator());
-        csv.DropDownItems.Add(Nav("現在セルを読み上げ(&E)", "Tab", () => _csv.ReadCurrent()));
-        csv.DropDownItems.Add(Nav("列の見出しを読み上げ(&C)", "C", () => _csv.ReadColumnTop()));
-        csv.DropDownItems.Add(Nav("行の見出しを読み上げ(&H)", "R", () => _csv.ReadRowHead()));
-        csv.DropDownItems.Add(new ToolStripSeparator());
-        csv.DropDownItems.Add(Nav("行頭へ(&S)", "Home", () => _csv.MoveRowStart()));
-        csv.DropDownItems.Add(Nav("行末へ(&N)", "End", () => _csv.MoveRowEnd()));
-        csv.DropDownItems.Add(Nav("列頭へ(&T)", "PageUp", () => _csv.MoveColumnTop()));
-        csv.DropDownItems.Add(Nav("列末へ(&B)", "PageDown", () => _csv.MoveColumnBottom()));
-        csv.DropDownItems.Add(Nav("左上へ(&1)", "Ctrl+Home", () => _csv.MoveTopLeft()));
-        csv.DropDownItems.Add(Nav("右下へ(&9)", "Ctrl+End", () => _csv.MoveBottomRight()));
-        csv.DropDownItems.Add(new ToolStripSeparator());
-        csv.DropDownItems.Add(Nav("セルへ移動(&G)...", "G", () => _csv.GoToCell()));
-        csv.DropDownItems.Add(Nav("セルを編集(&F)", "F2", () => _csv.BeginEdit()));
+        var navItems = new List<ToolStripMenuItem>();
+        int prevGroup = -1;
+        foreach (var cmd in CsvCommands.All)
+        {
+            if (cmd.MenuText is null) continue; // キー専用（別名・ガード）はメニューに出さない
+            if (cmd.Group != prevGroup)
+            {
+                csv.DropDownItems.Add(new ToolStripSeparator());
+                prevGroup = cmd.Group;
+            }
+            var mi = new ToolStripMenuItem(cmd.MenuText, null, (_, _) => cmd.Execute(_csv))
+            { ShortcutKeyDisplayString = cmd.KeyHint };
+            navItems.Add(mi);
+            csv.DropDownItems.Add(mi);
+        }
         csv.DropDownOpening += (_, _) =>
         {
             bool on = _docs.Active?.State.CsvMode == true;
@@ -374,10 +317,7 @@ public sealed partial class MainForm : Form
         int col = doc.Editor.GetColumn(doc.Editor.CurrentPosition) + 1;
         _posLabel.Text = $"行 {line}, 桁 {col}";
         _encLabel.Text = EncodingDisplayName(doc.State.Encoding, doc.State.HasBom);
-        _eolLabel.Text = doc.State.LineEnding switch
-        {
-            LineEnding.Crlf => "CRLF", LineEnding.Lf => "LF", _ => "CR"
-        };
+        _eolLabel.Text = doc.State.LineEnding.ToDisplayString();
     }
 
     private void UpdateTitle()
@@ -393,75 +333,12 @@ public sealed partial class MainForm : Form
         return enc.CodePage == 65001 && bom ? name + " (BOM)" : name;
     }
 
-    // ==================== ファイル操作（アクティブタブ対象） ====================
-
-    /// <summary>
-    /// 変更があれば 保存/破棄/キャンセル を問う。Yes なら保存成否、No なら true、
-    /// キャンセルなら false を返す。対象ドキュメントを明示で受ける（終了時の他タブ確認用）。
-    /// </summary>
-    private bool ConfirmDiscardIfDirty(Document doc)
-    {
-        if (!doc.Editor.Modified) return true;
-        var r = MessageBox.Show(
-            $"{doc.State.DisplayName} の変更を保存しますか？",
-            "yEdit", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
-        return r switch
-        {
-            DialogResult.Yes => SaveDocument(doc),
-            DialogResult.No => true,
-            _ => false,
-        };
-    }
-
-    private void NewFile()
-    {
-        var doc = _docs.CreateNew();
-        doc.State.Path = null;
-        doc.State.UntitledNumber = ++_untitledSeq; // 「無題 1」「無題 2」…で区別できるように
-        doc.State.Encoding = EncodingCatalog.Get(_settings.DefaultCodePage);
-        doc.State.HasBom = false;
-        doc.State.LineEnding = (LineEnding)_settings.DefaultLineEnding;
-
-        doc.Editor.Text = string.Empty;
-        ApplyEol(doc);
-        doc.Editor.EmptyUndoBuffer();
-        doc.Editor.SetSavePoint();
-        _docs.UpdateLabel(doc);
-        UpdateTitle();
-        UpdateStatus();
-    }
-
-    private void OpenFile()
-    {
-        using var dlg = new OpenFileDialog { Filter = "対応ファイル (*.txt, *.md, *.csv)|*.txt;*.md;*.csv|すべてのファイル (*.*)|*.*" };
-        if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        OpenExistingPath(dlg.FileName);
-    }
-
-    /// <summary>既存ファイルを開く（既存タブ再利用・読込失敗時は直前へ復帰）。OpenFile/最近のファイル共通。</summary>
-    private void OpenExistingPath(string path)
-    {
-        // 既に同じファイルを開いていればそのタブへ（Q4：二重編集の上書き事故防止）。最近のファイルは先頭へ繰上げ。
-        var existing = _docs.FindByPath(path);
-        if (existing is not null) { _docs.Activate(existing); RegisterRecent(path); return; }
-
-        var prev = _docs.Active; // 読込失敗時に戻る先（直前のアクティブタブ）
-        var doc = _docs.CreateNew();
-        if (!LoadInto(doc, path, forcedCodePage: null))
-        {
-            _docs.TryClose(doc, _ => true); // 読込失敗→作りかけタブを破棄
-            if (prev is not null) _docs.Activate(prev); // 直前のアクティブへ戻す
-        }
-    }
-
     // ==================== 最近のファイル / 設定（M7） ====================
 
-    /// <summary>開いたファイルを最近のファイルへ登録し、永続化＆メニュー再生成する。</summary>
-    private void RegisterRecent(string path)
+    /// <summary>設定を永続化する（保存失敗は致命でないため握る）。</summary>
+    private void SaveSettingsSafe()
     {
-        _settings.RecentFiles = RecentFilesList.Add(_settings.RecentFiles, path, MaxRecent);
         try { SettingsStore.Save(_settingsPath, _settings); } catch { /* 設定保存失敗は致命でない */ }
-        RebuildRecentMenu();
     }
 
     private void RebuildRecentMenu()
@@ -485,27 +362,19 @@ public sealed partial class MainForm : Form
             string body = ($"{System.IO.Path.GetFileName(p)}  〔{System.IO.Path.GetDirectoryName(p)}〕").Replace("&", "&&");
             // 1..9 は &1..&9、10 件目は &0 をアクセスキーに（不揃いを避ける）。
             string text = n <= 9 ? $"&{n} {body}" : n == 10 ? $"&0 {body}" : body;
-            _recentMenu.DropDownItems.Add(new ToolStripMenuItem(text, null, (_, _) => OpenExistingPath(p)));
+            _recentMenu.DropDownItems.Add(new ToolStripMenuItem(text, null, (_, _) => _file.TryOpenOrActivate(p)));
         }
     }
 
-    /// <summary>設定ダイアログを開き、OK なら全タブへ外観適用＋永続化する。</summary>
+    /// <summary>設定ダイアログを開き、OK なら全タブへ外観適用＋永続化する。
+    /// 項目→コントロールの対応はダイアログに閉じ、ここは Result を差し替えるだけにする。</summary>
     private void OpenSettings()
     {
         using var dlg = new SettingsDialog(_settings);
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        _settings.FontName = dlg.FontName;
-        _settings.FontSize = dlg.FontSize;
-        _settings.Theme = dlg.ThemeId;
-        _settings.DefaultCodePage = dlg.DefaultCodePage;
-        _settings.DefaultLineEnding = dlg.DefaultLineEnding;
-        _settings.WrapColumnEnabled = dlg.WrapColumnEnabled;
-        _settings.WrapColumn = dlg.WrapColumn;
-        _settings.KinsokuLineStartChars = dlg.KinsokuLineStartChars;
-        _settings.KinsokuLineEndChars = dlg.KinsokuLineEndChars;
-        _settings.KinsokuHangChars = dlg.KinsokuHangChars;
+        _settings = dlg.Result;
         foreach (var doc in _docs.Documents) EditorAppearance.Apply(doc.Editor, _settings);
-        try { SettingsStore.Save(_settingsPath, _settings); } catch { /* 設定保存失敗は致命でない */ }
+        SaveSettingsSafe();
         _announcer.Say("設定を適用しました");
     }
 
@@ -517,22 +386,8 @@ public sealed partial class MainForm : Form
     /// </summary>
     internal void OpenAndSelect(string path, int offset, int length)
     {
-        var doc = _docs.FindByPath(path);
-        if (doc is null)
-        {
-            var prev = _docs.Active; // 読込失敗時に戻る先
-            doc = _docs.CreateNew();
-            if (!LoadInto(doc, path, forcedCodePage: null))
-            {
-                _docs.TryClose(doc, _ => true);
-                if (prev is not null) _docs.Activate(prev);
-                return;
-            }
-        }
-        else
-        {
-            _docs.Activate(doc);
-        }
+        var doc = _file.TryOpenOrActivate(path);
+        if (doc is null) return;
         doc.Editor.SelectCharRange(offset, length);
         doc.FocusTarget.Focus();
         // ジャンプ先のファイル名と行を明示通知（選択移動の自動読みに加え、別ファイルへ飛んだ文脈を補う）。
@@ -622,7 +477,7 @@ public sealed partial class MainForm : Form
         if (len <= 0) return;
 
         string target = text.Substring(start, len);
-        string eol = EolString(doc!.State.LineEnding);
+        string eol = doc!.State.LineEnding.ToEolString();
         string formatted = KinsokuFormatter.Format(
             target, _settings.WrapColumn,
             _settings.KinsokuLineStartChars, _settings.KinsokuLineEndChars, _settings.KinsokuHangChars,
@@ -637,155 +492,13 @@ public sealed partial class MainForm : Form
         _announcer.Say("整形しました");
     }
 
-    private static string EolString(LineEnding eol) => eol switch
-    {
-        LineEnding.Lf => "\n",
-        LineEnding.Cr => "\r",
-        _ => "\r\n",
-    };
-
-    /// <summary>
-    /// ファイルを読み込み、本文・文字コード・改行を対象タブへ反映する。
-    /// forcedCodePage 指定時は自動判定せずそのコードページで読む（開き直し用）。
-    /// 成否を返す（失敗は MessageBox 表示・握り潰さない）。
-    /// </summary>
-    private bool LoadInto(Document doc, string path, int? forcedCodePage)
-    {
-        try
-        {
-            var loaded = TextFileService.Load(path, forcedCodePage);
-            doc.State.Path = path;
-            doc.State.Encoding = loaded.Encoding;
-            doc.State.HasBom = loaded.HasBom;
-            doc.State.LineEnding = loaded.LineEnding;
-
-            // CSV モードは自動判定しない（メニューから手動で有効化する）。
-            // 既存タブへロードし直す場合に備え、読取専用とハイライトを解除しておく。
-            // Scintilla の Text セッターは読取専用時 no-op のため、Text 代入前に ReadOnly を解除する必要がある。
-            doc.State.CsvMode = false;
-            doc.Editor.ReadOnly = false;
-            doc.Editor.RaiseUiaSelectionEvents = true; // モードON時に落とした UIA 抑止をここで確実に戻す（開き直し経路）
-            doc.Editor.ClearHighlight();
-
-            doc.Editor.Text = loaded.Text;
-            ApplyEol(doc);
-            doc.Editor.EmptyUndoBuffer();
-            doc.Editor.SetSavePoint();
-
-            _docs.UpdateLabel(doc);
-            UpdateTitle();
-            UpdateStatus();
-
-            if (loaded.HadReplacementChar)
-            {
-                MessageBox.Show(
-                    "このファイルには現在の文字コードで表せない文字（置換文字）が含まれています。" +
-                    "別の文字コードで開き直してください。",
-                    "文字コードの警告", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-            RegisterRecent(path); // 開けたファイルを最近のファイルへ
-            return true;
-        }
-        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Security.SecurityException or NotSupportedException)
-        {
-            // 想定内の入出力エラーのみ握る。NullReference 等のロジックバグは伝播させる。
-            MessageBox.Show($"開けませんでした: {ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return false;
-        }
-    }
-
-    /// <summary>doc.State.LineEnding をそのエディタの EOL モードへ反映する。</summary>
-    private static void ApplyEol(Document doc)
-        => doc.Editor.EolMode = doc.State.LineEnding switch
-        {
-            LineEnding.Crlf => ScintillaNET.Eol.CrLf,
-            LineEnding.Lf => ScintillaNET.Eol.Lf,
-            _ => ScintillaNET.Eol.Cr,
-        };
-
-    /// <summary>アクティブタブを指定の文字コードで開き直す。Path 未確定なら案内表示して中止。</summary>
-    private void ReopenWithEncoding()
-    {
-        var doc = _docs.Active;
-        if (doc is null) return;
-        if (doc.State.Path is null)
-        {
-            MessageBox.Show("ファイルを開いてから実行してください。", "yEdit", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-        if (!ConfirmDiscardIfDirty(doc)) return;
-        using var dlg = new EncodingPickDialog(doc.State.Encoding.CodePage);
-        if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        if (!LoadInto(doc, doc.State.Path, forcedCodePage: dlg.SelectedCodePage)) return;
-        // CSVモード中の開き直しでは、ダイアログ閉塞時に WinForms がシンクへフォーカスを復元する。
-        // LoadInto が CsvMode=false にした後なので、編集領域（この時点で FocusTarget=エディタ）へ明示的に戻す。
-        doc.FocusTarget.Focus();
-    }
-
-    // メニューから呼ぶ（アクティブタブ対象）。
-    private bool Save()
-    {
-        var doc = _docs.Active;
-        return doc is not null && SaveDocument(doc);
-    }
-
-    private bool SaveAs()
-    {
-        var doc = _docs.Active;
-        return doc is not null && SaveAsDocument(doc);
-    }
-
-    /// <summary>指定ドキュメントを保存。Path 未確定なら SaveAs にフォールバック。</summary>
-    private bool SaveDocument(Document doc)
-        => doc.State.Path is null ? SaveAsDocument(doc) : WriteToPath(doc, doc.State.Path);
-
-    /// <summary>指定ドキュメントを名前を付けて保存。成功で State.Path とラベルを更新する。</summary>
-    private bool SaveAsDocument(Document doc)
-    {
-        using var dlg = new SaveFileDialog { Filter = "テキスト ファイル (*.txt)|*.txt|マークダウン ファイル (*.md)|*.md|CSV ファイル (*.csv)|*.csv|すべてのファイル (*.*)|*.*" };
-        if (doc.State.Path is not null) dlg.FileName = System.IO.Path.GetFileName(doc.State.Path);
-        if (dlg.ShowDialog(this) != DialogResult.OK) return false;
-        if (!WriteToPath(doc, dlg.FileName)) return false;
-        doc.State.Path = dlg.FileName;
-        _docs.UpdateLabel(doc);
-        UpdateTitle();
-        RegisterRecent(dlg.FileName); // 保存先も最近のファイルへ
-        return true;
-    }
-
-    /// <summary>
-    /// 改行を State.LineEnding に正規化してから本文を取得し、原子的に保存する。
-    /// 例外は MessageBox でエラー表示し false を返す。
-    /// </summary>
-    private bool WriteToPath(Document doc, string path)
-    {
-        try
-        {
-            ApplyEol(doc);
-            bool wasReadOnly = doc.Editor.ReadOnly;
-            if (wasReadOnly) doc.Editor.ReadOnly = false;
-            try { doc.Editor.ConvertEols(doc.Editor.EolMode); }
-            finally { if (wasReadOnly) doc.Editor.ReadOnly = true; }
-            TextFileService.Save(path, doc.Editor.Text, doc.State.Encoding, doc.State.HasBom);
-            doc.Editor.SetSavePoint();
-            _docs.UpdateLabel(doc);
-            UpdateTitle();
-            return true;
-        }
-        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Security.SecurityException or NotSupportedException)
-        {
-            MessageBox.Show($"保存できませんでした: {ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return false;
-        }
-    }
-
     /// <summary>アクティブタブを閉じる。変更確認→クローズ。最後の1つを閉じたらアプリ終了（Q1=B）。</summary>
     private void CloseActiveTab()
     {
         _csv.AbortEdit(); // F2 編集中ならタブ破棄前にオーバーレイを除去（IsEditing 固着防止）
         var doc = _docs.Active;
         if (doc is null) return;
-        if (!_docs.TryClose(doc, ConfirmDiscardIfDirty)) return;
+        if (!_docs.TryClose(doc, _file.ConfirmDiscardIfDirty)) return;
         if (_docs.Count == 0) { Close(); return; }
         // 選択タブ削除時の TabControl.Selected 発火は WinForms の仕様上保証されないため、
         // クローズ後の新アクティブへフォーカス・タイトル・ステータスを明示更新する

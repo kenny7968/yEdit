@@ -67,16 +67,11 @@ public static partial class TextFileService
         return true;
     }
 
-    // in-place フォールバックを許す唯一の条件（Win32 共有/ロック違反）。
-    // これ以外（ディスクフル等）でフォールバックすると原本を破壊し得るため不可。
-    private const int HResultSharingViolation = unchecked((int)0x80070020); // ERROR_SHARING_VIOLATION
-    private const int HResultLockViolation = unchecked((int)0x80070021);    // ERROR_LOCK_VIOLATION
-
     /// <summary>
-    /// 原子的にテキストを保存する。同ディレクトリの temp に書いてから File.Replace で差し替える
-    /// （新規は File.Move）。差し替えが「共有違反/ロック競合」で失敗した場合に限り in-place 上書きへ
-    /// フォールバックする。tmp 書き込み自体の失敗やそれ以外の I/O 失敗（ディスクフル等）は、原本に
-    /// 一切触れずそのまま例外を伝播する（= 原子的保存の目的＝原本喪失の回避を守る）。
+    /// 原子的にテキストを保存する（実体は <see cref="IO.AtomicFile"/>：temp へ書いてから
+    /// File.Replace／新規は File.Move）。「共有違反/ロック競合」で失敗した場合に限り in-place
+    /// 上書きへフォールバックする。それ以外の I/O 失敗（ディスクフル等）は、原本に一切触れず
+    /// そのまま例外を伝播する（= 原子的保存の目的＝原本喪失の回避を守る）。
     /// </summary>
     public static void Save(string path, string text, Encoding encoding, bool hasBom)
     {
@@ -103,53 +98,20 @@ public static partial class TextFileService
             Buffer.BlockCopy(body, 0, payload, preamble.Length, body.Length);
         }
 
-        string dir = Path.GetDirectoryName(Path.GetFullPath(path))!;
-        string tmp = Path.Combine(dir, Path.GetFileName(path) + "." + Path.GetRandomFileName() + ".tmp");
-
-        // ① tmp へステージング書き込み。ここで失敗（ディスクフル・権限・パス長等）したら
-        //    原本に一切触れず、tmp 残骸の掃除だけ試みて例外を伝播する。
         try
         {
-            File.WriteAllBytes(tmp, payload);
+            IO.AtomicFile.Write(path, payload);
         }
-        catch
-        {
-            TryDelete(tmp);
-            throw;
-        }
-
-        // ② tmp は完全に書けている。原子的に差し替える。
-        try
-        {
-            if (File.Exists(path))
-                File.Replace(tmp, path, destinationBackupFileName: null); // ACL/属性を保持・バックアップ無し
-            else
-                File.Move(tmp, path);
-        }
-        catch (IOException ex) when (ex.HResult is HResultSharingViolation or HResultLockViolation)
+        catch (IOException ex) when (IO.AtomicFile.IsShareOrLockViolation(ex))
         {
             // 共有違反/ロック競合（AV・同期ソフト等が一時的に掴んでいる）に限り in-place 上書きへ。
             // FileMode.Create はハンドルを開けてからしか切り詰めないため、ロックで open に失敗した
-            // 場合は原本を 0 バイトにせず例外が伝播する（= 原本を喪失しない）。完成済み tmp は finally で掃除。
-            try
-            {
-                File.WriteAllBytes(path, payload);
-            }
-            finally
-            {
-                TryDelete(tmp);
-            }
+            // 場合は原本を 0 バイトにせず例外が伝播する（= 原本を喪失しない）。tmp は AtomicFile が掃除済み。
+            // 共有違反以外（ディスクフル等）はフォールバックせず伝播する（原本を壊さない）。
+            // 注: 旧実装は差替段階の共有違反のみ救済していたが、乱数名 tmp のステージング書込で
+            //     共有違反は事実上起きないため、段階を区別せず単純化している（どの段階由来でも
+            //     in-place は上記の非切詰め特性により安全）。
+            File.WriteAllBytes(path, payload);
         }
-        catch
-        {
-            // 共有違反以外（ディスクフル等）は原本を壊さないよう、フォールバックせず tmp を消して伝播。
-            TryDelete(tmp);
-            throw;
-        }
-    }
-
-    private static void TryDelete(string p)
-    {
-        try { if (File.Exists(p)) File.Delete(p); } catch { /* 残骸は実害小 */ }
     }
 }

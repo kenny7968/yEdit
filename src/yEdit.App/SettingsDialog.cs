@@ -5,11 +5,13 @@ namespace yEdit.App;
 
 /// <summary>
 /// 設定ダイアログ（モーダル・アクセシブル）。フォント・配色テーマ・既定の文字コード/改行を編集する。
-/// 配色はテーマプリセットのみ（合意）。OK 後に呼び出し側が公開プロパティを読み、適用＋永続化する。
+/// 配色はテーマプリセットのみ（合意）。OK 後に呼び出し側が <see cref="Result"/> を読み、適用＋永続化する
+/// （項目→コントロールの対応はこのクラスに閉じ、呼び出し側の項目別コピーを不要にする）。
 /// ラベルにアクセスキーを付け、TabIndex でラベル→コントロールの順にして Alt+キーで移れるようにする。
 /// </summary>
 public sealed class SettingsDialog : Form
 {
+    private readonly AppSettings _baseline; // 元設定のクローン（元インスタンスは変更しない）
     private string _fontName;
     private float _fontSize;
 
@@ -35,6 +37,7 @@ public sealed class SettingsDialog : Form
 
     public SettingsDialog(AppSettings s)
     {
+        _baseline = s.Clone();
         _fontName = s.FontName;
         _fontSize = s.FontSize;
 
@@ -79,16 +82,29 @@ public sealed class SettingsDialog : Form
         BuildLayout();
     }
 
-    public string FontName => _fontName;
-    public float FontSize => _fontSize;
-    public string ThemeId => AppearanceThemes.All[_theme.SelectedIndex].Id;
-    public int DefaultCodePage => Encodings[_encoding.SelectedIndex].CodePage;
-    public int DefaultLineEnding => Eols[_eol.SelectedIndex].Id;
-    public bool WrapColumnEnabled => _wrapEnabled.Checked;
-    public int WrapColumn => (int)_wrapColumn.Value;
-    public string KinsokuLineStartChars => _kinsokuStart.Text;
-    public string KinsokuLineEndChars => _kinsokuEnd.Text;
-    public string KinsokuHangChars => _kinsokuHang.Text;
+    /// <summary>
+    /// 編集結果の設定。ShowDialog が OK の後に読む。ダイアログで編集しない項目
+    /// （ウィンドウサイズ・最近のファイル・バックアップ設定等）は元設定の値を保持する。
+    /// 取得のたびに独立したインスタンスを組み立てる（保持状態を書き換えない・副作用なし）。
+    /// </summary>
+    public AppSettings Result
+    {
+        get
+        {
+            var r = _baseline.Clone();
+            r.FontName = _fontName;
+            r.FontSize = _fontSize;
+            r.Theme = AppearanceThemes.All[_theme.SelectedIndex].Id;
+            r.DefaultCodePage = Encodings[_encoding.SelectedIndex].CodePage;
+            r.DefaultLineEnding = Eols[_eol.SelectedIndex].Id;
+            r.WrapColumnEnabled = _wrapEnabled.Checked;
+            r.WrapColumn = (int)_wrapColumn.Value;
+            r.KinsokuLineStartChars = _kinsokuStart.Text;
+            r.KinsokuLineEndChars = _kinsokuEnd.Text;
+            r.KinsokuHangChars = _kinsokuHang.Text;
+            return r;
+        }
+    }
 
     private static int IndexOfTheme(string id)
     {

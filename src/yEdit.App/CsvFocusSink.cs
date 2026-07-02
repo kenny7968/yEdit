@@ -15,6 +15,7 @@ public sealed class CsvFocusSink : Control
     {
         SetStyle(ControlStyles.Selectable, true);
         TabStop = false;
+        ImeMode = ImeMode.Disable;          // CSVモードの素キー（C/R/G等）が IME に食われて VK_PROCESSKEY 化するのを防ぐ
         Size = new Size(1, 1);
         Location = new Point(0, 0);
         AccessibleName = "CSV表";           // 着地時に SR が読む名前（設計書の UX 決定事項）

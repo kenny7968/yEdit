@@ -172,10 +172,14 @@ public sealed partial class MainForm : Form
     {
         // CSVモードのアクティブタブのみ、素のキーをグリッドナビ用に横取りする。
         // F2 編集オーバーレイ表示中（_csv.IsEditing）は素通しし、TextBox に通常編集させる。
-        // 横取りは本文（Scintilla）にフォーカスがある時だけに限定する。タブ列（Ctrl+Tab で
-        // フォーカスが移る）に居るときは矢印/Home/End 等をタブ操作へ通す。
-        // メニューがアクティブ（Alt 等）な間は横取りせず、矢印/文字キーをメニュー操作へ通す。
-        if (_docs.Active?.State.CsvMode == true && !_csv.IsEditing && _docs.Active.Editor.ContainsFocus && !_menuActive)
+        // 横取りはフォーカスシンクにフォーカスがある時に行う（CSVモード中は通常シンクが
+        // フォーカスを保持する）。エディタ側の条件も残すのは、シンクへ移る遷移瞬間の
+        // 取りこぼし防止。タブ列（Ctrl+Tab でフォーカスが移る）に居るときは矢印/Home/End 等を
+        // タブ操作へ通す。メニューがアクティブ（Alt 等）な間は横取りせず、矢印/文字キーを
+        // メニュー操作へ通す。
+        var activeDoc = _docs.Active;
+        if (activeDoc?.State.CsvMode == true && !_csv.IsEditing && !_menuActive &&
+            (activeDoc.Editor.ContainsFocus || activeDoc.CsvSink.Focused))
         {
             switch (keyData)
             {

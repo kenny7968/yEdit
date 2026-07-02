@@ -26,6 +26,7 @@ public sealed class Document
         Page = page;
         CsvSink = new CsvFocusSink();
         page.Controls.Add(CsvSink);   // editor(Dock=Fill) より後に追加 → Z順で背面
+        CsvSink.SendToBack();         // 呼び出し順に依存せず背面を自己保証
     }
 
     /// <summary>タブに表示するラベル（ファイル名＋変更マーク）。</summary>

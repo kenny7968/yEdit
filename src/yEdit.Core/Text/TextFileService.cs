@@ -108,6 +108,9 @@ public static partial class TextFileService
             // FileMode.Create はハンドルを開けてからしか切り詰めないため、ロックで open に失敗した
             // 場合は原本を 0 バイトにせず例外が伝播する（= 原本を喪失しない）。tmp は AtomicFile が掃除済み。
             // 共有違反以外（ディスクフル等）はフォールバックせず伝播する（原本を壊さない）。
+            // 注: 旧実装は差替段階の共有違反のみ救済していたが、乱数名 tmp のステージング書込で
+            //     共有違反は事実上起きないため、段階を区別せず単純化している（どの段階由来でも
+            //     in-place は上記の非切詰め特性により安全）。
             File.WriteAllBytes(path, payload);
         }
     }

@@ -43,7 +43,12 @@ public sealed class CsvController
         if (!doc.State.CsvMode)
         {
             var csv = doc.ParseCsv();
-            if (!csv.Ok) { _announcer.Say(CsvAnnounceFormatter.ParseError); return; } // 解析不可ならモードに入らない
+            if (!csv.Ok)
+            {
+                doc.ClearCsvCache(); // モードに入らないのに失敗パース＋旧全文を文書寿命まで抱えない
+                _announcer.Say(CsvAnnounceFormatter.ParseError);
+                return; // 解析不可ならモードに入らない
+            }
             doc.State.CsvMode = true;
             doc.Editor.ReadOnly = true;
             // PC-Talker（UIA経路）向け防御: シンクへ移る遷移の一瞬にエディタがフォーカスを

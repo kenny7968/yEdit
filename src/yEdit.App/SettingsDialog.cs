@@ -11,7 +11,7 @@ namespace yEdit.App;
 /// </summary>
 public sealed class SettingsDialog : Form
 {
-    private readonly AppSettings _edited; // 元設定のクローン（元インスタンスは変更しない）
+    private readonly AppSettings _baseline; // 元設定のクローン（元インスタンスは変更しない）
     private string _fontName;
     private float _fontSize;
 
@@ -37,7 +37,7 @@ public sealed class SettingsDialog : Form
 
     public SettingsDialog(AppSettings s)
     {
-        _edited = s.Clone();
+        _baseline = s.Clone();
         _fontName = s.FontName;
         _fontSize = s.FontSize;
 
@@ -85,22 +85,24 @@ public sealed class SettingsDialog : Form
     /// <summary>
     /// 編集結果の設定。ShowDialog が OK の後に読む。ダイアログで編集しない項目
     /// （ウィンドウサイズ・最近のファイル・バックアップ設定等）は元設定の値を保持する。
+    /// 取得のたびに独立したインスタンスを組み立てる（保持状態を書き換えない・副作用なし）。
     /// </summary>
     public AppSettings Result
     {
         get
         {
-            _edited.FontName = _fontName;
-            _edited.FontSize = _fontSize;
-            _edited.Theme = AppearanceThemes.All[_theme.SelectedIndex].Id;
-            _edited.DefaultCodePage = Encodings[_encoding.SelectedIndex].CodePage;
-            _edited.DefaultLineEnding = Eols[_eol.SelectedIndex].Id;
-            _edited.WrapColumnEnabled = _wrapEnabled.Checked;
-            _edited.WrapColumn = (int)_wrapColumn.Value;
-            _edited.KinsokuLineStartChars = _kinsokuStart.Text;
-            _edited.KinsokuLineEndChars = _kinsokuEnd.Text;
-            _edited.KinsokuHangChars = _kinsokuHang.Text;
-            return _edited;
+            var r = _baseline.Clone();
+            r.FontName = _fontName;
+            r.FontSize = _fontSize;
+            r.Theme = AppearanceThemes.All[_theme.SelectedIndex].Id;
+            r.DefaultCodePage = Encodings[_encoding.SelectedIndex].CodePage;
+            r.DefaultLineEnding = Eols[_eol.SelectedIndex].Id;
+            r.WrapColumnEnabled = _wrapEnabled.Checked;
+            r.WrapColumn = (int)_wrapColumn.Value;
+            r.KinsokuLineStartChars = _kinsokuStart.Text;
+            r.KinsokuLineEndChars = _kinsokuEnd.Text;
+            r.KinsokuHangChars = _kinsokuHang.Text;
+            return r;
         }
     }
 

@@ -37,6 +37,10 @@ public sealed class DocumentManager
     public event EventHandler? ActiveDirtyChanged;    // アクティブの変更状態（タイトル更新）
     public event EventHandler? ActiveCaretChanged;    // アクティブの UpdateUI（行・桁更新）
 
+    /// <summary>アクティブ Document のエディタが Win32 フォーカスを得た。CSVモード中の
+    /// シンク退避判断は上位（MainForm）が行う（_csv.IsEditing を参照できるのが上位のため）。</summary>
+    public event Action<Document>? EditorGotFocus;
+
     /// <summary>新しい空タブを生成しアクティブ化する。State の中身は呼び出し側が設定する。</summary>
     public Document CreateNew()
     {
@@ -55,6 +59,10 @@ public sealed class DocumentManager
         editor.UpdateUI += (_, _) =>
         {
             if (ReferenceEquals(doc, Active)) ActiveCaretChanged?.Invoke(this, EventArgs.Empty);
+        };
+        editor.GotFocus += (_, _) =>
+        {
+            if (ReferenceEquals(doc, Active)) EditorGotFocus?.Invoke(doc);
         };
 
         _docs.Add(doc);
@@ -79,7 +87,7 @@ public sealed class DocumentManager
     public void Activate(Document doc)
     {
         if (_tabs.SelectedTab != doc.Page) { BeforeActiveChange?.Invoke(); _tabs.SelectedTab = doc.Page; }
-        doc.Editor.Focus(); // 開いた/呼び出したタブで即編集できるようにする
+        doc.FocusTarget.Focus(); // 開いた/呼び出したタブで即編集できるようにする
     }
 
     /// <summary>confirm が続行可を返したら閉じてネイティブ資源を解放する。閉じたら true。</summary>
@@ -119,7 +127,7 @@ public sealed class DocumentManager
     // 新規/開く/閉じる→エディタ、Ctrl+Tab/番号での切替→タブ列）。UI 更新のみ通知。
     private void OnSelectedTabChanged() => ActiveDocumentChanged?.Invoke(this, EventArgs.Empty);
 
-    private void FocusActiveEditor() => Active?.Editor.Focus();
+    private void FocusActiveEditor() => Active?.FocusTarget.Focus();
 
     private void FocusTabStrip() => _tabs.Focus();
 

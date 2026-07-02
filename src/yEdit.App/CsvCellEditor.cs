@@ -8,22 +8,23 @@ namespace yEdit.App;
 /// 通常の EDIT コントロールで編集する（カーソルはセル内のみ＝この TextBox 内のみ）。
 /// 確定文字列の本文反映は呼び出し元（CsvController）が CSV 直列化して行う。本クラスは
 /// TextBox の生成・配置・キー処理（Enter=確定 / Alt+Enter=改行 / Esc=取消）・フォーカス復帰のみ担う。
+/// フォーカスの復帰先は呼び出し元が指定する（CSVモード中はフォーカスシンク）。
 /// </summary>
 public sealed class CsvCellEditor
 {
     private TextBox? _box;
     private bool _closing;
-    private ScintillaHost? _ed;
+    private Control? _refocus;
     private Action<string>? _onCommit;
     private Action? _onCancel;
 
     public bool IsEditing => _box is not null;
 
     /// <summary>セル編集を開始する。onCommit は確定値（改行は \n 正規化済み）、onCancel は取消で呼ぶ。</summary>
-    public void Begin(ScintillaHost ed, CsvField field, Action<string> onCommit, Action onCancel)
+    public void Begin(ScintillaHost ed, CsvField field, Control refocusTarget, Action<string> onCommit, Action onCancel)
     {
         if (IsEditing) return;
-        _ed = ed; _onCommit = onCommit; _onCancel = onCancel; _closing = false;
+        _refocus = refocusTarget; _onCommit = onCommit; _onCancel = onCancel; _closing = false;
 
         var host = (Control?)ed.Parent ?? ed;                 // 親(TabPage 等)に重ねる
         var clientPt = ed.PointFromCharOffset(field.Start);   // Scintilla クライアント座標
@@ -113,7 +114,7 @@ public sealed class CsvCellEditor
     }
 
     /// <summary>オーバーレイの後始末（イベント解除・親から除去・破棄・参照解放）。
-    /// refocus 時のみエディタへフォーカスを戻す。Close=true / Abort=false。</summary>
+    /// refocus 時のみ指定された復帰先へフォーカスを戻す。Close=true / Abort=false。</summary>
     private void Teardown(bool refocus)
     {
         _closing = true;
@@ -125,9 +126,9 @@ public sealed class CsvCellEditor
             box.Parent?.Controls.Remove(box);
             box.Dispose();
         }
-        if (refocus) _ed?.Focus();
+        if (refocus) _refocus?.Focus();
         _onCommit = null;
         _onCancel = null;
-        _ed = null;
+        _refocus = null;
     }
 }

@@ -56,6 +56,17 @@ public sealed partial class MainForm : Form
         _announcer = AnnouncerFactory.Create(_announceLabel);
         _csv = new CsvController(_docs, _announcer);
         _docs.BeforeActiveChange = () => _csv.AbortEdit(); // タブ切替直前に F2 編集を中断（焦点の引き戻し防止）
+        // CSVモード中に Scintilla がフォーカスを得たら（メニュー閉塞後の復帰・マウスクリック等）
+        // シンクへ即時退避する。NVDA のネイティブ読み（フォーカス駆動）を Scintilla に向けない。
+        // BeginInvoke は GotFocus 中の再入 Focus() を避けるため必須。ToggleMode OFF は
+        // CsvMode=false を先に立ててから Editor.Focus() するため、このガードで素通りする。
+        // 退避は遅延実行時点でも Scintilla がフォーカスを保持しているときだけ行う
+        // （コールバックはモーダルポンプ中にも走るため、ダイアログからフォーカスを奪わない）。
+        _docs.EditorGotFocus += doc =>
+        {
+            if (!doc.State.CsvMode || _csv.IsEditing) return;
+            BeginInvoke(() => { if (doc.State.CsvMode && !_csv.IsEditing && doc.Editor.ContainsFocus) doc.CsvSink.Focus(); });
+        };
 
         var menu = BuildMenu();
         var status = BuildStatusBar();
@@ -81,7 +92,7 @@ public sealed partial class MainForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        _docs.Active?.Editor.Focus();
+        _docs.Active?.FocusTarget.Focus();
         UpdateTitle();
         UpdateStatus();
 
@@ -172,10 +183,14 @@ public sealed partial class MainForm : Form
     {
         // CSVモードのアクティブタブのみ、素のキーをグリッドナビ用に横取りする。
         // F2 編集オーバーレイ表示中（_csv.IsEditing）は素通しし、TextBox に通常編集させる。
-        // 横取りは本文（Scintilla）にフォーカスがある時だけに限定する。タブ列（Ctrl+Tab で
-        // フォーカスが移る）に居るときは矢印/Home/End 等をタブ操作へ通す。
-        // メニューがアクティブ（Alt 等）な間は横取りせず、矢印/文字キーをメニュー操作へ通す。
-        if (_docs.Active?.State.CsvMode == true && !_csv.IsEditing && _docs.Active.Editor.ContainsFocus && !_menuActive)
+        // 横取りはフォーカスシンクにフォーカスがある時に行う（CSVモード中は通常シンクが
+        // フォーカスを保持する）。エディタ側の条件も残すのは、シンクへ移る遷移瞬間の
+        // 取りこぼし防止。タブ列（Ctrl+Tab でフォーカスが移る）に居るときは矢印/Home/End 等を
+        // タブ操作へ通す。メニューがアクティブ（Alt 等）な間は横取りせず、矢印/文字キーを
+        // メニュー操作へ通す。
+        var activeDoc = _docs.Active;
+        if (activeDoc?.State.CsvMode == true && !_csv.IsEditing && !_menuActive &&
+            (activeDoc.Editor.ContainsFocus || activeDoc.CsvSink.Focused))
         {
             switch (keyData)
             {
@@ -194,6 +209,8 @@ public sealed partial class MainForm : Form
                 case Keys.Control | Keys.End: _csv.MoveBottomRight(); return true;
                 case Keys.G: _csv.GoToCell(); return true;
                 case Keys.F2: _csv.BeginEdit(); return true;
+                case Keys.Shift | Keys.Tab: _csv.ReadCurrent(); return true; // Shift+Tab でフォーカスがシンクから逃げるのを防ぐ
+                case Keys.Control | Keys.G: _csv.GoToCell(); return true;    // 行ジャンプはCSVモード中セル指定に読み替え（素通りするとキャレット移動＋生読みを誘発）
             }
         }
 
@@ -517,7 +534,7 @@ public sealed partial class MainForm : Form
             _docs.Activate(doc);
         }
         doc.Editor.SelectCharRange(offset, length);
-        doc.Editor.Focus();
+        doc.FocusTarget.Focus();
         // ジャンプ先のファイル名と行を明示通知（選択移動の自動読みに加え、別ファイルへ飛んだ文脈を補う）。
         _announcer.Say($"{doc.State.DisplayName} {doc.Editor.CurrentLine + 1} 行目");
     }
@@ -550,6 +567,8 @@ public sealed partial class MainForm : Form
     /// <summary>行番号を入力して移動する。</summary>
     private void GoToLine()
     {
+        // CSVモード中は行ジャンプをセル指定に読み替える（Ctrl+G のキーボード経路と統一）。
+        if (_docs.Active?.State.CsvMode == true) { _csv.GoToCell(); return; }
         var ed = _docs.Active?.Editor;
         if (ed is null) return;
         int max = ed.Lines.Count;
@@ -583,7 +602,7 @@ public sealed partial class MainForm : Form
 
         using var f = new MarkdownPreviewForm(html, dir, doc.State.DisplayName);
         f.ShowDialog(this);
-        _docs.Active?.Editor.Focus();                          // 戻り後はエディタへフォーカス
+        _docs.Active?.FocusTarget.Focus();                     // 戻り後は編集領域へフォーカス
     }
 
     /// <summary>選択範囲（無ければ全文）を WrapColumn 桁で禁則整形する（実改行挿入・1 Undo）。</summary>
@@ -640,6 +659,14 @@ public sealed partial class MainForm : Form
             doc.State.HasBom = loaded.HasBom;
             doc.State.LineEnding = loaded.LineEnding;
 
+            // CSV モードは自動判定しない（メニューから手動で有効化する）。
+            // 既存タブへロードし直す場合に備え、読取専用とハイライトを解除しておく。
+            // Scintilla の Text セッターは読取専用時 no-op のため、Text 代入前に ReadOnly を解除する必要がある。
+            doc.State.CsvMode = false;
+            doc.Editor.ReadOnly = false;
+            doc.Editor.RaiseUiaSelectionEvents = true; // モードON時に落とした UIA 抑止をここで確実に戻す（開き直し経路）
+            doc.Editor.ClearHighlight();
+
             doc.Editor.Text = loaded.Text;
             ApplyEol(doc);
             doc.Editor.EmptyUndoBuffer();
@@ -648,12 +675,6 @@ public sealed partial class MainForm : Form
             _docs.UpdateLabel(doc);
             UpdateTitle();
             UpdateStatus();
-
-            // CSV モードは自動判定しない（メニューから手動で有効化する）。
-            // 既存タブへロードし直す場合に備え、読取専用とハイライトを解除しておく。
-            doc.State.CsvMode = false;
-            doc.Editor.ReadOnly = false;
-            doc.Editor.ClearHighlight();
 
             if (loaded.HadReplacementChar)
             {
@@ -695,7 +716,10 @@ public sealed partial class MainForm : Form
         if (!ConfirmDiscardIfDirty(doc)) return;
         using var dlg = new EncodingPickDialog(doc.State.Encoding.CodePage);
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        LoadInto(doc, doc.State.Path, forcedCodePage: dlg.SelectedCodePage);
+        if (!LoadInto(doc, doc.State.Path, forcedCodePage: dlg.SelectedCodePage)) return;
+        // CSVモード中の開き直しでは、ダイアログ閉塞時に WinForms がシンクへフォーカスを復元する。
+        // LoadInto が CsvMode=false にした後なので、編集領域（この時点で FocusTarget=エディタ）へ明示的に戻す。
+        doc.FocusTarget.Focus();
     }
 
     // メニューから呼ぶ（アクティブタブ対象）。
@@ -766,7 +790,7 @@ public sealed partial class MainForm : Form
         // 選択タブ削除時の TabControl.Selected 発火は WinForms の仕様上保証されないため、
         // クローズ後の新アクティブへフォーカス・タイトル・ステータスを明示更新する
         // （Selected 発火に依存しない唯一の更新源）。
-        _docs.Active?.Editor.Focus();
+        _docs.Active?.FocusTarget.Focus();
         UpdateTitle();
         UpdateStatus();
     }

@@ -70,8 +70,9 @@
 - `RaiseUiaSelectionEvents` は CSVモードの本番制御のため存置。
   `ServeUiaProvider`/`SuppressClientMsaa` は SR適応の本番制御のため存置（コメントを本番仕様へ更新）。
 - NativeMethods のクラスクローン用 Win32 interop を削除。
-- これらに依存する **ScintillaProbe（役目を終えた実験機）は sln から除外**（ソースは残置・
-  git 履歴からいつでも復元可能）。UiaProbe は Editor 非依存のため影響なし。
+- これらに依存する **ScintillaProbe（役目を終えた実験機）は sln から除外のうえディレクトリごと削除**
+  （削除済み API 参照でビルド不可のソースを残さない・git 履歴からいつでも復元可能）。
+  UiaProbe は Editor 非依存のため影響なし。
 - `UiaDiag` 本体は Accessibility 層（スコープ外）で使用中のため未変更。
 
 ## 検証
@@ -80,9 +81,8 @@
 - アプリ起動スモーク（起動5秒生存→終了）OK。
 - 別エージェントによるコードレビュー済み: **マージ可（Critical/Important 0件・Minor 4件）**。
   Minor のうち3件（フォールバック条件の文書化・CSVモード入場失敗時のキャッシュ解放・
-  SettingsDialog.Result の副作用除去）はレビュー後に反映済み。残る1件は ScintillaProbe の
-  ソース残置（sln 除外済みだが削除済み API 参照でビルド不可のまま）→ ディレクトリ削除の要否は
-  ユーザー判断待ち。
+  SettingsDialog.Result の副作用除去）はレビュー後に反映済み。残る1件（ScintillaProbe の
+  ソース残置）もユーザー判断でディレクトリごと削除し、Minor 4件すべて解消。
 - 実機SR検証への影響: 挙動を変える意図の変更は無し。SR に最も近いのは項目3
   （スナップショット更新経路）で、UIA イベントの発火順・内容は不変だが、
   次回の実機SR検証時に通常編集の読み上げが従来どおりであることの確認を推奨。

@@ -81,9 +81,9 @@ public sealed class CsvController
                 var f = csv.GetField(doc.State.CsvRow, doc.State.CsvCol);
                 if (f is not null) doc.Editor.MoveCaretCharOffset(f.Start);
             }
-            // キャレット復帰の後に再有効化し、SR への通知をフォーカス獲得時の1イベントに絞る
-            // （通常編集の SR 挙動へ復帰。先に有効化するとシンクフォーカス中のキャレット移動が
-            // 余分な TextSelectionChangedEvent を発火し、PC-Talker の二重読みを招く）。
+            // キャレット復帰の後に再有効化し、復帰が同期経路で TextSelectionChangedEvent を
+            // 出すケースを塞ぐ（通常編集の SR 挙動へ復帰）。SCN_UPDATEUI は次ペイントまで
+            // 遅延し得るため遅延配送までは塞げない（PC-Talker の二重読み解消は実機で要確認）。
             doc.Editor.RaiseUiaSelectionEvents = true;
             doc.Editor.Focus();
             _announcer.Say(CsvAnnounceFormatter.ModeOff);

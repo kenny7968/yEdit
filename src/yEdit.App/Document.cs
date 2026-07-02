@@ -18,7 +18,8 @@ public sealed class Document
 
     /// <summary>「編集領域」へフォーカスを戻すときの正しい行き先。CSVモード中はシンク、
     /// 通常時はエディタ。編集領域への Focus() 呼び出しは必ずこれを経由すること。
-    /// モード遷移の内部（CsvController.ToggleMode）だけは遷移後の行き先を明示するため直接指定する。</summary>
+    /// モード遷移の内部（CsvController.ToggleMode）と F2 編集の復帰先注入（CsvCellEditor.Begin）は
+    /// 行き先を明示するため直接指定する。</summary>
     public Control FocusTarget => State.CsvMode ? CsvSink : Editor;
 
     public Document(ScintillaHost editor, TabPage page)

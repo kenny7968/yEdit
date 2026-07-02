@@ -60,10 +60,12 @@ public sealed partial class MainForm : Form
         // シンクへ即時退避する。NVDA のネイティブ読み（フォーカス駆動）を Scintilla に向けない。
         // BeginInvoke は GotFocus 中の再入 Focus() を避けるため必須。ToggleMode OFF は
         // CsvMode=false を先に立ててから Editor.Focus() するため、このガードで素通りする。
+        // 退避は遅延実行時点でも Scintilla がフォーカスを保持しているときだけ行う
+        // （コールバックはモーダルポンプ中にも走るため、ダイアログからフォーカスを奪わない）。
         _docs.EditorGotFocus += doc =>
         {
             if (!doc.State.CsvMode || _csv.IsEditing) return;
-            BeginInvoke(() => { if (doc.State.CsvMode && !_csv.IsEditing) doc.CsvSink.Focus(); });
+            BeginInvoke(() => { if (doc.State.CsvMode && !_csv.IsEditing && doc.Editor.ContainsFocus) doc.CsvSink.Focus(); });
         };
 
         var menu = BuildMenu();
@@ -565,6 +567,8 @@ public sealed partial class MainForm : Form
     /// <summary>行番号を入力して移動する。</summary>
     private void GoToLine()
     {
+        // CSVモード中は行ジャンプをセル指定に読み替える（Ctrl+G のキーボード経路と統一）。
+        if (_docs.Active?.State.CsvMode == true) { _csv.GoToCell(); return; }
         var ed = _docs.Active?.Editor;
         if (ed is null) return;
         int max = ed.Lines.Count;

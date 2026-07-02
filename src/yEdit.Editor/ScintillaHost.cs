@@ -171,6 +171,18 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
         _caret = ByteToUtf16(bc);
     }
 
+    /// <summary>
+    /// スナップショットが実バッファとズレていないかを長さで検証し、ズレた場合のみ全文再取得する
+    /// 軽量ガード（UI スレッド専用・O(1)）。本文の挿入/削除は必ず SCN_MODIFIED→OnTextChangedEvt で
+    /// 全文更新されるため、通常ここでは何も起きない（TextChanged を経ない未知の変更経路への安全網。
+    /// 長さが一致する同長置換はここでは検出できないが、その形の変更も SCN_MODIFIED を必ず伴い
+    /// TextChanged 側で更新済みのため問題にならない）。
+    /// </summary>
+    private void EnsureSnapshotLength()
+    {
+        if (DirectMessage(Sci.SCI_GETLENGTH).ToInt32() != _snapBytes.Length) RefreshSnapshot();
+    }
+
     // Scintilla のバイト位置 ⇔ スナップショット UTF-16 オフセット（UI スレッド専用）。
     // _snapshot は _snapBytes を UTF8 デコードしたものなので両者は整合する。
     private int ByteToUtf16(int bytePos)
@@ -193,9 +205,12 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
 
     private void OnUpdateUI(object? sender, UpdateUIEventArgs e)
     {
-        if ((e.Change & UpdateChange.Content) != 0) RefreshSnapshot();
         if ((e.Change & (UpdateChange.Selection | UpdateChange.Content)) != 0)
         {
+            // 本文のスナップショット更新は OnTextChangedEvt（SCN_MODIFIED 由来）が担う。
+            // ここでも全文再取得すると 1 編集につき全文コピー（SCI_GETTEXT→UTF-16 変換）が
+            // 2 回走るため、O(1) の長さ検証だけ行い、ズレた場合のみ再取得する。
+            if ((e.Change & UpdateChange.Content) != 0) EnsureSnapshotLength();
             RefreshSelection();
             if (RaiseUiaSelectionEvents) RaiseUia(TextPatternIdentifiers.TextSelectionChangedEvent);
         }

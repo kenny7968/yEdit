@@ -31,7 +31,6 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     private volatile int _selEnd;                        // 選択終了（UTF-16 オフセット）
     private volatile int _caret;                         // キャレット位置（UTF-16 オフセット・選択端と区別）
     private volatile bool _hasFocus;
-    private volatile int _controlTypeId = System.Windows.Automation.ControlType.Document.Id;
     private nint _hwnd;
 
     // ---- 表示折り返し（指定桁・本文不変） ----
@@ -47,42 +46,28 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
 
     private TextControlProvider? _provider;
 
-    // ---- 診断トグル（デザイナ非使用なのでシリアライズ対象外） ----
+    /// <summary>
+    /// キャレット/選択移動時の UIA TextSelectionChangedEvent を発火するか。
+    /// CSVモード中はフォーカスシンク退避と併せて false にし、シンクへ移る遷移の一瞬に
+    /// PC-Talker（UIA 経路）が行を読むのを防ぐ（CsvController が制御する）。
+    /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool RaiseUiaSelectionEvents { get; set; } = true;
-
-    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public bool RaiseUiaTextEvents { get; set; } = true;
 
     /// <summary>
     /// WM_GETOBJECT(UiaRootObjectId) で我々の UIA プロバイダを返すか。
     /// false なら base へ素通し（Scintilla / Win32 既定の a11y のみ）。
-    /// NVDA がネイティブ Scintilla 対応を使っているのか、我々の UIA を使っているのかを
-    /// 切り分けるための診断スイッチ（--no-uia 起動 or 診断メニュー）。
+    /// ConfigureForCurrentScreenReader が SR 適応（NVDA=ネイティブ読み／それ以外=UIA）で確定する。
     /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool ServeUiaProvider { get; set; } = true;
 
     /// <summary>
     /// WM_GETOBJECT(OBJID_CLIENT) で 0 を返し、ウィンドウのネイティブ MSAA を抑制する。
-    /// クラス改名後、PC-Talker がネイティブ MSAA（本文を Name に載せた Pane）を誤読して
-    /// 改行/空行しか読まない問題への対策。MSAA を消すと PC-Talker が我々の UIA(ブリッジ)を
-    /// 使うことを期待する診断スイッチ（--no-msaa or 診断メニュー）。
+    /// ConfigureForCurrentScreenReader が SR 適応で確定する（NVDA 起動中のみ抑制）。
     /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool SuppressClientMsaa { get; set; }
-
-    /// <summary>
-    /// ウィンドウクラス名から "Scintilla" を除去（クローン）するか。true=改名(NVDA向け純UIA)、
-    /// false=元の "Scintilla" クラス(PC-Talker向け／NVDAネイティブ読みの検証)。
-    /// ハンドル生成前（Controls 追加前）に設定すること。
-    /// </summary>
-    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public bool UseRenamedClass { get; set; }
-
-    /// <summary>状態ログ出力（UI スレッドから呼ばれる）。</summary>
-    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public Action<string>? Log { get; set; }
 
     // ==================== SR 適応設定（確定アーキテクチャ） ====================
 
@@ -103,66 +88,6 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
             ServeUiaProvider = true;
             SuppressClientMsaa = false;
         }
-    }
-
-    // ==================== ウィンドウクラス名から "Scintilla" を除去 ====================
-    // NVDA は WindowsForms10.Scintilla.app.0.NNN を "Scintilla" に正規化し、ネイティブ
-    // Scintilla オーバーレイを我々の UIA オブジェクトに被せて競合させ無音になる。そこで
-    // Scintilla の登録済みクラスを別名でクローンし WinForms にそれをスーパークラス化させて、
-    // 正規化後のクラス名を非 "Scintilla"（"yEditTextEdit"）にする。Scintilla は wndproc で
-    // 動くのでクラス名の変更は挙動に影響しない。失敗時は元の "Scintilla" に安全フォールバック。
-
-    private const string ClonedClassName = "yEditTextEdit";
-    private static bool _clonedClassReady;
-
-    protected override CreateParams CreateParams
-    {
-        get
-        {
-            // base.CreateParams が ScintillaNET にネイティブをロードさせ "Scintilla" クラスを
-            // 登録させ、cp.ClassName = "Scintilla" を設定する。
-            var cp = base.CreateParams;
-            if (UseRenamedClass &&
-                cp.ClassName != null &&
-                cp.ClassName.Equals("Scintilla", StringComparison.OrdinalIgnoreCase) &&
-                EnsureClonedClass("Scintilla"))
-            {
-                cp.ClassName = ClonedClassName;
-            }
-            return cp;
-        }
-    }
-
-    private static bool EnsureClonedClass(string source)
-    {
-        if (_clonedClassReady) return true;
-
-        // ソース("Scintilla")のクラス情報を、登録され得る hInstance 候補から取得。
-        var wc = new NativeMethods.WNDCLASSEXW { cbSize = (uint)Marshal.SizeOf<NativeMethods.WNDCLASSEXW>() };
-        bool got = false;
-        foreach (nint hInst in new[]
-        {
-            NativeMethods.GetModuleHandleW("Scintilla.dll"),
-            NativeMethods.GetModuleHandleW(null),
-            nint.Zero,
-        })
-        {
-            if (NativeMethods.GetClassInfoExW(hInst, source, ref wc)) { got = true; break; }
-        }
-        if (!got) return false;
-
-        // EXE の hInstance＋グローバルクラスで登録し、WinForms のスーパークラス検索から
-        // 確実に見つかるようにする。wndproc / cbWndExtra 等は Scintilla のものを引き継ぐ。
-        wc.hInstance = NativeMethods.GetModuleHandleW(null);
-        wc.style |= NativeMethods.CS_GLOBALCLASS;
-        wc.lpszClassName = Marshal.StringToHGlobalUni(ClonedClassName); // クラス生存期間ぶん保持（意図的）
-        ushort atom = NativeMethods.RegisterClassExW(ref wc);
-        if (atom != 0 || Marshal.GetLastWin32Error() == NativeMethods.ERROR_CLASS_ALREADY_EXISTS)
-        {
-            _clonedClassReady = true;
-            return true;
-        }
-        return false;
     }
 
     // ==================== 初期化 ====================
@@ -195,8 +120,6 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
             // 場合と未拡張(0xFFFFFFF8 等)の場合があるため 32bit 符号付きに正規化する。
             int objid = unchecked((int)m.LParam.ToInt64());
             bool serve = objid == NativeMethods.UiaRootObjectId && ServeUiaProvider;
-            // どの a11y クライアントが何を要求したかを採取（NVDA vs PC-Talker の切り分け）。
-            UiaDiag.Log($"[WM_GETOBJECT] objid={objid} ({ObjIdName(objid)}) serveUiaProvider={serve} clientsListening={AutomationInteropProvider.ClientsAreListening}");
             if (serve)
             {
                 _provider ??= new TextControlProvider(this);
@@ -212,16 +135,6 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
         }
         base.WndProc(ref m);
     }
-
-    private static string ObjIdName(int objid) => objid switch
-    {
-        0 => "OBJID_WINDOW",
-        -4 => "OBJID_CLIENT(MSAA)",
-        -8 => "OBJID_CARET",
-        -16 => "OBJID_NATIVEOM",
-        -25 => "UiaRootObjectId(UIA)",
-        _ => "other",
-    };
 
     // ==================== スナップショット更新（UI スレッド） ====================
 
@@ -285,7 +198,6 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
         {
             RefreshSelection();
             if (RaiseUiaSelectionEvents) RaiseUia(TextPatternIdentifiers.TextSelectionChangedEvent);
-            LogState("updateui");
         }
     }
 
@@ -293,8 +205,7 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     {
         RefreshSnapshot();
         RefreshSelection();
-        if (RaiseUiaTextEvents) RaiseUia(TextPatternIdentifiers.TextChangedEvent);
-        LogState("textchanged");
+        RaiseUia(TextPatternIdentifiers.TextChangedEvent);
     }
 
     protected override void OnGotFocus(EventArgs e)
@@ -308,7 +219,6 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
         // 約2秒のポーリング待ちに落ちる。フォーカス獲得時に選択変更イベントを明示発火し、
         // キャレット移動時と同じく即読みを促す。
         if (RaiseUiaSelectionEvents) RaiseUia(TextPatternIdentifiers.TextSelectionChangedEvent);
-        LogState("focus");
     }
 
     protected override void OnLostFocus(EventArgs e)
@@ -336,43 +246,11 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
         lock (_boundsSync) _bounds = new WpfRect(r.Left, r.Top, r.Width, r.Height);
     }
 
-    // ==================== 診断: ControlType 切替 ====================
-
-    /// <summary>報告する ControlType を切り替え、UIA に property-changed を通知する。</summary>
-    public void SetReportedControlType(int controlTypeId)
-    {
-        int old = _controlTypeId;
-        if (old == controlTypeId) return;
-        _controlTypeId = controlTypeId;
-        if (_provider != null && AutomationInteropProvider.ClientsAreListening)
-        {
-            try
-            {
-                AutomationInteropProvider.RaiseAutomationPropertyChangedEvent(
-                    _provider,
-                    new AutomationPropertyChangedEventArgs(
-                        AutomationElementIdentifiers.ControlTypeProperty, old, controlTypeId));
-            }
-            catch { /* 実験中は握りつぶす */ }
-        }
-        RaiseUia(AutomationElementIdentifiers.AutomationFocusChangedEvent);
-        LogState("ctlType");
-    }
-
     private void RaiseUia(AutomationEvent ev)
     {
         if (_provider == null || !AutomationInteropProvider.ClientsAreListening) return;
         try { AutomationInteropProvider.RaiseAutomationEvent(ev, _provider, new AutomationEventArgs(ev)); }
-        catch { /* 実験中は握りつぶす */ }
-    }
-
-    private void LogState(string tag)
-    {
-        int s = Math.Min(_selStart, _selEnd), en = Math.Max(_selStart, _selEnd);
-        string ct = _controlTypeId == System.Windows.Automation.ControlType.Edit.Id ? "Edit" : "Document";
-        Log?.Invoke(
-            $"[{tag}] sel=[{s},{en}] len={_snapshot.Length} bytes={_snapBytes.Length} " +
-            $"ctlType={ct} uiaSel={(RaiseUiaSelectionEvents ? 1 : 0)} uiaText={(RaiseUiaTextEvents ? 1 : 0)}");
+        catch { /* SR への通知失敗で編集を巻き添えにしない */ }
     }
 
     private int Clamp16(int v) => v < 0 ? 0 : (v > _snapshot.Length ? _snapshot.Length : v);
@@ -612,7 +490,7 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
 
     bool IUiaTextHost.HasFocus => _hasFocus;
 
-    int IUiaTextHost.ControlTypeId => _controlTypeId;
+    int IUiaTextHost.ControlTypeId => System.Windows.Automation.ControlType.Document.Id;
 
     void IUiaTextHost.SetFocus()
     {

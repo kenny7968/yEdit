@@ -190,28 +190,11 @@ public sealed partial class MainForm : Form
         // メニュー操作へ通す。
         var activeDoc = _docs.Active;
         if (activeDoc?.State.CsvMode == true && !_csv.IsEditing && !_menuActive &&
-            (activeDoc.Editor.ContainsFocus || activeDoc.CsvSink.Focused))
+            (activeDoc.Editor.ContainsFocus || activeDoc.CsvSink.Focused) &&
+            CsvCommands.ByKey.TryGetValue(keyData, out var csvCmd))
         {
-            switch (keyData)
-            {
-                case Keys.Up: _csv.Move(Direction.Up); return true;
-                case Keys.Down: _csv.Move(Direction.Down); return true;
-                case Keys.Left: _csv.Move(Direction.Left); return true;
-                case Keys.Right: _csv.Move(Direction.Right); return true;
-                case Keys.Tab: _csv.ReadCurrent(); return true;
-                case Keys.C: _csv.ReadColumnTop(); return true;
-                case Keys.R: _csv.ReadRowHead(); return true;
-                case Keys.Home: _csv.MoveRowStart(); return true;
-                case Keys.End: _csv.MoveRowEnd(); return true;
-                case Keys.PageUp: _csv.MoveColumnTop(); return true;
-                case Keys.PageDown: _csv.MoveColumnBottom(); return true;
-                case Keys.Control | Keys.Home: _csv.MoveTopLeft(); return true;
-                case Keys.Control | Keys.End: _csv.MoveBottomRight(); return true;
-                case Keys.G: _csv.GoToCell(); return true;
-                case Keys.F2: _csv.BeginEdit(); return true;
-                case Keys.Shift | Keys.Tab: _csv.ReadCurrent(); return true; // Shift+Tab でフォーカスがシンクから逃げるのを防ぐ
-                case Keys.Control | Keys.G: _csv.GoToCell(); return true;    // 行ジャンプはCSVモード中セル指定に読み替え（素通りするとキャレット移動＋生読みを誘発）
-            }
+            csvCmd.Execute(_csv);
+            return true;
         }
 
         switch (keyData)
@@ -305,35 +288,26 @@ public sealed partial class MainForm : Form
         md.DropDownOpening += (_, _) =>
             mdPreview.Enabled = MarkdownFile.IsMarkdownPath(_docs.Active?.State.Path);
 
+        // CSV メニューはコマンドテーブル（CsvCommands）から生成する。キー横取り
+        // （ProcessCmdKey）と定義を共有し、二重管理を避ける。Group の境界にセパレータを挿む。
         var csv = new ToolStripMenuItem("CSV(&C)");
         var csvToggle = new ToolStripMenuItem("CSVモード(&M)", null, (_, _) => _csv.ToggleMode());
-        var navItems = new List<ToolStripMenuItem>();
-        ToolStripMenuItem Nav(string text, string keyHint, Action act)
-        {
-            var mi = new ToolStripMenuItem(text, null, (_, _) => act()) { ShortcutKeyDisplayString = keyHint };
-            navItems.Add(mi);
-            return mi;
-        }
         csv.DropDownItems.Add(csvToggle);
-        csv.DropDownItems.Add(new ToolStripSeparator());
-        csv.DropDownItems.Add(Nav("上のセル(&U)", "↑", () => _csv.Move(Direction.Up)));
-        csv.DropDownItems.Add(Nav("下のセル(&D)", "↓", () => _csv.Move(Direction.Down)));
-        csv.DropDownItems.Add(Nav("左のセル(&L)", "←", () => _csv.Move(Direction.Left)));
-        csv.DropDownItems.Add(Nav("右のセル(&R)", "→", () => _csv.Move(Direction.Right)));
-        csv.DropDownItems.Add(new ToolStripSeparator());
-        csv.DropDownItems.Add(Nav("現在セルを読み上げ(&E)", "Tab", () => _csv.ReadCurrent()));
-        csv.DropDownItems.Add(Nav("列の見出しを読み上げ(&C)", "C", () => _csv.ReadColumnTop()));
-        csv.DropDownItems.Add(Nav("行の見出しを読み上げ(&H)", "R", () => _csv.ReadRowHead()));
-        csv.DropDownItems.Add(new ToolStripSeparator());
-        csv.DropDownItems.Add(Nav("行頭へ(&S)", "Home", () => _csv.MoveRowStart()));
-        csv.DropDownItems.Add(Nav("行末へ(&N)", "End", () => _csv.MoveRowEnd()));
-        csv.DropDownItems.Add(Nav("列頭へ(&T)", "PageUp", () => _csv.MoveColumnTop()));
-        csv.DropDownItems.Add(Nav("列末へ(&B)", "PageDown", () => _csv.MoveColumnBottom()));
-        csv.DropDownItems.Add(Nav("左上へ(&1)", "Ctrl+Home", () => _csv.MoveTopLeft()));
-        csv.DropDownItems.Add(Nav("右下へ(&9)", "Ctrl+End", () => _csv.MoveBottomRight()));
-        csv.DropDownItems.Add(new ToolStripSeparator());
-        csv.DropDownItems.Add(Nav("セルへ移動(&G)...", "G", () => _csv.GoToCell()));
-        csv.DropDownItems.Add(Nav("セルを編集(&F)", "F2", () => _csv.BeginEdit()));
+        var navItems = new List<ToolStripMenuItem>();
+        int prevGroup = -1;
+        foreach (var cmd in CsvCommands.All)
+        {
+            if (cmd.MenuText is null) continue; // キー専用（別名・ガード）はメニューに出さない
+            if (cmd.Group != prevGroup)
+            {
+                csv.DropDownItems.Add(new ToolStripSeparator());
+                prevGroup = cmd.Group;
+            }
+            var mi = new ToolStripMenuItem(cmd.MenuText, null, (_, _) => cmd.Execute(_csv))
+            { ShortcutKeyDisplayString = cmd.KeyHint };
+            navItems.Add(mi);
+            csv.DropDownItems.Add(mi);
+        }
         csv.DropDownOpening += (_, _) =>
         {
             bool on = _docs.Active?.State.CsvMode == true;

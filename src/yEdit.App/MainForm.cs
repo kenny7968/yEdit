@@ -56,6 +56,15 @@ public sealed partial class MainForm : Form
         _announcer = AnnouncerFactory.Create(_announceLabel);
         _csv = new CsvController(_docs, _announcer);
         _docs.BeforeActiveChange = () => _csv.AbortEdit(); // タブ切替直前に F2 編集を中断（焦点の引き戻し防止）
+        // CSVモード中に Scintilla がフォーカスを得たら（メニュー閉塞後の復帰・マウスクリック等）
+        // シンクへ即時退避する。NVDA のネイティブ読み（フォーカス駆動）を Scintilla に向けない。
+        // BeginInvoke は GotFocus 中の再入 Focus() を避けるため必須。ToggleMode OFF は
+        // CsvMode=false を先に立ててから Editor.Focus() するため、このガードで素通りする。
+        _docs.EditorGotFocus += doc =>
+        {
+            if (!doc.State.CsvMode || _csv.IsEditing) return;
+            BeginInvoke(() => { if (doc.State.CsvMode && !_csv.IsEditing) doc.CsvSink.Focus(); });
+        };
 
         var menu = BuildMenu();
         var status = BuildStatusBar();
@@ -81,7 +90,7 @@ public sealed partial class MainForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        _docs.Active?.Editor.Focus();
+        _docs.Active?.FocusTarget.Focus();
         UpdateTitle();
         UpdateStatus();
 
@@ -198,6 +207,8 @@ public sealed partial class MainForm : Form
                 case Keys.Control | Keys.End: _csv.MoveBottomRight(); return true;
                 case Keys.G: _csv.GoToCell(); return true;
                 case Keys.F2: _csv.BeginEdit(); return true;
+                case Keys.Shift | Keys.Tab: _csv.ReadCurrent(); return true; // Shift+Tab でフォーカスがシンクから逃げるのを防ぐ
+                case Keys.Control | Keys.G: _csv.GoToCell(); return true;    // 行ジャンプはCSVモード中セル指定に読み替え（素通りするとキャレット移動＋生読みを誘発）
             }
         }
 
@@ -521,7 +532,7 @@ public sealed partial class MainForm : Form
             _docs.Activate(doc);
         }
         doc.Editor.SelectCharRange(offset, length);
-        doc.Editor.Focus();
+        doc.FocusTarget.Focus();
         // ジャンプ先のファイル名と行を明示通知（選択移動の自動読みに加え、別ファイルへ飛んだ文脈を補う）。
         _announcer.Say($"{doc.State.DisplayName} {doc.Editor.CurrentLine + 1} 行目");
     }
@@ -587,7 +598,7 @@ public sealed partial class MainForm : Form
 
         using var f = new MarkdownPreviewForm(html, dir, doc.State.DisplayName);
         f.ShowDialog(this);
-        _docs.Active?.Editor.Focus();                          // 戻り後はエディタへフォーカス
+        _docs.Active?.FocusTarget.Focus();                     // 戻り後は編集領域へフォーカス
     }
 
     /// <summary>選択範囲（無ければ全文）を WrapColumn 桁で禁則整形する（実改行挿入・1 Undo）。</summary>
@@ -770,7 +781,7 @@ public sealed partial class MainForm : Form
         // 選択タブ削除時の TabControl.Selected 発火は WinForms の仕様上保証されないため、
         // クローズ後の新アクティブへフォーカス・タイトル・ステータスを明示更新する
         // （Selected 発火に依存しない唯一の更新源）。
-        _docs.Active?.Editor.Focus();
+        _docs.Active?.FocusTarget.Focus();
         UpdateTitle();
         UpdateStatus();
     }

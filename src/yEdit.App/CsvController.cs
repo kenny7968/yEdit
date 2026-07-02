@@ -73,7 +73,6 @@ public sealed class CsvController
             var csv = ParseCached(doc.Editor);
             doc.State.CsvMode = false;                 // 先に解除（エディタ GotFocus のシンク退避ガードを外す）
             doc.Editor.ReadOnly = false;
-            doc.Editor.RaiseUiaSelectionEvents = true; // 通常編集の SR 挙動へ復帰
             doc.Editor.ClearHighlight();
             // モード中に動かなかったキャレットを最終セル位置へ復帰させ、編集領域へフォーカスを返す。
             // 以降は通常編集なので、SR がフォーカス獲得で現在行を読むのは標準挙動として許容。
@@ -82,6 +81,10 @@ public sealed class CsvController
                 var f = csv.GetField(doc.State.CsvRow, doc.State.CsvCol);
                 if (f is not null) doc.Editor.MoveCaretCharOffset(f.Start);
             }
+            // キャレット復帰の後に再有効化し、SR への通知をフォーカス獲得時の1イベントに絞る
+            // （通常編集の SR 挙動へ復帰。先に有効化するとシンクフォーカス中のキャレット移動が
+            // 余分な TextSelectionChangedEvent を発火し、PC-Talker の二重読みを招く）。
+            doc.Editor.RaiseUiaSelectionEvents = true;
             doc.Editor.Focus();
             _announcer.Say(CsvAnnounceFormatter.ModeOff);
         }

@@ -20,6 +20,7 @@
 | PDB | `-p:DebugType=embedded` | .pdb ファイルを zip に混ぜず、クラッシュログに行番号付きスタックトレースを出す |
 | リリース作成手段 | ランナー同梱の `gh` CLI ＋ 既定 `GITHUB_TOKEN`(`permissions: contents: write`) | サードパーティ Action への依存(サプライチェーン面)を避ける |
 | テストゲート | `dotnet test tests/yEdit.Core.Tests -c Release` をビルド前に実行 | テストが落ちたらリリースを作らせない |
+| SHA256 | zip の SHA256 をノート末尾に自動付記(`sha256sum` 互換形式・小文字16進) | 利用者がダウンロード破損/改ざんを照合できる。pwsh 標準の `Get-FileHash` で計算(追加ツール不要) |
 
 ## 構成
 
@@ -31,7 +32,7 @@
 4. タグ名からバージョン抽出(`v` 除去)
 5. `dotnet publish src/yEdit.App -c Release -r win-x64 --self-contained false -p:Version=... -p:DebugType=embedded -o publish`
 6. `Compress-Archive` で `yEdit-<tag>-win-x64.zip` を作成
-7. リリースノート組み立て: `git fetch --tags --force` でタグ注釈を取り直し(actions/checkout が注釈を落とす既知問題対策)、タグ本文＋動作要件フッターを `notes.md` へ
+7. リリースノート組み立て: `git fetch --tags --force` でタグ注釈を取り直し(actions/checkout が注釈を落とす既知問題対策)、タグ本文＋動作要件フッター＋SHA256(コードブロック)を `notes.md` へ
 8. `gh release create <tag> <zip> --title "yEdit <tag>" --notes-file notes.md --verify-tag`
 
 ## 運用
@@ -45,6 +46,11 @@
 - ワークフローと同一フラグの `dotnet publish` 成功。出力=exe＋DLL 並置、`.pdb` なし、FileVersion/ProductVersion に `-p:Version` が反映(0.0.1 で確認)。合計 12.1MB。
 - publish 出力から `yEdit.exe` を起動し、ウィンドウ表示(「無題 1 - yEdit」)を確認=ネイティブ DLL 読み込み OK。
 - `release.yml` は pyyaml で構文検証 OK。
+
+## 追記(2026-07-03): SHA256 付記とリリース作成手段の再確認
+
+- ノート組み立てステップで zip の SHA256 を `Get-FileHash` で計算し、動作要件フッターの後に `sha256sum` 互換形式(`<小文字16進ハッシュ>  <ファイル名>`)のコードブロックで自動付記する。利用者は `certutil -hashfile <zip> SHA256` や `Get-FileHash` で照合できる。
+- `softprops/action-gh-release@v2` への切替を検討したが不採用。同 Action も内部で自動供給の `github.token` を使うためトークン要件は `gh` CLI と同一(PAT やシークレット登録はどちらも不要)であり、切り替えてもサードパーティ Action への依存が増えるだけと判断。「サードパーティ依存を避ける」現行決定を維持する。
 
 ## 申し送り(スコープ外)
 

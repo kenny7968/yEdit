@@ -10,6 +10,7 @@ permissions:
 
 env:
   TAG: ${{ github.ref_name }}
+  ZIP: yEdit-${{ github.ref_name }}-win-x64.zip
 
 jobs:
   release:
@@ -42,14 +43,15 @@ jobs:
 
       - name: zip 圧縮
         shell: pwsh
-        run: Compress-Archive -Path publish\* -DestinationPath "yEdit-$env:TAG-win-x64.zip"
+        run: Compress-Archive -Path publish\* -DestinationPath $env:ZIP
 
-      - name: リリースノート組み立て(タグ注釈＋動作要件)
+      - name: リリースノート組み立て(タグ注釈＋動作要件＋SHA256)
         shell: pwsh
         run: |
           # actions/checkout はタグ注釈を落とすことがあるため取り直す
           git fetch --tags --force
           $body = (git tag -l --format='%(contents)' $env:TAG | Out-String).Trim()
+          $hash = (Get-FileHash $env:ZIP -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
           $footer = @(
             ''
             '---'
@@ -57,6 +59,11 @@ jobs:
             '- Windows 10 / 11'
             '- [.NET 9 デスクトップランタイム](https://dotnet.microsoft.com/ja-jp/download/dotnet/9.0) (x64)'
             '- WebView2 ランタイム(マークダウンプレビューで使用。Windows 11 は標準搭載)'
+            ''
+            '**SHA256**'
+            '```'
+            "$hash  $env:ZIP"
+            '```'
           ) -join "`n"
           "$body`n$footer" | Set-Content notes.md -Encoding utf8
 
@@ -65,7 +72,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          gh release create "$env:TAG" "yEdit-$env:TAG-win-x64.zip"
+          gh release create "$env:TAG" "$env:ZIP"
           --title "yEdit $env:TAG"
           --notes-file notes.md
           --verify-tag

@@ -156,6 +156,8 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+; .NET 9 が動作しない Windows 10 1607 未満へのインストールを拒否
+MinVersion=10.0.14393
 UninstallDisplayIcon={app}\yEdit.exe
 ChangesAssociations=yes
 CloseApplications=yes
@@ -257,6 +259,51 @@ Expected: `Successful compile` で `installer\Output\yEdit-v0.0.1-setup.exe` が
 git add installer/yEdit.iss .gitignore
 git commit -m "feat: Inno Setup によるインストーラースクリプトを追加(ユーザー単位・ランタイム検出誘導)"
 ```
+
+---
+
+### Task 3b: 本体の起動引数対応(Task 3 レビューで発覚した計画欠陥の修正)
+
+背景: `Main()` が引数を受け取らないため「送る」「プログラムから開く」が実質不作動だった。
+設計書「本体の起動引数対応」の節を参照。
+
+**Files:**
+- Modify: `src/yEdit.App/Program.cs`(`Main(string[] args)` 化、第1引数を MainForm へ)
+- Modify: `src/yEdit.App/MainForm.cs`(コンストラクタで起動ファイルを受け取り開く)
+
+**Step 1: 実装**
+
+- `Program.Main(string[] args)` にし、`Application.Run(new MainForm(args.Length > 0 ? args[0] : null))`
+- `MainForm(string? startupFile = null)`: 既存の `_file.NewFile()` の箇所で、
+  `startupFile` があれば `Path.GetFullPath` で正規化して `_file.TryOpenOrActivate` に渡し、
+  成功したら無題タブは作らない。失敗(null 返し)時は従来どおり `_file.NewFile()`
+- 相対パス・存在しないパスは既存経路の挙動に任せる(`LoadInto` がエラー表示)。
+  `Path.GetFullPath` が投げる不正パス(空文字等)は起動を殺さないよう無視して無題タブへ
+
+**Step 2: ビルドと起動検証(App 層にテスト基盤が無いため実挙動で確認)**
+
+```powershell
+dotnet build src/yEdit.App -c Release
+# 一時ファイルを作って引数付き起動→ウィンドウタイトルにファイル名が出ることを確認→終了
+```
+
+タイトル検証は `Get-Process` の `MainWindowTitle` をポーリングで確認する。
+引数なし起動で従来どおり「無題 1」相当で立ち上がることも確認。
+
+**Step 3: Core テストが緑のまま確認**
+
+```powershell
+dotnet test tests/yEdit.Core.Tests -c Release
+```
+
+**Step 4: コミット**
+
+```powershell
+git add src/yEdit.App/Program.cs src/yEdit.App/MainForm.cs
+git commit -m "feat: 起動引数のファイルを開く(「送る」・関連付けからの起動に対応)"
+```
+
+申し送り: 複数引数(「送る」の複数選択)の全タブ展開は将来対応。
 
 ---
 

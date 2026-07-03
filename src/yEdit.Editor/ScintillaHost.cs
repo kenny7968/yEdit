@@ -5,6 +5,7 @@ using System.Windows.Automation;
 using System.Windows.Automation.Provider;
 using ScintillaNET;
 using yEdit.Accessibility;
+using yEdit.Core.Reading;
 using yEdit.Core.Settings;
 using yEdit.Core.Text;
 using WpfRect = System.Windows.Rect;
@@ -46,6 +47,17 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     private WpfRect _bounds;
 
     private TextControlProvider? _provider;
+
+    // ---- 空行ナビ検知（PC-Talker 能動発声用・UI スレッド専用） ----
+    private int _lastCaretLine;
+
+    /// <summary>
+    /// 純粋なキャレット移動（本文変更なし・選択なし）で行が変わり、着地行が空行のとき発火する。
+    /// PC-Talker は UIA 経由の受動読みで長さ0の行を無音にするため（HANDOFF §4.1）、
+    /// App 層がこれを受けて能動発声「空行」を行う（SR モードによる発声可否は App 層が判断）。
+    /// UI スレッドで発火する。
+    /// </summary>
+    public event EventHandler? CaretEnteredEmptyLine;
 
     /// <summary>
     /// キャレット/選択移動時の UIA TextSelectionChangedEvent を発火するか。
@@ -101,6 +113,7 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
 
         RefreshSnapshot();
         RefreshSelection();
+        _lastCaretLine = CurrentLine;
         UpdateBoundsCache();
     }
 
@@ -207,7 +220,26 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
             if ((e.Change & UpdateChange.Content) != 0) EnsureSnapshotLength();
             RefreshSelection();
             if (RaiseUiaSelectionEvents) RaiseUia(TextPatternIdentifiers.TextSelectionChangedEvent);
+            NotifyEmptyLineNavigation(e.Change);
         }
+    }
+
+    /// <summary>
+    /// 純ナビゲーションで空行へ着地したら <see cref="CaretEnteredEmptyLine"/> を発火する。
+    /// 行が変わらない移動（Home/End 等）・編集を伴う移動（Enter/Backspace 等）・選択拡張中
+    /// （選択読みを妨げない）・CSV 遷移中（UIA 選択イベントと同じ抑止）は対象外。
+    /// </summary>
+    private void NotifyEmptyLineNavigation(UpdateChange change)
+    {
+        int line = CurrentLine;
+        bool lineChanged = line != _lastCaretLine;
+        _lastCaretLine = line;
+        if (!lineChanged) return;
+        if ((change & UpdateChange.Content) != 0) return;
+        if (!RaiseUiaSelectionEvents) return;
+        if (_selStart != _selEnd) return;
+        if (!EmptyLineDetector.IsCaretOnEmptyLine(_snapshot, _caret)) return;
+        CaretEnteredEmptyLine?.Invoke(this, EventArgs.Empty);
     }
 
     private void OnTextChangedEvt(object? sender, EventArgs e)

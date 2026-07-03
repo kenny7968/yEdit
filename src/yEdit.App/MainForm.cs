@@ -2,6 +2,7 @@ using yEdit.App.Speech;
 using yEdit.Core.Csv;
 using yEdit.Core.Reading;
 using yEdit.Core.Settings;
+using yEdit.Core.Speech;
 using yEdit.Core.Text;
 using yEdit.Editor;
 
@@ -47,6 +48,14 @@ public sealed partial class MainForm : Form
         _docs.ActiveDocumentChanged += (_, _) => { UpdateTitle(); UpdateStatus(); };
         _docs.ActiveDirtyChanged += (_, _) => UpdateTitle();
         _docs.ActiveCaretChanged += (_, _) => UpdateStatus();
+        // 空行着地の能動発声: PC-Talker は UIA の長さ0行を無音にするため、こちらから「空行」を読む。
+        // NVDA はネイティブに「ブランク」を読むため対象外（発声モードは起動時に確定済み）。
+        // CSVモード中はセル読み体系（CsvController）が担うため発声しない。
+        _docs.ActiveCaretEnteredEmptyLine += (_, _) =>
+        {
+            if (SrContext.Mode == SpeechMode.PcTalker && _docs.Active?.State.CsvMode != true)
+                _announcer.Say("空行");
+        };
         // 設定は OpenSettings で参照が差し替わるため Func で都度解決させる。
         _file = new FileController(_docs, this, () => _settings,
             SaveSettingsSafe, RebuildRecentMenu, () => { UpdateTitle(); UpdateStatus(); });

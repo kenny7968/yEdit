@@ -1,0 +1,71 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'          # 例: v1.0.0
+
+permissions:
+  contents: write     # リリース作成に必要
+
+env:
+  TAG: ${{ github.ref_name }}
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: テスト(リリース前ゲート)
+        run: dotnet test tests/yEdit.Core.Tests -c Release
+
+      - name: バージョン抽出 (v1.2.3 → 1.2.3)
+        id: ver
+        shell: pwsh
+        run: |
+          $v = $env:TAG.TrimStart('v')
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: 配布用ビルド(フレームワーク依存)
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: >
+          dotnet publish src/yEdit.App -c Release -r win-x64 --self-contained false
+          "-p:Version=$env:VERSION"
+          -p:DebugType=embedded
+          -o publish
+
+      - name: zip 圧縮
+        shell: pwsh
+        run: Compress-Archive -Path publish\* -DestinationPath "yEdit-$env:TAG-win-x64.zip"
+
+      - name: リリースノート組み立て(タグ注釈＋動作要件)
+        shell: pwsh
+        run: |
+          # actions/checkout はタグ注釈を落とすことがあるため取り直す
+          git fetch --tags --force
+          $body = (git tag -l --format='%(contents)' $env:TAG | Out-String).Trim()
+          $footer = @(
+            ''
+            '---'
+            '**動作要件**'
+            '- Windows 10 / 11'
+            '- [.NET 9 デスクトップランタイム](https://dotnet.microsoft.com/ja-jp/download/dotnet/9.0) (x64)'
+            '- WebView2 ランタイム(マークダウンプレビューで使用。Windows 11 は標準搭載)'
+          ) -join "`n"
+          "$body`n$footer" | Set-Content notes.md -Encoding utf8
+
+      - name: GitHub リリース作成
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$env:TAG" "yEdit-$env:TAG-win-x64.zip"
+          --title "yEdit $env:TAG"
+          --notes-file notes.md
+          --verify-tag

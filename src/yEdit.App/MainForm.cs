@@ -112,6 +112,7 @@ public sealed partial class MainForm : Form
     {
         var doc = _docs.Active;
         if (doc is null || doc.State.CsvMode) return;
+        if (_menuActive) return; // メニュー操作の読み（「ファイル」等）を割り込みで消さない
         var ed = doc.Editor;
         if (!ed.ContainsFocus) return; // ダイアログ等へ移っていたら読まない
         var (selStart, selEnd) = ed.GetSelectionCharRange();

@@ -36,7 +36,6 @@ public sealed class DocumentManager
     public event EventHandler? ActiveDocumentChanged; // タブ切替
     public event EventHandler? ActiveDirtyChanged;    // アクティブの変更状態（タイトル更新）
     public event EventHandler? ActiveCaretChanged;    // アクティブの UpdateUI（行・桁更新）
-    public event EventHandler? ActiveCaretEnteredEmptyLine; // アクティブの空行着地（PC-Talker 能動発声）
 
     /// <summary>アクティブ Document のエディタが Win32 フォーカスを得た。CSVモード中の
     /// シンク退避判断は上位（MainForm）が行う（_csv.IsEditing を参照できるのが上位のため）。</summary>
@@ -60,10 +59,6 @@ public sealed class DocumentManager
         editor.UpdateUI += (_, _) =>
         {
             if (ReferenceEquals(doc, Active)) ActiveCaretChanged?.Invoke(this, EventArgs.Empty);
-        };
-        editor.CaretEnteredEmptyLine += (_, _) =>
-        {
-            if (ReferenceEquals(doc, Active)) ActiveCaretEnteredEmptyLine?.Invoke(this, EventArgs.Empty);
         };
         editor.GotFocus += (_, _) =>
         {

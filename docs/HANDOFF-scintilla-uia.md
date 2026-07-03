@@ -79,10 +79,7 @@ Document で両SR動いたが、**Edit の方がエディタとして妥当**（
 - 行読み取りを `LineEndNoBreak` 化して**空行を長さ0で公開**済み（`tools/verify-uia.ps1` の line 列挙で `line[2] len=0` 確認）。NVDA は「ブランク」を発火。
 - だが **PC-Talker は長さ0の行を無音**。ログ上、空行で `Expand(Character)→[42,43]→GetText→'\n'`（改行自体は取れる）だが、Down 移動時の行読みは `Expand(Line)→[42,42]→GetText→''`。
 - PC-Talker のネイティブな「改行」読みは**行テキスト経由ではなく別機構**（改行を含めても含めなくても無音だった）。統一読み（改行 vs ブランク）は偽テキスト注入になり不可（コピー/文字数/検索が壊れる）→ **各SRのネイティブ流儀尊重が方針**。
-- **決着（2026-07-03・能動発声方式）**: UIA 側での解決（偽テキスト注入）は不可のため、**純ナビゲーション（本文変更なし・選択なし）で行が変わり空行へ着地したときだけ、App 層が Announcer 経由で「空行」を能動発声**する方式で解消。
-  - Core `EmptyLineDetector.IsCaretOnEmptyLine`（純ロジック・テスト18件）／Editor `ScintillaHost.CaretEnteredEmptyLine`（SCN_UPDATEUI で検知。Content 変更・選択拡張・CSV 遷移中 `RaiseUiaSelectionEvents=false` は抑止）／App `DocumentManager`→`MainForm`（`SpeechMode.PcTalker` かつ非 CSV モードのみ `Say("空行")`）。
-  - NVDA はネイティブ「ブランク」のまま（NVDA モードでは App 層が発声しない）。素の UIA モード（SR なし等）も発声なし。
-  - **申し送り（v1 許容・実機で要観察）**: (a) Ctrl+G で空行へジャンプ時「行 N」と「空行」が両方割り込み priority=1 で発声され後着が勝つ。(b) タブ切替/フォーカス復帰で空行上に居る場合は行変化ゲートに掛からず従来どおり無音。(c) CSV モード終了時の遅延 SCN_UPDATEUI は両ガードをすり抜け得るが、CSV パーサが空行から行を生成しないため現行実装では実害なし（パーサ仕様への暗黙依存）。(d) 実機検証項目: 空行着地の「空行」可聴／PC-Talker の連続読みを空行通過ごとの割り込みが中断しないか／空白のみ行の受動読みが無音でないか。
+- **次の一手**: `ControlType=Edit` で PC-Talker の挙動が変わるか（Notepad の Edit 扱いで「改行」を読むか）を試す。ダメなら Edit モードで `UiaDiag` ログを再採取して PC-Talker の呼び出しを解析。
 
 ### 4.2 `RangeFromPoint` / `GetBoundingRectangles` がスタブ
 - 現状 `RangeFromPoint→[0,0]`、`GetBoundingRectangles→空`。PC-Talker は `GetBoundingRectangles` を呼ぶが（0矩形でも）テキスト歩きで動いた。

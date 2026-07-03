@@ -513,6 +513,11 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
 
     int IUiaTextHost.ControlTypeId => System.Windows.Automation.ControlType.Document.Id;
 
+    // SR がフォーカス時などに読む名前。文書名はタブ側が担うため、編集領域は固定文言でよい。
+    string IUiaTextHost.Name => "本文";
+
+    string IUiaTextHost.AutomationId => "editor";
+
     void IUiaTextHost.SetFocus()
     {
         if (!IsHandleCreated || IsDisposed) return; // ハンドル破棄後の BeginInvoke を防ぐ

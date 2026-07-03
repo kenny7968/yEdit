@@ -38,8 +38,14 @@ public interface IUiaTextHost
     /// <summary>フォーカス状態（キャッシュ値）。</summary>
     bool HasFocus { get; }
 
-    /// <summary>報告する ControlType の Id（Document か Edit かを実験で切り替える）。</summary>
+    /// <summary>報告する ControlType の Id（本番は Document）。</summary>
     int ControlTypeId { get; }
+
+    /// <summary>UIA の Name プロパティ（SR がフォーカス時などに読む名前）。</summary>
+    string Name { get; }
+
+    /// <summary>UIA の AutomationId プロパティ（自動化ツール向け識別子・読み上げ対象外）。</summary>
+    string AutomationId { get; }
 
     /// <summary>コントロールにフォーカスを与える（UI スレッドへマーシャリング）。</summary>
     void SetFocus();

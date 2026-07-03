@@ -4,8 +4,8 @@ namespace yEdit.App;
 
 /// <summary>
 /// CSVモードのコマンド定義（素キー・メニュー表示・実行）の単一の真実源。
-/// MainForm は ProcessCmdKey の横取り表と CSV メニューの両方をここから生成する
-/// （コマンド追加・キー変更時の片側更新漏れを防ぐ）。
+/// MainForm は ProcessCmdKey の横取り表とモードメニューの CSV 操作系の両方をここから
+/// 生成する（コマンド追加・キー変更時の片側更新漏れを防ぐ）。
 /// </summary>
 internal static class CsvCommands
 {

@@ -28,6 +28,8 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+; .NET 9 が動作しない Windows 10 1607 未満へのインストールを拒否
+MinVersion=10.0.14393
 UninstallDisplayIcon={app}\yEdit.exe
 ChangesAssociations=yes
 CloseApplications=yes

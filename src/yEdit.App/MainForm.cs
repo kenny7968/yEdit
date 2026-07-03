@@ -27,11 +27,6 @@ public sealed partial class MainForm : Form
         TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "通知",
     };
     private IAnnouncer _announcer = null!; // AnnouncerFactory で生成（起動時モード確定）
-    // 空行着地の「空行」発声を遅らせる一発タイマー。着地直後に発声すると、PC-Talker 自身が
-    // UIA 選択変更イベントを受けて着地行（空行=無音）を読む際の発話フラッシュに消される
-    // （実機で無音を確認・HANDOFF §4.1）。フラッシュをやり過ごしてから読む。
-    // 満了時に条件を再検証するため、遅延中に非空行へ移動・編集・CSV遷移した場合は発声しない。
-    private readonly System.Windows.Forms.Timer _emptyLineDelay = new() { Interval = 150 };
     private ToolStripMenuItem _recentMenu = null!; // BuildMenu で生成
     private readonly string _settingsPath = SettingsStore.DefaultPath;
     private AppSettings _settings = new();
@@ -56,18 +51,10 @@ public sealed partial class MainForm : Form
         // 空行着地の能動発声: PC-Talker は UIA の長さ0行を無音にするため、こちらから「空行」を読む。
         // NVDA はネイティブに「ブランク」を読むため対象外（発声モードは起動時に確定済み）。
         // CSVモード中はセル読み体系（CsvController）が担うため発声しない。
-        // 発声はタイマーで遅延させる（_emptyLineDelay 参照）。Stop→Start の再始動により、
-        // 連続した空行移動はデバウンスされ最後の着地だけ読む（SR の割り込み読みと同じ振る舞い）。
         _docs.ActiveCaretEnteredEmptyLine += (_, _) =>
         {
-            if (SrContext.Mode != SpeechMode.PcTalker || _docs.Active?.State.CsvMode == true) return;
-            _emptyLineDelay.Stop();
-            _emptyLineDelay.Start();
-        };
-        _emptyLineDelay.Tick += (_, _) =>
-        {
-            _emptyLineDelay.Stop(); // 一発タイマー
-            AnnounceEmptyLineIfStillThere();
+            if (SrContext.Mode == SpeechMode.PcTalker && _docs.Active?.State.CsvMode != true)
+                _announcer.Say("空行");
         };
         // 設定は OpenSettings で参照が差し替わるため Func で都度解決させる。
         _file = new FileController(_docs, this, () => _settings,
@@ -101,24 +88,6 @@ public sealed partial class MainForm : Form
         MainMenuStrip = menu;
 
         _file.NewFile(); // 起動時の無題タブ1つ（Q1=B：常に新規タブ）
-    }
-
-    /// <summary>
-    /// 空行着地の遅延タイマー満了時、キャレットが今もなお「純粋に空行上」にあるときだけ「空行」を発声する。
-    /// 遅延中に状況が変わった場合（タブ切替・CSV遷移・フォーカス喪失・選択開始・編集や移動で非空行化）は
-    /// 何も読まない。発声条件の再検証であり、着地検知（ScintillaHost 側のゲート）とは独立に安全側へ倒す。
-    /// </summary>
-    private void AnnounceEmptyLineIfStillThere()
-    {
-        var doc = _docs.Active;
-        if (doc is null || doc.State.CsvMode) return;
-        if (_menuActive) return; // メニュー操作の読み（「ファイル」等）を割り込みで消さない
-        var ed = doc.Editor;
-        if (!ed.ContainsFocus) return; // ダイアログ等へ移っていたら読まない
-        var (selStart, selEnd) = ed.GetSelectionCharRange();
-        if (selStart != selEnd) return;
-        if (!EmptyLineDetector.IsCaretOnEmptyLine(ed.SnapshotText, ed.CaretCharOffset)) return;
-        _announcer.Say("空行");
     }
 
     /// <summary>タブ毎の ScintillaHost を生成する。SR 適応はハンドル生成前に確定させる（M1 と同順）。</summary>
@@ -181,11 +150,7 @@ public sealed partial class MainForm : Form
     protected override void Dispose(bool disposing)
     {
         // 異常系（OnFormClosed 未経由）でも Timer/背景スレッドを確実に解放する。Shutdown 済みなら冪等で無害。
-        if (disposing)
-        {
-            _backup?.Dispose();
-            _emptyLineDelay.Dispose();
-        }
+        if (disposing) _backup?.Dispose();
         base.Dispose(disposing);
     }
 

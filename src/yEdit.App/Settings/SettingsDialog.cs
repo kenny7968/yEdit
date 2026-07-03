@@ -13,10 +13,11 @@ public sealed class SettingsDialog : Form
 {
     private readonly AppSettings _baseline;
     private readonly IReadOnlyList<ISettingsTab> _tabs;
+    // AccessibleName は付けない: タブ切替のたびに TabControl 名が読まれて冗長になるため。
+    // タブヘッダ（TabPage.Text）＝カテゴリ名で識別は十分。
     private readonly TabControl _tabControl = new()
     {
         Dock = DockStyle.Fill,
-        AccessibleName = "設定カテゴリ",
     };
 
     public SettingsDialog(AppSettings s)
@@ -38,7 +39,7 @@ public sealed class SettingsDialog : Form
 
         BuildLayout();
         foreach (var t in _tabs) t.LoadFrom(_baseline);   // BuildPage の後に必ず呼ぶ
-        ActiveControl = _tabControl;                       // 先頭タブ「基本」に居る
+        ActiveControl = _tabControl;                       // 先頭タブ「基本」の位置に居る
     }
 
     /// <summary>

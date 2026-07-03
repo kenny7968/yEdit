@@ -32,19 +32,15 @@ public sealed class MarkdownPreviewForm : Form
         ShowInTaskbar = false;
         CancelButton = _close; // ボタン/フォーム側フォーカス時の Esc を担保
 
-        var top = new Panel { Dock = DockStyle.Top, Height = 38 };
+        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 38 };
         _close.Click += (_, _) => Close();
-        top.Controls.Add(_close);
+        bottom.Controls.Add(_close);
 
-        // Dock 順: Fill を先に Add し、Top を後から載せる。
+        // Dock 順: Fill を先に Add し、Bottom を後から載せる。
         Controls.Add(_web);
-        Controls.Add(top);
+        Controls.Add(bottom);
 
-        Shown += async (_, _) =>
-        {
-            _close.Focus();         // 初期フォーカスは「閉じる」へ（SR の着地点を固定）
-            await InitAsync();
-        };
+        Shown += async (_, _) => await InitAsync();
     }
 
     private async Task InitAsync()
@@ -82,6 +78,15 @@ public sealed class MarkdownPreviewForm : Form
                 "document.addEventListener('keydown', e => {" +
                 " if (e.key === 'Escape') window.chrome.webview.postMessage('close'); });");
             if (IsDisposed || Disposing) return;
+
+            // DOM 準備完了・keydown リスナー装着済みの状態で WebView にフォーカス（本文を先に読ませる）。
+            // 一発着火とし、以降のリダイレクト等では発火しない。
+            void OnNavCompleted(object? _s, CoreWebView2NavigationCompletedEventArgs e)
+            {
+                core.NavigationCompleted -= OnNavCompleted;
+                if (!IsDisposed && !Disposing && e.IsSuccess) _web.Focus();
+            }
+            core.NavigationCompleted += OnNavCompleted;
 
             core.NavigateToString(_html);
         }

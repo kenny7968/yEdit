@@ -44,12 +44,14 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path publish\* -DestinationPath "yEdit-$env:TAG-win-x64.zip"
 
-      - name: リリースノート組み立て(タグ注釈＋動作要件)
+      - name: リリースノート組み立て(タグ注釈＋動作要件＋SHA256)
         shell: pwsh
         run: |
           # actions/checkout はタグ注釈を落とすことがあるため取り直す
           git fetch --tags --force
           $body = (git tag -l --format='%(contents)' $env:TAG | Out-String).Trim()
+          $zip = "yEdit-$env:TAG-win-x64.zip"
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           $footer = @(
             ''
             '---'
@@ -57,6 +59,11 @@ jobs:
             '- Windows 10 / 11'
             '- [.NET 9 デスクトップランタイム](https://dotnet.microsoft.com/ja-jp/download/dotnet/9.0) (x64)'
             '- WebView2 ランタイム(マークダウンプレビューで使用。Windows 11 は標準搭載)'
+            ''
+            '**SHA256**'
+            '```'
+            "$hash  $zip"
+            '```'
           ) -join "`n"
           "$body`n$footer" | Set-Content notes.md -Encoding utf8
 

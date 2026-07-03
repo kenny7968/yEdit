@@ -1,3 +1,4 @@
+using yEdit.App.Speech;
 using yEdit.Core.Csv;
 using yEdit.Core.Reading;
 using yEdit.Core.Settings;
@@ -84,7 +85,7 @@ public sealed partial class MainForm : Form
     private ScintillaHost CreateEditor()
     {
         var e = new ScintillaHost { Dock = DockStyle.Fill };
-        e.ConfigureForCurrentScreenReader();   // ハンドル生成前に SR 適応を確定
+        e.ApplySrAdaptation(SrContext.NvdaRunning); // ハンドル生成前に起動時確定の SR 適応を反映
         EditorAppearance.Apply(e, _settings);  // フォント＋配色テーマを適用（M7）
         return e;
     }

@@ -73,22 +73,15 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     // ==================== SR 適応設定（確定アーキテクチャ） ====================
 
     /// <summary>
-    /// 起動中のスクリーンリーダーに応じて UIA/MSAA の提供可否を確定する（確定アーキテクチャ）。
+    /// 起動時に確定した SR 環境を UIA/MSAA の提供可否へ反映する（確定アーキテクチャ）。
     /// NVDA 起動中 → 我々は引っ込む（ネイティブ Scintilla に任せる）。それ以外 → UIA 提供。
+    /// 判定は App 層（SrContext）が起動時に1回だけ行い、全タブへ同じ値を渡す（タブ間一貫）。
     /// ハンドル生成前に呼ぶこと（WM_GETOBJECT 前に値を確定させる）。
     /// </summary>
-    public void ConfigureForCurrentScreenReader()
+    public void ApplySrAdaptation(bool nvdaRunning)
     {
-        if (ScreenReaders.IsNvdaRunning())
-        {
-            ServeUiaProvider = false;
-            SuppressClientMsaa = true;
-        }
-        else
-        {
-            ServeUiaProvider = true;
-            SuppressClientMsaa = false;
-        }
+        ServeUiaProvider = !nvdaRunning;
+        SuppressClientMsaa = nvdaRunning;
     }
 
     // ==================== 初期化 ====================

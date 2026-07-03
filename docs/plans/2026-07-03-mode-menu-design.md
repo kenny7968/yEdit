@@ -57,3 +57,6 @@ Ctrl+Home/End、G、F2、Shift+Tab/Ctrl+G ガード）。
 - CSVモードのキー一覧（Tab/C/R・矢印・Home/End/PageUp/PageDown・
   Ctrl+Home/End・G・F2）はアプリ内から発見できなくなるため、
   将来のヘルプ/キー一覧整備で必ず記載する。
+- Ctrl+G は CSVモード中「行へ移動」でなく「セルへ移動」に読み替わる
+  （読み上げメニューの表示は「行へ移動 Ctrl+G」のまま）。ユーザー可視の
+  挙動差なのでヘルプで併せて説明する。

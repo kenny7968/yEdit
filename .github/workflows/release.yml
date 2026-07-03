@@ -11,6 +11,7 @@ permissions:
 env:
   TAG: ${{ github.ref_name }}
   ZIP: yEdit-${{ github.ref_name }}-win-x64.zip
+  # installer/yEdit.iss の OutputBaseFilename(yEdit-v{#AppVersion}-setup)と一致必須
   SETUP: yEdit-${{ github.ref_name }}-setup.exe
 
 jobs:

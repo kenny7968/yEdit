@@ -172,7 +172,7 @@ public sealed partial class MainForm : Form
             (activeDoc.Editor.ContainsFocus || activeDoc.CsvSink.Focused) &&
             CsvCommands.ByKey.TryGetValue(keyData, out var csvCmd))
         {
-            csvCmd.Execute(_csv);
+            csvCmd(_csv);
             return true;
         }
 
@@ -259,9 +259,8 @@ public sealed partial class MainForm : Form
         read.DropDownItems.Add(new ToolStripMenuItem("行へ移動(&G)...", null, (_, _) => GoToLine())
         { ShortcutKeyDisplayString = "Ctrl+G" });
 
-        // モード（マークダウンプレビュー / CSVモード）。CSV 操作系はコマンドテーブル
-        // （CsvCommands）から生成する。キー横取り（ProcessCmdKey）と定義を共有し、
-        // 二重管理を避ける。Group の境界にセパレータを挿む。
+        // モード（マークダウンプレビュー / CSVモード）。CSV 操作系はメニューに出さず
+        // キー専用（CsvCommands・キー一覧は将来のヘルプに記載する）。
         var mode = new ToolStripMenuItem("モード(&M)");
         var mdPreview = new ToolStripMenuItem(
             "マークダウンプレビュー(&P)", null, (_, _) => ShowMarkdownPreview());
@@ -269,29 +268,12 @@ public sealed partial class MainForm : Form
         mode.DropDownItems.Add(new ToolStripSeparator());
         var csvToggle = new ToolStripMenuItem("CSVモード(&C)", null, (_, _) => _csv.ToggleMode());
         mode.DropDownItems.Add(csvToggle);
-        var navItems = new List<ToolStripMenuItem>();
-        int prevGroup = -1;
-        foreach (var cmd in CsvCommands.All)
-        {
-            if (cmd.MenuText is null) continue; // キー専用（読み上げ系・別名・ガード）はメニューに出さない
-            if (cmd.Group != prevGroup)
-            {
-                mode.DropDownItems.Add(new ToolStripSeparator());
-                prevGroup = cmd.Group;
-            }
-            var mi = new ToolStripMenuItem(cmd.MenuText, null, (_, _) => cmd.Execute(_csv))
-            { ShortcutKeyDisplayString = cmd.KeyHint };
-            navItems.Add(mi);
-            mode.DropDownItems.Add(mi);
-        }
         // 開く度に活性状態を更新（プレビューはアクティブが .md の時だけ有効、
-        // CSV 操作系は CSVモード中だけ有効）。
+        // CSVトグルは現在のモードを Checked で表示）。
         mode.DropDownOpening += (_, _) =>
         {
             mdPreview.Enabled = MarkdownFile.IsMarkdownPath(_docs.Active?.State.Path);
-            bool on = _docs.Active?.State.CsvMode == true;
-            csvToggle.Checked = on;
-            foreach (var mi in navItems) mi.Enabled = on;
+            csvToggle.Checked = _docs.Active?.State.CsvMode == true;
         };
 
         var help = new ToolStripMenuItem("ヘルプ(&H)");

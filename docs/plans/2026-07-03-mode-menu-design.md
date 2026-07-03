@@ -15,45 +15,48 @@
 - 変更前: ファイル / 編集 / 検索 / 読み上げ / マークダウン / CSV / ヘルプ
 - 変更後: ファイル / 編集 / 検索 / 読み上げ / **モード** / ヘルプ
 
-## 「モード」メニューの構造（フラット構造）
+## 「モード」メニューの構造
 
 ```
 モード(&M)
 ├ マークダウンプレビュー(&P)      … アクティブが .md の時だけ有効（従来どおり）
 ├ ────────
-├ CSVモード(&C)                   … トグル（Checked で状態表示、従来どおり）
-│                                    ※アクセスキーは &M→&C（列見出し読み上げ &C の削除で空きが生じ、CSV の頭文字に変更）
-├ ────────
-├ 上のセル(&U)  ↑ / 下のセル(&D) ↓ / 左のセル(&L) ← / 右のセル(&R) →
-├ ────────
-├ 行頭へ(&S) Home / 行末へ(&N) End / 列頭へ(&T) PageUp / 列末へ(&B) PageDown
-├ 左上へ(&1) Ctrl+Home / 右下へ(&9) Ctrl+End
-├ ────────
-├ セルへ移動(&G)... G
-└ セルを編集(&F)    F2
+└ CSVモード(&C)                   … トグル（Checked で状態表示、従来どおり）
+                                     ※アクセスキーは &M→&C（列見出し読み上げ &C の削除で空きが生じ、CSV の頭文字に変更）
 ```
 
-- CSV操作系は従来どおり `CsvCommands.All` から自動生成（Group 境界にセパレータ）。
-  CSVモードが OFF の間は無効表示（従来どおり）。
-- サブメニュー構造（モード直下にマークダウン/CSVの2サブメニュー）も検討したが、
-  依頼文言「メニューを移動」に忠実で階層移動が増えないフラット構造を採用。
-  ユーザー確認は保留中のため、要望があれば小変更で切替可能。
+- 初版では CSV操作系（移動/ジャンプ/セルへ移動/セルを編集）もモード直下に
+  フラットに並べたが、**同日の改訂でユーザー指示によりメニューから全て削除**。
+  CSVモード中のキー操作のみで提供し、キー一覧は将来のヘルプに記載する。
 
-## 読み上げ系の扱い
+## CSVコマンドの扱い
 
-`CsvCommands` の Group 1（Tab=現在セル / C=列見出し / R=行見出し）は
-`MenuText = null` に変更し、キー専用コマンド化する（Shift+Tab / Ctrl+G と同機構）。
-`ProcessCmdKey` は `CsvCommands.ByKey` を引くため、キー動作・読み上げ機能は不変。
+CSV操作系・読み上げ系ともメニューには出さず、キー専用コマンドとする。
+`CsvCommands` はメニュー生成の責務がなくなったため、キー→アクションの
+辞書（`ByKey`）だけに簡素化（MenuText/KeyHint/Group を廃止）。
+`ProcessCmdKey` は従来どおり `CsvCommands.ByKey` を引くため、キー動作・
+読み上げ機能は不変（Tab/C/R、矢印、Home/End/PageUp/PageDown、
+Ctrl+Home/End、G、F2、Shift+Tab/Ctrl+G ガード）。
 
 ## 変更ファイル
 
-- `src/yEdit.App/CsvCommands.cs` — Group 1 の3件を `MenuText=null` に。
-- `src/yEdit.App/MainForm.cs` — `BuildMenu()`: `md`/`csv` を `mode` に統合。
-  `DropDownOpening` の活性制御（mdPreview.Enabled / csvToggle.Checked /
-  navItems Enabled）を `mode.DropDownOpening` に統合。
+- `src/yEdit.App/CsvCommands.cs` — キー→アクション辞書のみに簡素化。
+  コマンド名はヘルプ執筆の材料としてコメントで残す。
+- `src/yEdit.App/MainForm.cs` — `BuildMenu()`: `md`/`csv` を `mode` に統合し、
+  CSV操作系のメニュー生成ループを削除。`DropDownOpening` は
+  mdPreview.Enabled / csvToggle.Checked の更新のみ。
 
 ## 影響なし
 
 - キー割り当て（CSVモード中の素キー横取り、Ctrl+Alt+P/I、Ctrl+G 等）
 - 読み上げ(&R) トップメニュー（SR照会系）
 - Core 層・テスト（App 層のみの変更）
+
+## 申し送り
+
+- CSVモードのキー一覧（Tab/C/R・矢印・Home/End/PageUp/PageDown・
+  Ctrl+Home/End・G・F2）はアプリ内から発見できなくなるため、
+  将来のヘルプ/キー一覧整備で必ず記載する。
+- Ctrl+G は CSVモード中「行へ移動」でなく「セルへ移動」に読み替わる
+  （読み上げメニューの表示は「行へ移動 Ctrl+G」のまま）。ユーザー可視の
+  挙動差なのでヘルプで併せて説明する。

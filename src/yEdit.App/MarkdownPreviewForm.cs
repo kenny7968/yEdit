@@ -32,18 +32,19 @@ public sealed class MarkdownPreviewForm : Form
         ShowInTaskbar = false;
         CancelButton = _close; // ボタン/フォーム側フォーカス時の Esc を担保
 
-        var top = new Panel { Dock = DockStyle.Top, Height = 38 };
+        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 38 };
         _close.Click += (_, _) => Close();
-        top.Controls.Add(_close);
+        bottom.Controls.Add(_close);
 
-        // Dock 順: Fill を先に Add し、Top を後から載せる。
+        // Dock 順: Fill を先に Add し、Bottom を後から載せる。
         Controls.Add(_web);
-        Controls.Add(top);
+        Controls.Add(bottom);
 
         Shown += async (_, _) =>
         {
-            _close.Focus();         // 初期フォーカスは「閉じる」へ（SR の着地点を固定）
             await InitAsync();
+            // 初期化完了後に WebView へフォーカス（本文を先に読ませる。Esc は WebView 側でも拾う）
+            if (!IsDisposed && !Disposing) _web.Focus();
         };
     }
 

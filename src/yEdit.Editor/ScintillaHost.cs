@@ -58,14 +58,14 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     /// <summary>
     /// WM_GETOBJECT(UiaRootObjectId) で我々の UIA プロバイダを返すか。
     /// false なら base へ素通し（Scintilla / Win32 既定の a11y のみ）。
-    /// ConfigureForCurrentScreenReader が SR 適応（NVDA=ネイティブ読み／それ以外=UIA）で確定する。
+    /// ApplySrAdaptation が SR 適応（NVDA=ネイティブ読み／それ以外=UIA）で確定する。
     /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool ServeUiaProvider { get; set; } = true;
 
     /// <summary>
     /// WM_GETOBJECT(OBJID_CLIENT) で 0 を返し、ウィンドウのネイティブ MSAA を抑制する。
-    /// ConfigureForCurrentScreenReader が SR 適応で確定する（NVDA 起動中のみ抑制）。
+    /// ApplySrAdaptation が SR 適応で確定する（NVDA 起動中のみ抑制）。
     /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool SuppressClientMsaa { get; set; }

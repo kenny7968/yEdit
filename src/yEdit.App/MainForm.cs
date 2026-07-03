@@ -35,7 +35,7 @@ public sealed partial class MainForm : Form
     // MenuStrip の Activate/Deactivate イベントで明示的に追跡する。
     private bool _menuActive;
 
-    public MainForm()
+    public MainForm(string? startupFile = null)
     {
         _settings = SettingsStore.Load(_settingsPath);
 
@@ -87,7 +87,17 @@ public sealed partial class MainForm : Form
         Controls.Add(menu);
         MainMenuStrip = menu;
 
-        _file.NewFile(); // 起動時の無題タブ1つ（Q1=B：常に新規タブ）
+        // 起動引数のファイル（「送る」・関連付け経由）があればそれを開き、開けたら無題タブは作らない。
+        // 相対パスは GetFullPath で正規化する（FindByPath の同一判定・最近のファイル履歴を絶対パスに揃える）。
+        // 読込エラーの表示は TryOpenOrActivate→LoadInto が担う。不正パス（空文字等）で GetFullPath が
+        // 投げても起動は殺さず、いずれの失敗も従来どおり無題タブへフォールバックする。
+        Document? opened = null;
+        if (startupFile is not null)
+        {
+            try { opened = _file.TryOpenOrActivate(System.IO.Path.GetFullPath(startupFile)); }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or System.IO.IOException or System.Security.SecurityException) { }
+        }
+        if (opened is null) _file.NewFile(); // 起動時の無題タブ1つ（Q1=B：常に新規タブ）
     }
 
     /// <summary>タブ毎の ScintillaHost を生成する。SR 適応はハンドル生成前に確定させる（M1 と同順）。</summary>

@@ -466,7 +466,7 @@ git log --oneline main..HEAD
 git diff main --stat
 ```
 
-Expected: 設計書・スモークテスト・.iss・.gitignore・release.yml のみ
+Expected: 設計書・スモークテスト・.iss・.gitignore・release.yml・本体の起動引数対応(src/yEdit.App)のみ
 
 **Step 3: マージ前レビュー**
 

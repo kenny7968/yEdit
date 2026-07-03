@@ -1,6 +1,8 @@
 ﻿# tools/installer-smoketest.ps1
 # インストーラーのスモークテスト: サイレント導入 → 配置検証 → サイレント削除 → 削除検証
 # ローカルと CI(release.yml)の両方から同じ検証を実行する
+# 注意: 実ユーザープロファイルへ導入→削除するため、インストーラー版 yEdit を常用している
+# 環境で実行すると常用インストールが消える(設定 %APPDATA%\yEdit は無傷)
 param(
     [Parameter(Mandatory = $true)][string]$SetupPath
 )

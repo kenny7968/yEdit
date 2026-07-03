@@ -6,7 +6,8 @@ namespace yEdit.App;
 
 /// <summary>
 /// マークダウンを整形表示するモーダルプレビュー窓。WebView2 に HTML を流し込み、
-/// 相対リソースは元の .md フォルダ基準（仮想ホスト）で解決する。
+/// 相対リソース（画像・ローカルリンク）は元ファイルのフォルダ基準（仮想ホスト）で解決する。
+/// baseDir が null（未保存タブ等）の場合は仮想ホストを設定せず、相対リソースは解決できない。
 /// 「閉じる」ボタンと Esc の両方でエディタへ戻る。
 /// </summary>
 public sealed class MarkdownPreviewForm : Form

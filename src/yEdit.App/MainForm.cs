@@ -268,11 +268,11 @@ public sealed partial class MainForm : Form
         mode.DropDownItems.Add(new ToolStripSeparator());
         var csvToggle = new ToolStripMenuItem("CSVモード(&C)", null, (_, _) => _csv.ToggleMode());
         mode.DropDownItems.Add(csvToggle);
-        // 開く度に活性状態を更新（プレビューはアクティブが .md の時だけ有効、
+        // 開く度に活性状態を更新（プレビューはアクティブタブがあれば拡張子を問わず有効、
         // CSVトグルは現在のモードを Checked で表示）。
         mode.DropDownOpening += (_, _) =>
         {
-            mdPreview.Enabled = MarkdownFile.IsMarkdownPath(_docs.Active?.State.Path);
+            mdPreview.Enabled = _docs.Active is not null;
             csvToggle.Checked = _docs.Active?.State.CsvMode == true;
         };
 
@@ -436,12 +436,11 @@ public sealed partial class MainForm : Form
         _announcer.Say(ed.Overtype ? "上書きモード" : "挿入モード");
     }
 
-    /// <summary>アクティブな .md タブの編集中内容を WebView2 プレビューで表示する。</summary>
+    /// <summary>アクティブタブの編集中内容を WebView2 プレビューで表示する（拡張子は問わない）。</summary>
     private void ShowMarkdownPreview()
     {
         var doc = _docs.Active;
-        // メニュー無効化で基本到達しないが、保険として再ガードする。
-        if (doc is null || !MarkdownFile.IsMarkdownPath(doc.State.Path)) return;
+        if (doc is null) return;
 
         string markdown = doc.Editor.SnapshotText;            // 編集中バッファ（未保存も反映）
         string? dir = System.IO.Path.GetDirectoryName(doc.State.Path);

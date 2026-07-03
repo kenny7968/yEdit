@@ -1,7 +1,6 @@
-using yEdit.App.Speech;
 using yEdit.Core.Speech;
 
-namespace yEdit.App;
+namespace yEdit.App.Speech;
 
 /// <summary>
 /// 起動時に確定した発声モード（<see cref="SrContext.Mode"/>）に応じて、

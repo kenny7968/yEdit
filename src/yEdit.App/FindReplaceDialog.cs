@@ -1,3 +1,5 @@
+using yEdit.App.Speech;
+
 namespace yEdit.App;
 
 /// <summary>

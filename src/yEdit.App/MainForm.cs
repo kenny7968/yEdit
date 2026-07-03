@@ -259,36 +259,36 @@ public sealed partial class MainForm : Form
         read.DropDownItems.Add(new ToolStripMenuItem("行へ移動(&G)...", null, (_, _) => GoToLine())
         { ShortcutKeyDisplayString = "Ctrl+G" });
 
-        var md = new ToolStripMenuItem("マークダウン(&M)");
+        // モード（マークダウンプレビュー / CSVモード）。CSV 操作系はコマンドテーブル
+        // （CsvCommands）から生成する。キー横取り（ProcessCmdKey）と定義を共有し、
+        // 二重管理を避ける。Group の境界にセパレータを挿む。
+        var mode = new ToolStripMenuItem("モード(&M)");
         var mdPreview = new ToolStripMenuItem(
             "マークダウンプレビュー(&P)", null, (_, _) => ShowMarkdownPreview());
-        md.DropDownItems.Add(mdPreview);
-        // 開く度に活性状態を更新（アクティブが .md の時だけ有効）。
-        md.DropDownOpening += (_, _) =>
-            mdPreview.Enabled = MarkdownFile.IsMarkdownPath(_docs.Active?.State.Path);
-
-        // CSV メニューはコマンドテーブル（CsvCommands）から生成する。キー横取り
-        // （ProcessCmdKey）と定義を共有し、二重管理を避ける。Group の境界にセパレータを挿む。
-        var csv = new ToolStripMenuItem("CSV(&C)");
-        var csvToggle = new ToolStripMenuItem("CSVモード(&M)", null, (_, _) => _csv.ToggleMode());
-        csv.DropDownItems.Add(csvToggle);
+        mode.DropDownItems.Add(mdPreview);
+        mode.DropDownItems.Add(new ToolStripSeparator());
+        var csvToggle = new ToolStripMenuItem("CSVモード(&C)", null, (_, _) => _csv.ToggleMode());
+        mode.DropDownItems.Add(csvToggle);
         var navItems = new List<ToolStripMenuItem>();
         int prevGroup = -1;
         foreach (var cmd in CsvCommands.All)
         {
-            if (cmd.MenuText is null) continue; // キー専用（別名・ガード）はメニューに出さない
+            if (cmd.MenuText is null) continue; // キー専用（読み上げ系・別名・ガード）はメニューに出さない
             if (cmd.Group != prevGroup)
             {
-                csv.DropDownItems.Add(new ToolStripSeparator());
+                mode.DropDownItems.Add(new ToolStripSeparator());
                 prevGroup = cmd.Group;
             }
             var mi = new ToolStripMenuItem(cmd.MenuText, null, (_, _) => cmd.Execute(_csv))
             { ShortcutKeyDisplayString = cmd.KeyHint };
             navItems.Add(mi);
-            csv.DropDownItems.Add(mi);
+            mode.DropDownItems.Add(mi);
         }
-        csv.DropDownOpening += (_, _) =>
+        // 開く度に活性状態を更新（プレビューはアクティブが .md の時だけ有効、
+        // CSV 操作系は CSVモード中だけ有効）。
+        mode.DropDownOpening += (_, _) =>
         {
+            mdPreview.Enabled = MarkdownFile.IsMarkdownPath(_docs.Active?.State.Path);
             bool on = _docs.Active?.State.CsvMode == true;
             csvToggle.Checked = on;
             foreach (var mi in navItems) mi.Enabled = on;
@@ -298,7 +298,7 @@ public sealed partial class MainForm : Form
         help.DropDownItems.Add("バージョン情報(&A)", null, (_, _) =>
             MessageBox.Show("yEdit v0.1", "バージョン情報", MessageBoxButtons.OK, MessageBoxIcon.Information));
 
-        menu.Items.AddRange(new ToolStripItem[] { file, edit, search, read, md, csv, help });
+        menu.Items.AddRange(new ToolStripItem[] { file, edit, search, read, mode, help });
         return menu;
     }
 

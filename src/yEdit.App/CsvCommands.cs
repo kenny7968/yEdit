@@ -21,10 +21,10 @@ internal static class CsvCommands
         new(Keys.Down,  "下のセル(&D)", "↓", 0, c => c.Move(Direction.Down)),
         new(Keys.Left,  "左のセル(&L)", "←", 0, c => c.Move(Direction.Left)),
         new(Keys.Right, "右のセル(&R)", "→", 0, c => c.Move(Direction.Right)),
-        // 読み上げのみ（移動なし）
-        new(Keys.Tab, "現在セルを読み上げ(&E)",   "Tab", 1, c => c.ReadCurrent()),
-        new(Keys.C,   "列の見出しを読み上げ(&C)", "C",   1, c => c.ReadColumnTop()),
-        new(Keys.R,   "行の見出しを読み上げ(&H)", "R",   1, c => c.ReadRowHead()),
+        // 読み上げのみ（移動なし）。メニューには出さないが Tab/C/R のキー動作は維持する。
+        new(Keys.Tab, null, "", 1, c => c.ReadCurrent()),
+        new(Keys.C,   null, "", 1, c => c.ReadColumnTop()),
+        new(Keys.R,   null, "", 1, c => c.ReadRowHead()),
         // 行/列の端へのジャンプ
         new(Keys.Home,     "行頭へ(&S)", "Home",     2, c => c.MoveRowStart()),
         new(Keys.End,      "行末へ(&N)", "End",      2, c => c.MoveRowEnd()),

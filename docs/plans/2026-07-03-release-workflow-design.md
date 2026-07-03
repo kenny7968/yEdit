@@ -13,7 +13,8 @@
 |---|---|---|
 | 配布形態 | **フレームワーク依存**(`--self-contained false`) | zip が数MBと軽量。利用者は .NET 9 デスクトップランタイムを別途導入 |
 | DLL の扱い | exe に埋め込まない(フォルダ配置のまま zip) | 単一ファイル publish はネイティブ DLL / WebView2 との相性問題があり不採用 |
-| 対象 RID | `win-x64` のみ | ネイティブ DLL(Scintilla/Lexilla/WebView2Loader)が exe 横にフラット配置され、他アーキテクチャ分が混入しない。必要になれば matrix 化 |
+| 対象 RID | `win-x64` のみ | ネイティブ DLL(Scintilla/Lexilla/WebView2Loader)が exe 横にフラット配置される。必要になれば matrix 化 |
+| `runtimes\` フォルダ | **削らず同梱** | RID 指定でも publish 出力に `runtimes\win-*\native` が残る(実測)。Scintilla5.NET のローダーは `runtimes\` を探索する作りのため、安全側で保持(＋約5MB) |
 | 公開方法 | 即時公開。ノートは**注釈付きタグの本文**＋動作要件フッターを自動付記 | PR を使わないローカルマージ運用のため `--generate-notes` はほぼ空になる |
 | バージョン刻印 | タグ `v1.2.3` → `-p:Version=1.2.3` | 配布物のファイルバージョン/製品バージョンで確認可能に |
 | PDB | `-p:DebugType=embedded` | .pdb ファイルを zip に混ぜず、クラッシュログに行番号付きスタックトレースを出す |
@@ -38,6 +39,12 @@
 - リリース手順: `git tag -a v1.0.0 -m "変更点..."` → `git push origin v1.0.0` のみ。
 - 軽量タグ(`-a` なし)でも動作要件フッターのみのノートで公開される。
 - 利用者がランタイム未導入で起動した場合、OS 標準でダウンロードページ誘導ダイアログが出る。念のため毎リリースのノート末尾に動作要件(Windows 10/11、.NET 9 デスクトップランタイム x64、WebView2 ランタイム)を自動付記する。
+
+## ローカル検証結果(2026-07-03)
+
+- ワークフローと同一フラグの `dotnet publish` 成功。出力=exe＋DLL 並置、`.pdb` なし、FileVersion/ProductVersion に `-p:Version` が反映(0.0.1 で確認)。合計 12.1MB。
+- publish 出力から `yEdit.exe` を起動し、ウィンドウ表示(「無題 1 - yEdit」)を確認=ネイティブ DLL 読み込み OK。
+- `release.yml` は pyyaml で構文検証 OK。
 
 ## 申し送り(スコープ外)
 

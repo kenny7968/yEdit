@@ -40,12 +40,7 @@ public sealed class MarkdownPreviewForm : Form
         Controls.Add(_web);
         Controls.Add(bottom);
 
-        Shown += async (_, _) =>
-        {
-            await InitAsync();
-            // 初期化完了後に WebView へフォーカス（本文を先に読ませる。Esc は WebView 側でも拾う）
-            if (!IsDisposed && !Disposing) _web.Focus();
-        };
+        Shown += async (_, _) => await InitAsync();
     }
 
     private async Task InitAsync()
@@ -83,6 +78,15 @@ public sealed class MarkdownPreviewForm : Form
                 "document.addEventListener('keydown', e => {" +
                 " if (e.key === 'Escape') window.chrome.webview.postMessage('close'); });");
             if (IsDisposed || Disposing) return;
+
+            // DOM 準備完了・keydown リスナー装着済みの状態で WebView にフォーカス（本文を先に読ませる）。
+            // 一発着火とし、以降のリダイレクト等では発火しない。
+            void OnNavCompleted(object? _s, CoreWebView2NavigationCompletedEventArgs e)
+            {
+                core.NavigationCompleted -= OnNavCompleted;
+                if (!IsDisposed && !Disposing && e.IsSuccess) _web.Focus();
+            }
+            core.NavigationCompleted += OnNavCompleted;
 
             core.NavigateToString(_html);
         }

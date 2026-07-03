@@ -8,8 +8,6 @@ x86/
 [Aa][Rr][Mm]/
 [Aa][Rr][Mm]64/
 build/
-publish/
-installer/Output/
 
 # .NET / Visual Studio
 .vs/

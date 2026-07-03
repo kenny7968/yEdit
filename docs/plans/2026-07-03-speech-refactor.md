@@ -143,3 +143,25 @@ PC-Talker の文字/行歩き読みのホットパスから確実に除去する
 
 - Task 7 で PC-Talker がフォーカス時に読む名前が「UIA Probe Document」→「本文」に変わる。次回実機検証で確認。
 - yEdit 内での PC-Talker 可聴検証（`PCTKPReadW(text,1,1)`）は引き続き未実施（ユーザーが別途実施）。
+
+## 対応記録（2026-07-03 実施結果）
+
+全タスク完了。Task 順の実装で、各コミットともビルド 0 警告。
+
+- Task 1: `8ae4dbf` レポート＋本計画コミット
+- Task 2: `5b46e2e` SrContext 一元化（ScreenReaders.cs 削除・ApplySrAdaptation 化）
+- Task 3: `9d6c3c7` IAnnouncer/AnnouncerFactory を Speech/ へ移動
+- Task 4: `97c98ac` Say 契約統一（SearchController のペア10箇所解消・GrepController 順序整理）
+- Task 5: `757613b` UiaProbe 削除（sln からも除去）
+- Task 6: `8288cc0` UiaDiag 計装削除（GetText の全文2回コピー解消）
+- Task 7: `b3088d1` UIA Name=「本文」/ AutomationId="editor" へ
+
+**検証**: Debug/Release ビルド 0 警告・0 エラー、Core テスト 270 件全緑、
+起動スモーク（5秒生存→終了）OK。Core は SrSpeechSelector の doc コメント以外無変更。
+
+**意図的な軽微変更（挙動）**:
+- 検索の「置換しました。これ以上見つかりません」時、ダイアログの視覚ステータスも
+  発声と同一文字列になる（従来は短文「これ以上見つかりません」）。
+- grep 開始時、視覚ステータスは「検索中…」を保持（従来は「検索を開始しました」で即上書き）。
+- SR 適応の判定がタブ生成時→起動時1回になり、起動後の SR 起動/終了にタブ単位で
+  追従しなくなった（起動時確定方針への統一。従来はタブ間で不整合が起き得た）。

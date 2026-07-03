@@ -219,7 +219,6 @@ public sealed partial class MainForm : Form
         AddMenuItem(file, "上書き保存(&S)", (_, _) => _file.Save(), Keys.Control | Keys.S);
         AddMenuItem(file, "名前を付けて保存(&A)...", (_, _) => _file.SaveAs());
         file.DropDownItems.Add(new ToolStripSeparator());
-        AddMenuItem(file, "設定(&P)...", (_, _) => OpenSettings());
         AddMenuItem(file, "タブを閉じる(&W)", (_, _) => CloseActiveTab(), Keys.Control | Keys.W);
         AddMenuItem(file, "終了(&X)", (_, _) => Close());
         RebuildRecentMenu();
@@ -276,11 +275,14 @@ public sealed partial class MainForm : Form
             csvToggle.Checked = _docs.Active?.State.CsvMode == true;
         };
 
+        var options = new ToolStripMenuItem("オプション(&O)");
+        AddMenuItem(options, "設定(&P)...", (_, _) => OpenSettings());
+
         var help = new ToolStripMenuItem("ヘルプ(&H)");
         help.DropDownItems.Add("バージョン情報(&A)", null, (_, _) =>
             MessageBox.Show("yEdit v0.1", "バージョン情報", MessageBoxButtons.OK, MessageBoxIcon.Information));
 
-        menu.Items.AddRange(new ToolStripItem[] { file, edit, search, read, mode, help });
+        menu.Items.AddRange(new ToolStripItem[] { file, edit, search, read, mode, options, help });
         return menu;
     }
 

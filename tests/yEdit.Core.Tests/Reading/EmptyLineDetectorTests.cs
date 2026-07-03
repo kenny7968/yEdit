@@ -57,11 +57,19 @@ public class EmptyLineDetectorTests
     public void Document_end_without_trailing_newline_is_not_empty()
         => Assert.False(EmptyLineDetector.IsCaretOnEmptyLine("abc", 3));
 
+    [Fact]
+    public void Empty_line_between_mixed_lf_cr_is_empty()
+        => Assert.True(EmptyLineDetector.IsCaretOnEmptyLine("a\n\rb", 2));
+
     // ---- 防御（総関数）: 不正位置では false（例外を投げない） ----
 
     [Fact]
     public void Inside_crlf_pair_is_not_empty_line()
         => Assert.False(EmptyLineDetector.IsCaretOnEmptyLine("a\r\n\r\nb", 4));
+
+    [Fact]
+    public void Inside_first_crlf_pair_is_not_empty_line()
+        => Assert.False(EmptyLineDetector.IsCaretOnEmptyLine("a\r\n\r\nb", 2));
 
     [Theory]
     [InlineData("abc", -1)]

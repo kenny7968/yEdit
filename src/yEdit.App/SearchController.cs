@@ -107,22 +107,18 @@ public sealed class SearchController
             {
                 _lastHit = null;
                 Announce("これ以上見つかりません");
-                _dialog?.SetStatus("これ以上見つかりません");
                 return;
             }
 
             ed.SelectCharRange(hit.Value.Start, hit.Value.Length);
             _lastHit = hit;
             var loc = searcher.Locate(text, hit.Value);
-            string msg = loc is { } l ? $"{l.Total} 件中 {l.Ordinal} 件目" : "";
-            Announce(msg);
-            // msg が空のとき Announce は早期 return するため、ここでステータスを空へクリアする。
-            _dialog?.SetStatus(msg);
+            // 位置不明（Locate 失敗）時は空メッセージ＝ステータスのクリアのみ（発声なし）。
+            Announce(loc is { } l ? $"{l.Total} 件中 {l.Ordinal} 件目" : "");
         }
         catch (RegexMatchTimeoutException)
         {
             Announce("検索式が複雑すぎます");
-            _dialog?.SetStatus("検索式が複雑すぎます");
         }
     }
 
@@ -133,7 +129,7 @@ public sealed class SearchController
         var opts = CurrentOptions();
         var d = _dialog;
         if (ed is null || opts is null || d is null) return;
-        if (IsCsvModeActive) { Announce(CsvAnnounceFormatter.BlockedInCsvMode); d.SetStatus(CsvAnnounceFormatter.BlockedInCsvMode); return; }
+        if (IsCsvModeActive) { Announce(CsvAnnounceFormatter.BlockedInCsvMode); return; }
         var searcher = new TextSearcher(opts);
         if (!searcher.IsValid) { Announce("正規表現が正しくありません"); return; }
 
@@ -155,7 +151,6 @@ public sealed class SearchController
             {
                 _lastHit = null;
                 Announce("置換しました。これ以上見つかりません");
-                d.SetStatus("これ以上見つかりません");
                 return;
             }
             ed.SelectCharRange(next.Value.Start, next.Value.Length);
@@ -166,7 +161,6 @@ public sealed class SearchController
         catch (RegexMatchTimeoutException)
         {
             Announce("検索式が複雑すぎます");
-            d.SetStatus("検索式が複雑すぎます");
         }
     }
 
@@ -192,7 +186,7 @@ public sealed class SearchController
         var opts = CurrentOptions();
         var d = _dialog;
         if (ed is null || opts is null || d is null) return;
-        if (IsCsvModeActive) { Announce(CsvAnnounceFormatter.BlockedInCsvMode); d.SetStatus(CsvAnnounceFormatter.BlockedInCsvMode); return; }
+        if (IsCsvModeActive) { Announce(CsvAnnounceFormatter.BlockedInCsvMode); return; }
         var searcher = new TextSearcher(opts);
         if (!searcher.IsValid) { Announce("正規表現が正しくありません"); return; }
 
@@ -205,7 +199,6 @@ public sealed class SearchController
                 if (_selectionScope is not { } scope)
                 {
                     Announce("選択範囲がありません");
-                    d.SetStatus("選択範囲がありません");
                     return;
                 }
                 rangeStart = scope.Start; rangeLen = scope.End - scope.Start;
@@ -213,19 +206,18 @@ public sealed class SearchController
             else { rangeStart = 0; rangeLen = text.Length; }
 
             var (fragment, count) = searcher.ReplaceInRange(text, rangeStart, rangeLen, d.Replacement);
-            if (count == 0) { Announce("見つかりません"); d.SetStatus("見つかりません"); return; }
+            if (count == 0) { Announce("見つかりません"); return; }
             ed.ReplaceCharRange(rangeStart, rangeLen, fragment);
             _lastHit = null;
             Announce($"{count} 件置換しました");
-            d.SetStatus($"{count} 件置換しました");
         }
         catch (RegexMatchTimeoutException)
         {
             Announce("検索式が複雑すぎます");
-            d.SetStatus("検索式が複雑すぎます");
         }
     }
 
-    /// <summary>ステータス Label 経由で SR にライブ通知（NVDA 対応厚・PC-Talker は実機確認）。</summary>
+    /// <summary>ステータス Label を更新しつつ SR にライブ通知（Say 契約: 空は視覚クリアのみ・発声なし）。
+    /// 視覚だけ更新したい増分カウント等は Announce ではなくダイアログの SetStatus を使う。</summary>
     internal void Announce(string message) => _dialog?.RaiseNotification(message);
 }

@@ -37,9 +37,9 @@ public sealed class TextControlProvider :
         if (propertyId == AutomationElementIdentifiers.ControlTypeProperty.Id)
             return _host.ControlTypeId;
         if (propertyId == AutomationElementIdentifiers.NameProperty.Id)
-            return "UIA Probe Document";
+            return _host.Name;
         if (propertyId == AutomationElementIdentifiers.AutomationIdProperty.Id)
-            return "uiaProbeDocument";
+            return _host.AutomationId;
         if (propertyId == AutomationElementIdentifiers.IsContentElementProperty.Id)
             return true;
         if (propertyId == AutomationElementIdentifiers.IsControlElementProperty.Id)

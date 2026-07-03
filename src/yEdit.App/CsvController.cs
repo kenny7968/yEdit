@@ -1,3 +1,4 @@
+using yEdit.App.Speech;
 using yEdit.Core.Csv;
 using yEdit.Editor;
 

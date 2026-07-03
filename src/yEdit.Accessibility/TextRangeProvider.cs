@@ -1,5 +1,3 @@
-using System;
-using System.Threading;
 using System.Windows.Automation;
 using System.Windows.Automation.Provider;
 using System.Windows.Automation.Text;
@@ -8,22 +6,18 @@ namespace yEdit.Accessibility;
 
 /// <summary>
 /// UIA テキスト範囲（ITextRangeProvider）。[Start, End) のオフセット対で表現。
-/// SR はこの上の GetText / ExpandToEnclosingUnit / Move / MoveEndpointByUnit を多用して読む。
-/// デバッグ計装あり（UiaDiag）: どの SR がどのメソッドをどう呼ぶか切り分けるため。
+/// SR はこの上の GetText / ExpandToEnclosingUnit / Move / MoveEndpointByUnit を多用して読む
+/// （PC-Talker の文字/行歩き読みのホットパス。余計なアロケーションを持ち込まないこと）。
 /// </summary>
 internal sealed class TextRangeProvider : ITextRangeProvider
 {
-    private static int _seq;
-
     private readonly TextProviderImpl _owner;
-    private readonly int _id;
     private int _start;
     private int _end;
 
     public TextRangeProvider(TextProviderImpl owner, int start, int end)
     {
         _owner = owner;
-        _id = Interlocked.Increment(ref _seq);
         int len = owner.Host.TextLength;
         start = TextNavigation.Clamp(start, 0, len);
         end = TextNavigation.Clamp(end, 0, len);
@@ -32,15 +26,7 @@ internal sealed class TextRangeProvider : ITextRangeProvider
         _end = end;
     }
 
-    private string Tag => $"TR#{_id}[{_start},{_end}]";
-    private static int Tid => Environment.CurrentManagedThreadId;
-
-    public ITextRangeProvider Clone()
-    {
-        var c = new TextRangeProvider(_owner, _start, _end);
-        UiaDiag.Log($"{Tag} Clone -> TR#{((TextRangeProvider)c)._id} tid={Tid}");
-        return c;
-    }
+    public ITextRangeProvider Clone() => new TextRangeProvider(_owner, _start, _end);
 
     public bool Compare(ITextRangeProvider range)
         => range is TextRangeProvider o && o._start == _start && o._end == _end;
@@ -50,7 +36,6 @@ internal sealed class TextRangeProvider : ITextRangeProvider
         var o = (TextRangeProvider)targetRange;
         int a = endpoint == TextPatternRangeEndpoint.Start ? _start : _end;
         int b = targetEndpoint == TextPatternRangeEndpoint.Start ? o._start : o._end;
-        UiaDiag.Log($"{Tag} CompareEndpoints({endpoint} vs TR#{o._id}.{targetEndpoint}) -> {a - b} tid={Tid}");
         return a - b;
     }
 
@@ -82,18 +67,12 @@ internal sealed class TextRangeProvider : ITextRangeProvider
                 _end = len;
                 break;
         }
-        UiaDiag.Log($"TR#{_id} ExpandToEnclosingUnit({unit}) -> [{_start},{_end}] tid={Tid}");
     }
 
-    public ITextRangeProvider FindAttribute(int attributeId, object value, bool backward)
-    {
-        UiaDiag.Log($"{Tag} FindAttribute(id={attributeId}) tid={Tid}");
-        return null;
-    }
+    public ITextRangeProvider FindAttribute(int attributeId, object value, bool backward) => null;
 
     public ITextRangeProvider FindText(string text, bool backward, bool ignoreCase)
     {
-        UiaDiag.Log($"{Tag} FindText('{UiaDiag.Trunc(text)}', back={backward}, ic={ignoreCase}) tid={Tid}");
         string content = _owner.Host.GetText();
         int s = TextNavigation.Clamp(_start, 0, content.Length);
         int e = TextNavigation.Clamp(_end, 0, content.Length);
@@ -105,18 +84,9 @@ internal sealed class TextRangeProvider : ITextRangeProvider
         return new TextRangeProvider(_owner, s + idx, s + idx + text.Length);
     }
 
-    public object GetAttributeValue(int attributeId)
-    {
-        UiaDiag.Log($"{Tag} GetAttributeValue(id={attributeId}) -> NotSupported tid={Tid}");
-        return AutomationElement.NotSupported;
-    }
+    public object GetAttributeValue(int attributeId) => AutomationElement.NotSupported;
 
-    public double[] GetBoundingRectangles()
-    {
-        var rects = _owner.Host.GetBoundingRectangles(_start, _end);
-        UiaDiag.Log($"{Tag} GetBoundingRectangles -> {rects.Length / 4} rect(s) tid={Tid}");
-        return rects;
-    }
+    public double[] GetBoundingRectangles() => _owner.Host.GetBoundingRectangles(_start, _end);
 
     public IRawElementProviderSimple GetEnclosingElement() => _owner.RootProvider;
 
@@ -128,9 +98,7 @@ internal sealed class TextRangeProvider : ITextRangeProvider
         int count = e - s;
         if (count < 0) count = 0;
         if (maxLength >= 0 && count > maxLength) count = maxLength;
-        string result = text.Substring(s, count);
-        UiaDiag.Log($"{Tag} GetText(max={maxLength}) -> '{UiaDiag.Trunc(result)}' tid={Tid}");
-        return result;
+        return text.Substring(s, count);
     }
 
     public int Move(TextUnit unit, int count)
@@ -153,9 +121,7 @@ internal sealed class TextRangeProvider : ITextRangeProvider
         if (!wasDegenerate)
             ExpandToEnclosingUnit(unit);
 
-        int ret = count < 0 ? -moved : moved;
-        UiaDiag.Log($"TR#{_id} Move({unit},{count}) -> moved={ret} now[{_start},{_end}] tid={Tid}");
-        return ret;
+        return count < 0 ? -moved : moved;
     }
 
     public int MoveEndpointByUnit(TextPatternRangeEndpoint endpoint, TextUnit unit, int count)
@@ -178,9 +144,7 @@ internal sealed class TextRangeProvider : ITextRangeProvider
             _end = pos;
             if (_start > _end) _start = _end;
         }
-        int ret = count < 0 ? -moved : moved;
-        UiaDiag.Log($"TR#{_id} MoveEndpointByUnit({endpoint},{unit},{count}) -> moved={ret} now[{_start},{_end}] tid={Tid}");
-        return ret;
+        return count < 0 ? -moved : moved;
     }
 
     public void MoveEndpointByRange(TextPatternRangeEndpoint endpoint, ITextRangeProvider targetRange, TextPatternRangeEndpoint targetEndpoint)
@@ -197,20 +161,15 @@ internal sealed class TextRangeProvider : ITextRangeProvider
             _end = target;
             if (_start > _end) _start = _end;
         }
-        UiaDiag.Log($"TR#{_id} MoveEndpointByRange({endpoint},TR#{o._id}.{targetEndpoint}) -> now[{_start},{_end}] tid={Tid}");
     }
 
-    public void Select()
-    {
-        UiaDiag.Log($"{Tag} Select tid={Tid}");
-        _owner.Host.SetSelection(_start, _end);
-    }
+    public void Select() => _owner.Host.SetSelection(_start, _end);
 
     public void AddToSelection() { /* SupportedTextSelection.Single のため無効 */ }
 
     public void RemoveFromSelection() { /* SupportedTextSelection.Single のため無効 */ }
 
-    public void ScrollIntoView(bool alignToTop) { /* 実験では未対応 */ }
+    public void ScrollIntoView(bool alignToTop) { /* 未対応（PC-Talker はテキスト歩きで読めるため省略） */ }
 
     public IRawElementProviderSimple[] GetChildren() => Array.Empty<IRawElementProviderSimple>();
 

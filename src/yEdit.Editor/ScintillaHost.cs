@@ -58,14 +58,14 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     /// <summary>
     /// WM_GETOBJECT(UiaRootObjectId) で我々の UIA プロバイダを返すか。
     /// false なら base へ素通し（Scintilla / Win32 既定の a11y のみ）。
-    /// ConfigureForCurrentScreenReader が SR 適応（NVDA=ネイティブ読み／それ以外=UIA）で確定する。
+    /// ApplySrAdaptation が SR 適応（NVDA=ネイティブ読み／それ以外=UIA）で確定する。
     /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool ServeUiaProvider { get; set; } = true;
 
     /// <summary>
     /// WM_GETOBJECT(OBJID_CLIENT) で 0 を返し、ウィンドウのネイティブ MSAA を抑制する。
-    /// ConfigureForCurrentScreenReader が SR 適応で確定する（NVDA 起動中のみ抑制）。
+    /// ApplySrAdaptation が SR 適応で確定する（NVDA 起動中のみ抑制）。
     /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool SuppressClientMsaa { get; set; }
@@ -73,22 +73,15 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     // ==================== SR 適応設定（確定アーキテクチャ） ====================
 
     /// <summary>
-    /// 起動中のスクリーンリーダーに応じて UIA/MSAA の提供可否を確定する（確定アーキテクチャ）。
+    /// 起動時に確定した SR 環境を UIA/MSAA の提供可否へ反映する（確定アーキテクチャ）。
     /// NVDA 起動中 → 我々は引っ込む（ネイティブ Scintilla に任せる）。それ以外 → UIA 提供。
+    /// 判定は App 層（SrContext）が起動時に1回だけ行い、全タブへ同じ値を渡す（タブ間一貫）。
     /// ハンドル生成前に呼ぶこと（WM_GETOBJECT 前に値を確定させる）。
     /// </summary>
-    public void ConfigureForCurrentScreenReader()
+    public void ApplySrAdaptation(bool nvdaRunning)
     {
-        if (ScreenReaders.IsNvdaRunning())
-        {
-            ServeUiaProvider = false;
-            SuppressClientMsaa = true;
-        }
-        else
-        {
-            ServeUiaProvider = true;
-            SuppressClientMsaa = false;
-        }
+        ServeUiaProvider = !nvdaRunning;
+        SuppressClientMsaa = nvdaRunning;
     }
 
     // ==================== 初期化 ====================
@@ -519,6 +512,11 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     bool IUiaTextHost.HasFocus => _hasFocus;
 
     int IUiaTextHost.ControlTypeId => System.Windows.Automation.ControlType.Document.Id;
+
+    // SR がフォーカス時などに読む名前。文書名はタブ側が担うため、編集領域は固定文言でよい。
+    string IUiaTextHost.Name => "本文";
+
+    string IUiaTextHost.AutomationId => "editor";
 
     void IUiaTextHost.SetFocus()
     {

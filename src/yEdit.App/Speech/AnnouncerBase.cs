@@ -2,8 +2,9 @@ namespace yEdit.App.Speech;
 
 /// <summary>
 /// IAnnouncer 共通の通知コントラクトを1箇所に集約するテンプレート基底。
-/// 「空メッセージは無視」「視覚表示（label.Text）は SR 手段に依らず無条件」を全実装で強制し、
-/// 発声手段だけを派生（<see cref="Speak"/>）に委ねる。これにより呼び出し元ごと・実装ごとの契約乖離を防ぐ。
+/// 「視覚表示（label.Text）は SR 手段に依らず無条件（空はクリア）」「発声は非空のときだけ」を
+/// 全実装で強制し、発声手段だけを派生（<see cref="Speak"/>）に委ねる。
+/// これにより呼び出し元ごと・実装ごとの契約乖離（視覚と読み上げの二重更新）を防ぐ。
 /// </summary>
 internal abstract class AnnouncerBase : IAnnouncer
 {
@@ -12,8 +13,8 @@ internal abstract class AnnouncerBase : IAnnouncer
 
     public void Say(string message)
     {
-        if (string.IsNullOrEmpty(message)) return;
-        _label.Text = message; // 視覚フィードバックは無条件（晴眼/弱視も第一級）
+        _label.Text = message ?? "";                // 視覚フィードバックは無条件（晴眼/弱視も第一級）。空はクリア
+        if (string.IsNullOrEmpty(message)) return;  // 空は視覚クリアのみ（発声なし）
         Speak(message);
     }
 

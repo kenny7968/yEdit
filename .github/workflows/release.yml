@@ -32,9 +32,11 @@ jobs:
           "version=$v" >> $env:GITHUB_OUTPUT
 
       - name: 配布用ビルド(フレームワーク依存)
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: >
           dotnet publish src/yEdit.App -c Release -r win-x64 --self-contained false
-          -p:Version=${{ steps.ver.outputs.version }}
+          "-p:Version=$env:VERSION"
           -p:DebugType=embedded
           -o publish
 

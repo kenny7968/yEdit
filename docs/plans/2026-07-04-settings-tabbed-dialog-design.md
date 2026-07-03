@@ -103,10 +103,12 @@ public sealed class SettingsDialog : Form
 {
     private readonly AppSettings _baseline;
     private readonly IReadOnlyList<ISettingsTab> _tabs;
+    // 注: 当初 AccessibleName = "設定カテゴリ" を付けていたが、実機 SR 検証（NVDA）で
+    // 「タブ切替のたびに『設定カテゴリ』が読まれて冗長」との指摘を受け撤廃した
+    // （コミット c38563b）。タブヘッダ（TabPage.Text）＝カテゴリ名で識別十分。
     private readonly TabControl _tabControl = new()
     {
         Dock = DockStyle.Fill,
-        AccessibleName = "設定カテゴリ",
     };
 
     public SettingsDialog(AppSettings s)

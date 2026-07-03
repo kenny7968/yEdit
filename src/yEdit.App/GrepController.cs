@@ -79,8 +79,9 @@ public sealed class GrepController
         });
 
         d.SetRunning(true);
-        d.SetStatus("検索中…");
+        // 発声→視覚の順（Say は Label も更新するため、後から視覚専用の実行中表示で上書きして保持する）。
         d.RaiseNotification("検索を開始しました");
+        d.SetStatus("検索中…");
         try
         {
             // GrepService は協調キャンセルで部分結果＋Cancelled を返す（例外で打ち切らない）。

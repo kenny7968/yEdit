@@ -11,6 +11,8 @@ permissions:
 env:
   TAG: ${{ github.ref_name }}
   ZIP: yEdit-${{ github.ref_name }}-win-x64.zip
+  # installer/yEdit.iss の OutputBaseFilename(yEdit-v{#AppVersion}-setup)と一致必須
+  SETUP: yEdit-${{ github.ref_name }}-setup.exe
 
 jobs:
   release:
@@ -45,16 +47,34 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path publish\* -DestinationPath $env:ZIP
 
+      - name: インストーラー作成 (Inno Setup)
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: >
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          "/DAppVersion=$env:VERSION"
+          "/DPublishDir=$env:GITHUB_WORKSPACE\publish"
+          "/O$env:GITHUB_WORKSPACE"
+          installer\yEdit.iss
+
+      - name: インストーラーのスモークテスト(サイレント導入/削除)
+        shell: pwsh
+        run: powershell -File tools\installer-smoketest.ps1 -SetupPath $env:SETUP
+
       - name: リリースノート組み立て(タグ注釈＋動作要件＋SHA256)
         shell: pwsh
         run: |
           # actions/checkout はタグ注釈を落とすことがあるため取り直す
           git fetch --tags --force
           $body = (git tag -l --format='%(contents)' $env:TAG | Out-String).Trim()
-          $hash = (Get-FileHash $env:ZIP -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+          $zipHash = (Get-FileHash $env:ZIP -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+          $setupHash = (Get-FileHash $env:SETUP -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
           $footer = @(
             ''
             '---'
+            '- setup.exe: インストーラー版(推奨)。zip: 展開して使うポータブル版'
+            ''
             '**動作要件**'
             '- Windows 10 / 11'
             '- [.NET 9 デスクトップランタイム](https://dotnet.microsoft.com/ja-jp/download/dotnet/9.0) (x64)'
@@ -62,7 +82,8 @@ jobs:
             ''
             '**SHA256**'
             '```'
-            "$hash  $env:ZIP"
+            "$zipHash  $env:ZIP"
+            "$setupHash  $env:SETUP"
             '```'
           ) -join "`n"
           "$body`n$footer" | Set-Content notes.md -Encoding utf8
@@ -72,7 +93,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          gh release create "$env:TAG" "$env:ZIP"
+          gh release create "$env:TAG" "$env:ZIP" "$env:SETUP"
           --title "yEdit $env:TAG"
           --notes-file notes.md
           --verify-tag

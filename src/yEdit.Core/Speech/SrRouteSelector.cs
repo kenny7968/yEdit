@@ -3,16 +3,17 @@ namespace yEdit.Core.Speech;
 /// <summary>
 /// 「優先するスクリーンリーダー」設定と起動時のプロセス検出から読み上げ経路を選ぶ純ロジック
 /// （WinForms 非依存・単体テスト可能）。判定は App 層の SrContext が起動時に 1 回行う。
-/// 規則（検出フォールバック付き・設計 2026-07-04）:
-/// 優先 SR が稼働している、またはどちらも稼働していない → 優先 SR の経路。
-/// もう片方だけが稼働 → 検出された方の経路（既定 NVDA のままの PC-Talker ユーザーを壊さない救済）。
+/// 規則（設計 2026-07-04 sr-route-no-sr）:
+/// 検出された SR の経路。両方稼働なら「優先するスクリーンリーダー」設定が決める。
+/// どちらも非検出なら汎用 UIA 経路（SR なし・ナレーター/JAWS 等の UIA 系 SR で安全）。
 /// </summary>
 public static class SrRouteSelector
 {
     public static SrRoute Select(bool preferNvda, bool nvdaRunning, bool pcTalkerRunning)
     {
-        if (preferNvda)
-            return (!nvdaRunning && pcTalkerRunning) ? SrRoute.PcTalker : SrRoute.Nvda;
-        return (nvdaRunning && !pcTalkerRunning) ? SrRoute.Nvda : SrRoute.PcTalker;
+        if (nvdaRunning && pcTalkerRunning) return preferNvda ? SrRoute.Nvda : SrRoute.PcTalker;
+        if (nvdaRunning) return SrRoute.Nvda;
+        if (pcTalkerRunning) return SrRoute.PcTalker;
+        return SrRoute.Uia;
     }
 }

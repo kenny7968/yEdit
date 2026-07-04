@@ -83,7 +83,7 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
 
     /// <summary>
     /// 起動時に確定した SR 経路を UIA プロバイダの提供可否へ反映する（確定アーキテクチャ）。
-    /// ネイティブ読み（NVDA 経路）→ 我々は引っ込む。それ以外（PC-Talker 経路）→ UIA 提供。
+    /// ネイティブ読み（NVDA 経路）→ 我々は引っ込む。それ以外（PC-Talker 経路・汎用 UIA 経路）→ UIA 提供。
     /// かつて NVDA 経路で併用したクライアント MSAA 抑制は実測で不要と確定し撤去済み
     /// （docs/plans/2026-07-04-validate-uia-handoff.md §2）。再導入しないこと。
     /// 判定は App 層（SrContext）が起動時に1回だけ行い、全タブへ同じ値を渡す（タブ間一貫）。

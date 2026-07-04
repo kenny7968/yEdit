@@ -10,4 +10,6 @@ public enum SrRoute
     Nvda,
     /// <summary>PC-Talker 経路: 自前 UIA プロバイダ提供、能動発声は PCTKPReadW 直叩き。</summary>
     PcTalker,
+    /// <summary>汎用 UIA 経路: SR 非検出時。自前 UIA プロバイダ提供、能動発声は UIA 通知（SR なし・ナレーター/JAWS 等の UIA 系 SR で安全）。</summary>
+    Uia,
 }

@@ -14,6 +14,13 @@ public sealed class DisplaySettingsTab : ISettingsTab
     private readonly Label _fontLabel = new() { AutoSize = true };
     private readonly Button _fontButton = new() { Text = "変更(&F)...", AutoSize = true };
     private readonly ComboBox _theme = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240, AccessibleName = "配色テーマ" };
+    private readonly CheckBox _showLineNumbers = new() { Text = "行番号を表示する(&N)", AutoSize = true };
+    private readonly CheckBox _highlightCurrentLine = new() { Text = "現在行を強調表示する(&H)", AutoSize = true };
+    private readonly NumericUpDown _caretWidth = new()
+    {
+        Minimum = 1, Maximum = 5, Width = 100, AccessibleName = "キャレットの太さ",
+    };
+    private readonly CheckBox _showWhitespace = new() { Text = "空白・改行文字を表示する(&B)", AutoSize = true };
 
     public Control BuildPage()
     {
@@ -32,6 +39,26 @@ public sealed class DisplaySettingsTab : ISettingsTab
 
         SettingsTabLayoutHelper.AddRow(root, 1, "配色(&C):", _theme, tabBase: 2);
 
+        _showLineNumbers.TabIndex = 4;
+        root.Controls.Add(_showLineNumbers, 0, 2);
+        root.SetColumnSpan(_showLineNumbers, 2);
+
+        _highlightCurrentLine.TabIndex = 5;
+        root.Controls.Add(_highlightCurrentLine, 0, 3);
+        root.SetColumnSpan(_highlightCurrentLine, 2);
+
+        // キャレットの太さ: ラベル ＋ NumericUpDown（px・弱視の視認性対策）。
+        var caretPanel = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, TabIndex = 6 };
+        var caretLbl = new Label { Text = "キャレットの太さ(&W):", AutoSize = true, TabIndex = 6, Anchor = AnchorStyles.Left };
+        _caretWidth.TabIndex = 7;
+        caretPanel.Controls.Add(caretLbl);
+        caretPanel.Controls.Add(_caretWidth);
+        root.Controls.Add(caretPanel, 0, 4);
+
+        _showWhitespace.TabIndex = 8;
+        root.Controls.Add(_showWhitespace, 0, 5);
+        root.SetColumnSpan(_showWhitespace, 2);
+
         return root;
     }
 
@@ -41,6 +68,10 @@ public sealed class DisplaySettingsTab : ISettingsTab
         _fontSize = s.FontSize;
         UpdateFontLabel();
         _theme.SelectedIndex = IndexOfTheme(s.Theme);
+        _showLineNumbers.Checked = s.ShowLineNumbers;
+        _highlightCurrentLine.Checked = s.HighlightCurrentLine;
+        _caretWidth.Value = Math.Clamp(s.CaretWidth, (int)_caretWidth.Minimum, (int)_caretWidth.Maximum);
+        _showWhitespace.Checked = s.ShowWhitespace;
     }
 
     public void SaveTo(AppSettings r)
@@ -48,6 +79,10 @@ public sealed class DisplaySettingsTab : ISettingsTab
         r.FontName = _fontName;
         r.FontSize = _fontSize;
         r.Theme = AppearanceThemes.All[_theme.SelectedIndex].Id;
+        r.ShowLineNumbers = _showLineNumbers.Checked;
+        r.HighlightCurrentLine = _highlightCurrentLine.Checked;
+        r.CaretWidth = (int)_caretWidth.Value;
+        r.ShowWhitespace = _showWhitespace.Checked;
     }
 
     private static int IndexOfTheme(string id)

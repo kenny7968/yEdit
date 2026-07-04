@@ -40,59 +40,69 @@ public sealed class CsvController
     {
         var doc = _docs.Active;
         if (doc is null || _editor.IsEditing) return;
+        if (!doc.State.CsvMode) TryEnterMode(doc);
+        else ExitMode(doc);
+    }
 
-        if (!doc.State.CsvMode)
+    /// <summary>
+    /// CSVモードへ入る（手動トグルと .csv 自動モードの共通経路）。解析不可なら通知して false を返し、
+    /// 通常モードのまま残す。読取専用化・UIA 抑止・シンク退避・初期セル確定・読み上げは従来の ON 側と同一。
+    /// </summary>
+    public bool TryEnterMode(Document doc)
+    {
+        if (doc.State.CsvMode || _editor.IsEditing) return false;
+        var csv = doc.ParseCsv();
+        if (!csv.Ok)
         {
-            var csv = doc.ParseCsv();
-            if (!csv.Ok)
-            {
-                doc.ClearCsvCache(); // モードに入らないのに失敗パース＋旧全文を文書寿命まで抱えない
-                _announcer.Say(CsvAnnounceFormatter.ParseError);
-                return; // 解析不可ならモードに入らない
-            }
-            doc.State.CsvMode = true;
-            doc.Editor.ReadOnly = true;
-            // PC-Talker（UIA経路）向け防御: シンクへ移る遷移の一瞬にエディタがフォーカスを
-            // 得た際、OnGotFocus の明示 TextSelectionChangedEvent で行を読まれるのを防ぐ。
-            doc.Editor.RaiseUiaSelectionEvents = false;
-            if (csv.Rows.Count == 0)
-            {
-                doc.Editor.ClearHighlight();
-                doc.CsvSink.Focus();               // データ無しでもフォーカスはシンクへ退避する
-                _announcer.Say(CsvAnnounceFormatter.ModeOn);
-                return;
-            }
-            // ON 時のみ、その時点のキャレット位置から初期セルを導出する（以降はキャレットではなく状態を真実源にする）。
-            var (row, col) = csv.FindCell(doc.Editor.CaretCharOffset);
-            doc.State.CsvRow = row;
-            doc.State.CsvCol = col;
-            ApplyCell(doc.Editor, csv, row, col, announce: false);   // ハイライト＋スクロール＋シンクへフォーカス
-            var f = csv.GetField(row, col);
-            _announcer.Say(f is null
-                ? CsvAnnounceFormatter.ModeOn
-                : CsvAnnounceFormatter.ModeOn + " " + CsvAnnounceFormatter.Cell(f.Value, row + 1, col + 1));
+            doc.ClearCsvCache(); // モードに入らないのに失敗パース＋旧全文を文書寿命まで抱えない
+            _announcer.Say(CsvAnnounceFormatter.ParseError);
+            return false; // 解析不可ならモードに入らない
         }
-        else
+        doc.State.CsvMode = true;
+        doc.Editor.ReadOnly = true;
+        // PC-Talker（UIA経路）向け防御: シンクへ移る遷移の一瞬にエディタがフォーカスを
+        // 得た際、OnGotFocus の明示 TextSelectionChangedEvent で行を読まれるのを防ぐ。
+        doc.Editor.RaiseUiaSelectionEvents = false;
+        if (csv.Rows.Count == 0)
         {
-            var csv = doc.ParseCsv();
-            doc.State.CsvMode = false;                 // 先に解除（エディタ GotFocus のシンク退避ガードを外す）
-            doc.Editor.ReadOnly = false;
             doc.Editor.ClearHighlight();
-            // モード中に動かなかったキャレットを最終セル位置へ復帰させ、編集領域へフォーカスを返す。
-            // 以降は通常編集なので、SR がフォーカス獲得で現在行を読むのは標準挙動として許容。
-            if (csv.Ok && csv.Rows.Count > 0)
-            {
-                var f = csv.GetField(doc.State.CsvRow, doc.State.CsvCol);
-                if (f is not null) doc.Editor.MoveCaretCharOffset(f.Start);
-            }
-            // キャレット復帰の後に再有効化し、復帰が同期経路で TextSelectionChangedEvent を
-            // 出すケースを塞ぐ（通常編集の SR 挙動へ復帰）。SCN_UPDATEUI は次ペイントまで
-            // 遅延し得るため遅延配送までは塞げない（PC-Talker の二重読み解消は実機で要確認）。
-            doc.Editor.RaiseUiaSelectionEvents = true;
-            doc.Editor.Focus();
-            doc.ClearCsvCache();   // 通常編集へ戻るのでパース結果を保持しない（メモリ解放）
-            _announcer.Say(CsvAnnounceFormatter.ModeOff);
+            doc.CsvSink.Focus();               // データ無しでもフォーカスはシンクへ退避する
+            _announcer.Say(CsvAnnounceFormatter.ModeOn);
+            return true;
         }
+        // ON 時のみ、その時点のキャレット位置から初期セルを導出する（以降はキャレットではなく状態を真実源にする）。
+        var (row, col) = csv.FindCell(doc.Editor.CaretCharOffset);
+        doc.State.CsvRow = row;
+        doc.State.CsvCol = col;
+        ApplyCell(doc.Editor, csv, row, col, announce: false);   // ハイライト＋スクロール＋シンクへフォーカス
+        var f = csv.GetField(row, col);
+        _announcer.Say(f is null
+            ? CsvAnnounceFormatter.ModeOn
+            : CsvAnnounceFormatter.ModeOn + " " + CsvAnnounceFormatter.Cell(f.Value, row + 1, col + 1));
+        return true;
+    }
+
+    /// <summary>CSVモードを抜けて通常編集へ戻す（既存 OFF 側の移設・無変更）。</summary>
+    private void ExitMode(Document doc)
+    {
+        var csv = doc.ParseCsv();
+        doc.State.CsvMode = false;                 // 先に解除（エディタ GotFocus のシンク退避ガードを外す）
+        doc.Editor.ReadOnly = false;
+        doc.Editor.ClearHighlight();
+        // モード中に動かなかったキャレットを最終セル位置へ復帰させ、編集領域へフォーカスを返す。
+        // 以降は通常編集なので、SR がフォーカス獲得で現在行を読むのは標準挙動として許容。
+        if (csv.Ok && csv.Rows.Count > 0)
+        {
+            var f = csv.GetField(doc.State.CsvRow, doc.State.CsvCol);
+            if (f is not null) doc.Editor.MoveCaretCharOffset(f.Start);
+        }
+        // キャレット復帰の後に再有効化し、復帰が同期経路で TextSelectionChangedEvent を
+        // 出すケースを塞ぐ（通常編集の SR 挙動へ復帰）。SCN_UPDATEUI は次ペイントまで
+        // 遅延し得るため遅延配送までは塞げない（PC-Talker の二重読み解消は実機で要確認）。
+        doc.Editor.RaiseUiaSelectionEvents = true;
+        doc.Editor.Focus();
+        doc.ClearCsvCache();   // 通常編集へ戻るのでパース結果を保持しない（メモリ解放）
+        _announcer.Say(CsvAnnounceFormatter.ModeOff);
     }
 
     // ---- 移動（読み上げ付き） ----

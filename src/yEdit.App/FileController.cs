@@ -19,11 +19,13 @@ public sealed class FileController
     private readonly Action _saveSettings;          // 設定の永続化（保存失敗を致命にしない実装は呼び出し側）
     private readonly Action _recentChanged;         // 「最近のファイル」メニューの再構築
     private readonly Action _metaChanged;           // タイトル・ステータスの更新
+    private readonly Action<Document> _openedFresh; // 開く系で新規ロード成功した直後（.csv 自動モードの判定は MainForm 側）
     private int _untitledSeq; // 無題タブの連番（新規作成毎に増加・セッション内で再利用しない）
 
     public FileController(
         DocumentManager docs, Form owner, Func<AppSettings> settings,
-        Action saveSettings, Action recentChanged, Action metaChanged)
+        Action saveSettings, Action recentChanged, Action metaChanged,
+        Action<Document> openedFresh)
     {
         _docs = docs;
         _owner = owner;
@@ -31,6 +33,7 @@ public sealed class FileController
         _saveSettings = saveSettings;
         _recentChanged = recentChanged;
         _metaChanged = metaChanged;
+        _openedFresh = openedFresh;
     }
 
     // ==================== 新規 / 開く ====================
@@ -68,14 +71,20 @@ public sealed class FileController
     /// 最近のファイルは先頭へ繰上げ。新規に開けなければ作りかけタブを破棄して
     /// 直前のアクティブへ戻し null を返す。
     /// </summary>
-    public Document? TryOpenOrActivate(string path)
+    public Document? TryOpenOrActivate(string path, bool suppressAutoCsv = false)
     {
         var existing = _docs.FindByPath(path);
         if (existing is not null) { _docs.Activate(existing); RegisterRecent(path); return existing; }
 
         var prev = _docs.Active; // 読込失敗時に戻る先（直前のアクティブタブ）
         var doc = _docs.CreateNew();
-        if (LoadInto(doc, path, forcedCodePage: null)) return doc;
+        if (LoadInto(doc, path, forcedCodePage: null))
+        {
+            // 開く系（開く/最近）のみ .csv 自動モードの対象。grep ジャンプは選択＋エディタフォーカスを
+            // 機能させるため suppressAutoCsv=true で抑止する（設計 2026-07-04）。
+            if (!suppressAutoCsv) _openedFresh(doc);
+            return doc;
+        }
         _docs.TryClose(doc, _ => true); // 読込失敗→作りかけタブを破棄
         if (prev is not null) _docs.Activate(prev); // 直前のアクティブへ戻す
         return null;
@@ -95,8 +104,9 @@ public sealed class FileController
         using var dlg = new EncodingPickDialog(doc.State.Encoding.CodePage);
         if (dlg.ShowDialog(_owner) != DialogResult.OK) return;
         if (!LoadInto(doc, doc.State.Path, forcedCodePage: dlg.SelectedCodePage)) return;
-        // CSVモード中の開き直しでは、ダイアログ閉塞時に WinForms がシンクへフォーカスを復元する。
-        // LoadInto が CsvMode=false にした後なので、編集領域（この時点で FocusTarget=エディタ）へ明示的に戻す。
+        _openedFresh(doc);   // 開き直しも .csv 自動モードの対象（設計 2026-07-04）
+        // CSVモード中の開き直しでは、ダイアログ閉塞時に WinForms がシンクへフォーカスを復元するため明示的に戻す。
+        // 自動 CSV モードに入った場合は FocusTarget=シンク、入らなければエディタへ向く。
         doc.FocusTarget.Focus();
     }
 

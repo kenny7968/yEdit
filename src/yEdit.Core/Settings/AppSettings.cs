@@ -15,7 +15,7 @@ public sealed class AppSettings
     /// <summary>自動バックアップ（クラッシュ復元）を有効にするか。</summary>
     public bool BackupEnabled { get; set; } = true;
     /// <summary>自動バックアップの間隔（秒）。</summary>
-    public int BackupIntervalSeconds { get; set; } = 30;
+    public int BackupIntervalSeconds { get; set; } = 300;
 
     /// <summary>配色テーマ Id（AppearanceThemes.All の Id・既定は標準）。</summary>
     public string Theme { get; set; } = "default";
@@ -31,6 +31,29 @@ public sealed class AppSettings
     public string KinsokuLineEndChars { get; set; } = "([{（［｛〔〈《「『【〖〘";
     /// <summary>行末にぶら下げ可能な文字（句読点）。空で無効。</summary>
     public string KinsokuHangChars { get; set; } = "、。，．";
+
+    /// <summary>.csv ファイルを開いたとき自動的に CSV モードにするか（開く系のみ・grep ジャンプ除外）。</summary>
+    public bool CsvAutoModeOnOpen { get; set; } = false;
+
+    /// <summary>タブ幅（桁数・範囲 1〜16）。表示と禁則整形の両方が使う。</summary>
+    public int TabWidth { get; set; } = 4;
+    /// <summary>Tab キー入力をスペースにするか（既存のタブ文字は変換しない）。</summary>
+    public bool TabsToSpaces { get; set; } = false;
+
+    /// <summary>行番号マージンを表示するか。</summary>
+    public bool ShowLineNumbers { get; set; } = false;
+    /// <summary>現在行を強調表示するか（色はテーマから自動算出）。</summary>
+    public bool HighlightCurrentLine { get; set; } = false;
+    /// <summary>キャレットの太さ（px・範囲 1〜5）。弱視のキャレット視認性対策。</summary>
+    public int CaretWidth { get; set; } = 1;
+    /// <summary>空白（全半角）と改行記号を可視化するか。</summary>
+    public bool ShowWhitespace { get; set; } = false;
+
+    /// <summary>起動時にバックアップを復元するか確認する（false なら確認なしで全復元）。</summary>
+    public bool ConfirmRestoreOnStartup { get; set; } = true;
+
+    /// <summary>優先するスクリーンリーダー（"nvda" | "pctalker"）。反映は再起動後。</summary>
+    public string PreferredScreenReader { get; set; } = "nvda";
 
     /// <summary>最近開いたファイル（先頭が最新）。</summary>
     public List<string> RecentFiles { get; set; } = new();

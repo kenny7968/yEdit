@@ -36,9 +36,9 @@ public sealed partial class MainForm : Form
     // MenuStrip の Activate/Deactivate イベントで明示的に追跡する。
     private bool _menuActive;
 
-    public MainForm()
+    public MainForm(AppSettings settings)
     {
-        _settings = SettingsStore.Load(_settingsPath);
+        _settings = settings;   // Program.Main が読込済み（優先 SR を SR 判定へ渡すため先読みしている）
 
         Text = "yEdit";
         Width = _settings.WindowWidth;
@@ -59,7 +59,8 @@ public sealed partial class MainForm : Form
         };
         // 設定は OpenSettings で参照が差し替わるため Func で都度解決させる。
         _file = new FileController(_docs, this, () => _settings,
-            SaveSettingsSafe, RebuildRecentMenu, () => { UpdateTitle(); UpdateStatus(); });
+            SaveSettingsSafe, RebuildRecentMenu, () => { UpdateTitle(); UpdateStatus(); },
+            AutoEnterCsvMode);
         _search = new SearchController(_docs, this);
         _grep = new GrepController(_docs, this,
             hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength));
@@ -95,9 +96,17 @@ public sealed partial class MainForm : Form
     private ScintillaHost CreateEditor()
     {
         var e = new ScintillaHost { Dock = DockStyle.Fill };
-        e.ApplySrAdaptation(SrContext.NvdaRunning); // ハンドル生成前に起動時確定の SR 適応を反映
+        e.ApplySrAdaptation(useNativeReading: SrContext.UseNativeReading); // ハンドル生成前に起動時確定の SR 適応を反映
         EditorAppearance.Apply(e, _settings);  // フォント＋配色テーマを適用（M7）
         return e;
+    }
+
+    /// <summary>開く系経路（開く/最近/開き直し）で新規ロードした直後の .csv 自動 CSV モード進入（設定 ON のときのみ）。</summary>
+    private void AutoEnterCsvMode(Document doc)
+    {
+        if (!_settings.CsvAutoModeOnOpen) return;
+        if (!string.Equals(System.IO.Path.GetExtension(doc.State.Path), ".csv", StringComparison.OrdinalIgnoreCase)) return;
+        _csv.TryEnterMode(doc);   // 解析不可なら TryEnterMode が通知して通常モードのまま
     }
 
     protected override void OnShown(EventArgs e)
@@ -107,11 +116,12 @@ public sealed partial class MainForm : Form
         UpdateTitle();
         UpdateStatus();
 
-        // 前回の異常終了で残ったバックアップがあれば復元提案（起動時に一度だけ）。
+        // 前回の異常終了で残ったバックアップがあれば復元提案（起動時に一度だけ）。確認 OFF では無確認で全復元。
         if (!_restoreOffered)
         {
             _restoreOffered = true;
-            _backup.OfferRestoreOnStartup(this, _file.RestoreFromBackup);
+            int restored = _backup.OfferRestoreOnStartup(this, _file.RestoreFromBackup, _settings.ConfirmRestoreOnStartup);
+            if (restored > 0) _announcer.Say($"バックアップを {restored} 件復元しました");
         }
     }
 
@@ -361,16 +371,20 @@ public sealed partial class MainForm : Form
         }
     }
 
-    /// <summary>設定ダイアログを開き、OK なら全タブへ外観適用＋永続化する。
-    /// 項目→コントロールの対応はダイアログに閉じ、ここは Result を差し替えるだけにする。</summary>
+    /// <summary>設定ダイアログを開き、OK なら全タブへ外観適用＋バックアップ設定の即時反映＋永続化する。
+    /// 項目→コントロールの対応はダイアログに閉じ、ここは Result を差し替えるだけにする。
+    /// 優先 SR の変更だけは再起動後有効のため、変更時にその旨を能動通知する。</summary>
     private void OpenSettings()
     {
         using var dlg = new SettingsDialog(_settings);
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        _settings = dlg.Result;
+        var result = dlg.Result;   // Result は取得のたびに組み立てるため一度だけ読む
+        bool srChanged = result.PreferredScreenReader != _settings.PreferredScreenReader;
+        _settings = result;
         foreach (var doc in _docs.Documents) EditorAppearance.Apply(doc.Editor, _settings);
+        _backup.UpdateSettings(_settings.BackupEnabled, _settings.BackupIntervalSeconds);
         SaveSettingsSafe();
-        _announcer.Say("設定を適用しました");
+        _announcer.Say(srChanged ? "設定を適用しました 読み上げ設定は再起動後に有効になります" : "設定を適用しました");
     }
 
     /// <summary>
@@ -381,7 +395,7 @@ public sealed partial class MainForm : Form
     /// </summary>
     internal void OpenAndSelect(string path, int offset, int length)
     {
-        var doc = _file.TryOpenOrActivate(path);
+        var doc = _file.TryOpenOrActivate(path, suppressAutoCsv: true);
         if (doc is null) return;
         doc.Editor.SelectCharRange(offset, length);
         doc.FocusTarget.Focus();
@@ -475,7 +489,7 @@ public sealed partial class MainForm : Form
         string formatted = KinsokuFormatter.Format(
             target, _settings.WrapColumn,
             _settings.KinsokuLineStartChars, _settings.KinsokuLineEndChars, _settings.KinsokuHangChars,
-            eol);
+            eol, _settings.TabWidth);   // タブ幅は表示設定と連動（画面の見た目どおりに整形する。従来は既定 8 固定）
 
         if (formatted == target) { _announcer.Say("変更なし"); return; }
         ed.ReplaceCharRange(start, len, formatted);   // SCI_REPLACETARGET = 1 アンドゥ

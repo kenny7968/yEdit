@@ -17,7 +17,7 @@ yEdit を「UIA 路線」で作り直す検討。最小 UIA 実験で **PC-Talke
 - **実機結果**: PC-Talker は我々の UIA を読む（OK）。だが **NVDA は同じ UIA で無音**だった。
 - **NVDA 無音の根本原因（確定）**: NVDA は `WindowsForms10.Scintilla.app.0.NNN` を正規表現で **`"Scintilla"` に正規化**し、ネイティブ Scintilla オーバーレイを我々の UIA オブジェクトに被せて競合させる（`ScintillaTextInfo` の SCI 直叩き経路で固まる）。クラス名から "Scintilla" を消すと NVDA は純 UIA で読めたが、**今度は PC-Talker が壊れた**（ネイティブ MSAA を誤読）。＝**1つの構成で両 SR を満たせない**。
 - **★最終アーキテクチャ（ユーザー決定・実装済）**: **起動時に SR を判定して構成を切替**。
-  - **NVDA 起動中 → 我々は UIA も MSAA も出さない**（`ServeUiaProvider=false`/`SuppressClientMsaa=true`）。NVDA は **64bit Scintilla5 をネイティブで読める**（実機確認。Notepad++ 由来の「64bit で壊れる」予想は外れた）。
+  - **NVDA 起動中 → 我々は UIA プロバイダを出さない**（`ServeUiaProvider=false`）。NVDA は **64bit Scintilla5 をネイティブで読める**（実機確認。Notepad++ 由来の「64bit で壊れる」予想は外れた）。※当初併用していたクライアント MSAA 抑制（`SuppressClientMsaa`）は 2026-07-04 の実測で不要と確定し撤去（docs/plans/2026-07-04-validate-uia-handoff.md §2）。
   - **それ以外（PC-Talker 等）→ 我々の UIA プロバイダを適用**。PC-Talker がそれを読む。
   - クラスは常に元の "Scintilla"（**クラス改名／NVDA-UIA 路線は破棄**）。判定の要は「**NVDA が動いているか**」だけ（`ScreenReaders.IsNvdaRunning()` = プロセス `nvda`）。SR非依存で検証済（nvda起動中→UIA非提供／`--pctalker`→提供）。
 - **次の仕事 = ユーザーの自動挙動エンドツーエンド確認**（NVDA起動中にフラグ無しで読む／PC-Talker起動中にフラグ無しで読む）。その後 §6 座標・大容量・文字コードI/O へ。
@@ -249,12 +249,13 @@ Scintilla 公式ドキュメント:
 
 ### 13.4 ★最終アーキテクチャ（ユーザー決定・実装済・SR非依存で検証）
 **起動時に SR を判定して構成を切替**（クラスは常に元の "Scintilla"）:
-| 判定 | ServeUiaProvider | SuppressClientMsaa | 読まれ方 |
-|---|---|---|---|
-| **NVDA 起動中** | **false** | **true** | NVDA が**ネイティブ Scintilla**を読む（64bit でも読めた・実機確認） |
-| それ以外（PC-Talker 等） | **true** | false | PC-Talker が**我々の UIA**を読む |
+| 判定 | ServeUiaProvider | 読まれ方 |
+|---|---|---|
+| **NVDA 起動中** | **false** | NVDA が**ネイティブ Scintilla**を読む（64bit でも読めた・実機確認） |
+| それ以外（PC-Talker 等） | **true** | PC-Talker が**我々の UIA**を読む |
 - 判定の要は「**NVDA が動いているか**」だけ: `ScreenReaders.IsNvdaRunning()` = プロセス `nvda` の有無。NVDA があれば譲り、無ければ UIA を出す（PC-Talker・SRなし・他UIA系SR で安全）。
-- 実装: `MainForm` 起動時に判定 → `_editor.ServeUiaProvider`/`SuppressClientMsaa` を設定。手動上書き `--nvda`/`--pctalker`、低レベル `--no-uia`/`--no-msaa`/`--rename-class`/`--edit` も残置。起動構成はログ `[config]` 行に出る。
+- 注: 当初 NVDA 経路ではクライアント MSAA 抑制（`SuppressClientMsaa=true`＝WM_GETOBJECT(OBJID_CLIENT) に 0 返し）も併用していたが、2026-07-04 の表面計測＋実機 NVDA 音声確認で不要と確定し撤去した（docs/plans/2026-07-04-validate-uia-handoff.md）。現在の SR 適応は `ServeUiaProvider` の 1 点のみ。
+- 実装: `MainForm` 起動時に判定 → `_editor.ServeUiaProvider` を設定（現行は `ApplySrAdaptation`）。プローブ当時は手動上書き `--nvda`/`--pctalker`、低レベル `--no-uia`/`--no-msaa`/`--rename-class`/`--edit` も残置していた（本番アプリでは廃止）。起動構成はログ `[config]` 行に出る。
 - **SR非依存で検証済**: nvda 起動中＋フラグ無し → UIA 要素 served=False（NVDAモード）／`--pctalker` → served=True（PC-Talkerモード）。
 - **UIA プロバイダ層（`yEdit.Accessibility`）の用途は PC-Talker 専用に確定**。クラス改名・NVDA-UIA 路線は破棄（コードは `--rename-class` 裏に参考として残置）。
 - 注: Notepad++ 由来の「NVDA の 64bit Scintilla ネイティブ読みは壊れる（`CharacterRangeStructLongLong` が要る）」予想は**外れた**＝この環境の NVDA は素で読めた。別環境/版で無音なら NVDA 用に専用 appModule か、その時は再検討。

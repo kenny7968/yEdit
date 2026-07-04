@@ -125,6 +125,25 @@ public sealed partial class MainForm : Form
         }
     }
 
+    protected override void OnActivated(EventArgs e)
+    {
+        base.OnActivated(e);
+        // 他ウィンドウから戻ったとき、SR 常駐環境ではフォーカスがメニューバー等タブ配下以外に
+        // 残ったまま復元されないことがあり（実機事象）、WinForms の ActiveControl 復元では
+        // 回復しない。タブ配下（エディタ／CSVシンク／F2ボックス／タブ列）に正当な保持者が
+        // 居なければ編集領域へ戻して即編集可能にする。
+        // BeginInvoke: 活性化時の WinForms 側フォーカス復元が済んだ後に判定するため。
+        // ActiveForm 判定: 判定時点で既に別窓（自前のモーダル含む）へ移っていたら奪わない。
+        // _menuActive 判定: 非アクティブ状態からメニュークリックで活性化した直後に
+        // メニューを閉じてしまわないため。
+        BeginInvoke(() =>
+        {
+            if (IsDisposed || ActiveForm != this || _menuActive) return;
+            if (_docs.TabHost.ContainsFocus) return;
+            _docs.Active?.FocusTarget.Focus();
+        });
+    }
+
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         // 終了開始: 実行中の grep を中止し、終了確認中に結果窓が湧くのを抑止する。

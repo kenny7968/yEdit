@@ -171,6 +171,17 @@ ComboBox「優先するスクリーンリーダー(&R)」= `NVDA（既定）` / 
   - 自動 CSV モード進入時の読み上げ（手動時と同一であること）
   - 優先 SR 変更時の「再起動後に有効」通知
 
+## 実装時の逸脱（2026-07-04 実装で確定）
+
+- **現在行強調の実装形**: 設計時想定の `CaretLineVisible` は Scintilla5.NET 6.1.2 で旧形式（CS0618・
+  「Use CaretLineBackColor with alpha channel instead.」）のため使わない。`CaretLineBackColor`
+  （= `SC_ELEMENT_CARET_LINE_BACK` 要素色・アルファはそのまま伝わる）で表現する:
+  ON = 不透明のブレンド色 / OFF = `Color.Transparent`（アルファ 0 は「未設定＝非表示」扱い）。
+  挙動は設計どおり（ブレンド比 12%・カスタム色 UI なし）。
+- **自動 CSV の解析失敗通知**: 既存定数 `CsvAnnounceFormatter.ParseError`（「CSVとして解析できません」）を
+  再利用する。本設計書の文言「CSV として解析できませんでした」とは異なるが、手動トグルと同一文言になる
+  （DRY 優先・通知経路も手動時と共通の `TryEnterMode`）。
+
 ## 影響範囲
 
 - 追加: `Tabs/BackupSettingsTab.cs` / `Tabs/SpeechSettingsTab.cs`、`yEdit.Core/Speech/SrRouteSelector.cs`（`SrSpeechSelector.cs` は削除）

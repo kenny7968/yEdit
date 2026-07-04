@@ -13,6 +13,11 @@ public sealed class EditSettingsTab : ISettingsTab
     {
         Minimum = 10, Maximum = 1000, Width = 100, AccessibleName = "折り返し桁数",
     };
+    private readonly NumericUpDown _tabWidth = new()
+    {
+        Minimum = 1, Maximum = 16, Width = 100, AccessibleName = "タブ幅",
+    };
+    private readonly CheckBox _tabsToSpaces = new() { Text = "タブをスペースに変換(&S)", AutoSize = true };
 
     public Control BuildPage()
     {
@@ -32,6 +37,18 @@ public sealed class EditSettingsTab : ISettingsTab
         wrapPanel.Controls.Add(_wrapColumn);
         root.Controls.Add(wrapPanel, 1, 0);
 
+        // 2 行目: 「タブ幅(&T):」ラベル ＋ NumericUpDown。
+        var tabPanel = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, TabIndex = 3 };
+        var tabLbl = new Label { Text = "タブ幅(&T):", AutoSize = true, TabIndex = 3, Anchor = AnchorStyles.Left };
+        _tabWidth.TabIndex = 4;
+        tabPanel.Controls.Add(tabLbl);
+        tabPanel.Controls.Add(_tabWidth);
+        root.Controls.Add(tabPanel, 0, 1);
+
+        // 3 行目: タブ→スペース変換（新規 Tab 入力にのみ効く）。
+        _tabsToSpaces.TabIndex = 5;
+        root.Controls.Add(_tabsToSpaces, 0, 2);
+
         return root;
     }
 
@@ -40,11 +57,15 @@ public sealed class EditSettingsTab : ISettingsTab
         _wrapEnabled.Checked = s.WrapColumnEnabled;
         _wrapColumn.Value = Math.Clamp(s.WrapColumn, (int)_wrapColumn.Minimum, (int)_wrapColumn.Maximum);
         _wrapColumn.Enabled = _wrapEnabled.Checked;   // 初期状態でも ON/OFF を反映
+        _tabWidth.Value = Math.Clamp(s.TabWidth, (int)_tabWidth.Minimum, (int)_tabWidth.Maximum);
+        _tabsToSpaces.Checked = s.TabsToSpaces;
     }
 
     public void SaveTo(AppSettings r)
     {
         r.WrapColumnEnabled = _wrapEnabled.Checked;
         r.WrapColumn = (int)_wrapColumn.Value;
+        r.TabWidth = (int)_tabWidth.Value;
+        r.TabsToSpaces = _tabsToSpaces.Checked;
     }
 }

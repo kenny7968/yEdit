@@ -17,6 +17,10 @@ public sealed class BasicSettingsTab : ISettingsTab
 
     private readonly ComboBox _encoding = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240, AccessibleName = "既定の文字コード" };
     private readonly ComboBox _eol = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240, AccessibleName = "既定の改行" };
+    private readonly CheckBox _csvAutoMode = new()
+    {
+        Text = ".csvファイルを開いたとき自動的にCSVモードにする(&V)", AutoSize = true,
+    };
 
     public Control BuildPage()
     {
@@ -26,6 +30,10 @@ public sealed class BasicSettingsTab : ISettingsTab
         var root = SettingsTabLayoutHelper.NewRoot();
         SettingsTabLayoutHelper.AddRow(root, 0, "既定の文字コード(&E):", _encoding, tabBase: 0);
         SettingsTabLayoutHelper.AddRow(root, 1, "既定の改行(&L):", _eol, tabBase: 2);
+
+        _csvAutoMode.TabIndex = 4;
+        root.Controls.Add(_csvAutoMode, 0, 2);
+        root.SetColumnSpan(_csvAutoMode, 2);
         return root;
     }
 
@@ -40,11 +48,14 @@ public sealed class BasicSettingsTab : ISettingsTab
         for (int i = 0; i < Eols.Length; i++)
             if (Eols[i].Id == s.DefaultLineEnding) { eolSel = i; break; }
         _eol.SelectedIndex = eolSel;
+
+        _csvAutoMode.Checked = s.CsvAutoModeOnOpen;
     }
 
     public void SaveTo(AppSettings r)
     {
         r.DefaultCodePage = Encodings[_encoding.SelectedIndex].CodePage;
         r.DefaultLineEnding = Eols[_eol.SelectedIndex].Id;
+        r.CsvAutoModeOnOpen = _csvAutoMode.Checked;
     }
 }

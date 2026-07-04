@@ -59,7 +59,8 @@ public sealed partial class MainForm : Form
         };
         // 設定は OpenSettings で参照が差し替わるため Func で都度解決させる。
         _file = new FileController(_docs, this, () => _settings,
-            SaveSettingsSafe, RebuildRecentMenu, () => { UpdateTitle(); UpdateStatus(); });
+            SaveSettingsSafe, RebuildRecentMenu, () => { UpdateTitle(); UpdateStatus(); },
+            AutoEnterCsvMode);
         _search = new SearchController(_docs, this);
         _grep = new GrepController(_docs, this,
             hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength));
@@ -98,6 +99,14 @@ public sealed partial class MainForm : Form
         e.ApplySrAdaptation(useNativeReading: SrContext.UseNativeReading); // ハンドル生成前に起動時確定の SR 適応を反映
         EditorAppearance.Apply(e, _settings);  // フォント＋配色テーマを適用（M7）
         return e;
+    }
+
+    /// <summary>開く系経路（開く/最近/開き直し）で新規ロードした直後の .csv 自動 CSV モード進入（設定 ON のときのみ）。</summary>
+    private void AutoEnterCsvMode(Document doc)
+    {
+        if (!_settings.CsvAutoModeOnOpen) return;
+        if (!string.Equals(System.IO.Path.GetExtension(doc.State.Path), ".csv", StringComparison.OrdinalIgnoreCase)) return;
+        _csv.TryEnterMode(doc);   // 解析不可なら TryEnterMode が通知して通常モードのまま
     }
 
     protected override void OnShown(EventArgs e)
@@ -381,7 +390,7 @@ public sealed partial class MainForm : Form
     /// </summary>
     internal void OpenAndSelect(string path, int offset, int length)
     {
-        var doc = _file.TryOpenOrActivate(path);
+        var doc = _file.TryOpenOrActivate(path, suppressAutoCsv: true);
         if (doc is null) return;
         doc.Editor.SelectCharRange(offset, length);
         doc.FocusTarget.Focus();

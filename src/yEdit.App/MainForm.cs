@@ -475,7 +475,7 @@ public sealed partial class MainForm : Form
         string formatted = KinsokuFormatter.Format(
             target, _settings.WrapColumn,
             _settings.KinsokuLineStartChars, _settings.KinsokuLineEndChars, _settings.KinsokuHangChars,
-            eol);
+            eol, _settings.TabWidth);   // タブ幅は表示設定と連動（画面の見た目どおりに整形する。従来は既定 8 固定）
 
         if (formatted == target) { _announcer.Say("変更なし"); return; }
         ed.ReplaceCharRange(start, len, formatted);   // SCI_REPLACETARGET = 1 アンドゥ

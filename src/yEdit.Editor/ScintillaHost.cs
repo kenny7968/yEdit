@@ -39,6 +39,10 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     private int _wrapColumns;       // 0 = 無効
     private bool _wrapSizeHooked;   // SizeChanged 二重購読防止
 
+    // ---- 行番号マージン（表示設定・UI スレッド専用） ----
+    private bool _showLineNumbers;
+    private int _lineNumberDigits;   // 確保済みの桁数（変化時のみ幅を再計算）
+
     // ---- 範囲ハイライト（CSV 現在セル等。テキスト選択とは独立した装飾・単一アクティブ） ----
     private const int CellIndicator = 8;   // INDICATOR_CONTAINER（0-7 はレキサ予約域を避ける）
     private bool _cellIndicatorReady;      // スタイル初期化済みか（遅延設定）
@@ -246,6 +250,7 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     {
         RefreshSnapshot();
         RefreshSelection();
+        if (_showLineNumbers) UpdateLineNumberMargin();   // 行数の桁数変化に追従（変化時のみ幅再計算）
         RaiseUia(TextPatternIdentifiers.TextChangedEvent);
     }
 
@@ -432,6 +437,45 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
             LineEnding.Lf => Eol.Lf,
             _ => Eol.Cr,
         };
+
+    // ==================== 行番号マージン（表示設定・UI スレッド専用） ====================
+
+    /// <summary>
+    /// 行番号マージンの表示。ON では行数の桁数に応じて幅を自動調整する（本文変更時に追従）。
+    /// 配色は STYLE_LINENUMBER が StyleClearAll で既定スタイルから伝播するためテーマに追従する。
+    /// 設定のたびに幅を再計測するので、テーマ/フォント適用（StyleClearAll）の後に設定すること。
+    /// </summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool ShowLineNumbers
+    {
+        get => _showLineNumbers;
+        set
+        {
+            _showLineNumbers = value;
+            _lineNumberDigits = 0;   // フォント/テーマ変更後の再適用でも幅を測り直す
+            UpdateLineNumberMargin();
+        }
+    }
+
+    /// <summary>行番号マージン幅を桁数に合わせて更新する（OFF は幅 0）。桁数が変わったときだけ再計測する。</summary>
+    private void UpdateLineNumberMargin()
+    {
+        if (!_showLineNumbers)
+        {
+            if (Margins[0].Width != 0)
+            {
+                Margins[0].Width = 0;
+                RecomputeWrapMargin();   // 左マージン群の幅変化を折返し右マージンへ反映
+            }
+            return;
+        }
+        int digits = Math.Max(3, Lines.Count.ToString().Length);   // 最低 3 桁分を確保（幅の頻繁な伸縮を避ける）
+        if (digits == _lineNumberDigits) return;
+        _lineNumberDigits = digits;
+        Margins[0].Type = MarginType.Number;
+        Margins[0].Width = TextWidth(Style.LineNumber, new string('9', digits)) + 4;
+        RecomputeWrapMargin();
+    }
 
     // ==================== 表示折り返し（指定桁・本文不変・UI スレッド専用） ====================
 

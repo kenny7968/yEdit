@@ -23,9 +23,9 @@ public sealed class BackupCoordinator : IDisposable
 
     private readonly DocumentManager _docs;
     private readonly string _dir;
-    private readonly bool _enabled;
+    private bool _enabled;                       // UpdateSettings で実行時に切替可能
     private readonly System.Windows.Forms.Timer _timer = new();
-    private readonly SerialBackupWriter? _writer;            // 無効時はスレッドを生成しない
+    private SerialBackupWriter? _writer;         // 無効時はスレッドを生成しない（有効化時に遅延生成）
     private readonly Dictionary<Document, DocBackup> _map = new();
     private readonly ConcurrentQueue<string> _failed = new(); // 背景書込が失敗した Id（UI スレッドで回収）
     private bool _shutDown;
@@ -35,13 +35,40 @@ public sealed class BackupCoordinator : IDisposable
         _docs = docs;
         _enabled = enabled;
         _dir = directory ?? BackupStore.DefaultDirectory;
-        if (!_enabled) return;
 
-        _writer = new SerialBackupWriter();
+        // 無効時でもハンドラは購読しておく（後から UpdateSettings で有効化できるように）。
+        // Tick/ActiveDocumentChanged は Reconcile 冒頭の !_enabled ガードで素通りするため無効中は無害。
         _timer.Interval = Math.Clamp(intervalSeconds, 5, 3600) * 1000; // 上限クランプで int オーバーフロー防止
         _timer.Tick += (_, _) => Reconcile();
         _docs.ActiveDocumentChanged += (_, _) => Reconcile();
+        if (!_enabled) return;
+
+        _writer = new SerialBackupWriter();
         _timer.Start();
+    }
+
+    /// <summary>
+    /// 設定ダイアログ OK 時の即時反映。間隔は常に更新し、有効/無効の切替では
+    /// タイマーとライターを追従させる。無効化では既存バックアップファイルを削除しない
+    /// （次回起動時の孤児提案に任せる・安全側）。
+    /// </summary>
+    public void UpdateSettings(bool enabled, int intervalSeconds)
+    {
+        if (_shutDown) return;
+        _timer.Interval = Math.Clamp(intervalSeconds, 5, 3600) * 1000;
+        if (enabled == _enabled) return;
+
+        _enabled = enabled;
+        if (enabled)
+        {
+            _writer ??= new SerialBackupWriter();
+            _timer.Start();
+            Reconcile();   // 有効化した瞬間の未保存文書を即保護（保護窓を作らない）
+        }
+        else
+        {
+            _timer.Stop();
+        }
     }
 
     /// <summary>
@@ -49,18 +76,40 @@ public sealed class BackupCoordinator : IDisposable
     /// デリゲート（本文を載せ dirty のまま）。復元した文書には元 Id を引き継がせ、既存のバックアップ
     /// ファイルを継続使用する（孤児・無保護窓を作らない）。チェックしなかった項目は安全側で残し、
     /// 次回再提案する（明示的に消すのは「すべて破棄」のみ）。
+    /// confirm=false ではダイアログを出さず全件復元し、その件数を返す（ダイアログ経路は 0 を返す）。
     /// </summary>
-    public void OfferRestoreOnStartup(IWin32Window owner, Func<BackupRecord, Document> restore)
+    public int OfferRestoreOnStartup(IWin32Window owner, Func<BackupRecord, Document> restore, bool confirm)
     {
-        if (!_enabled) return;
+        if (!_enabled) return 0;
         try { BackupStore.SweepTempFiles(_dir); } catch { /* 残骸掃除失敗は無害 */ }
 
         IReadOnlyList<BackupRecord> records;
         try { records = BackupStore.LoadAll(_dir); }
-        catch { return; }
-        if (records.Count == 0) return;
+        catch { return 0; }
+        if (records.Count == 0) return 0;
 
         var ordered = records.OrderByDescending(r => r.TimestampUtc).ToList();
+
+        // 確認 OFF: ダイアログを出さず全件復元（設計 2026-07-04）。呼び出し側が件数を能動通知する。
+        if (!confirm)
+        {
+            int restored = 0;
+            foreach (var rec in ordered)
+            {
+                try
+                {
+                    var doc = restore(rec);
+                    _map[doc] = new DocBackup { Id = rec.Id, LastSig = ContentSignature.Of(doc.Editor.SnapshotText), HasBackup = true };
+                    restored++;
+                }
+                catch
+                {
+                    // 1 件の不正レコードで全復元を巻き添えにしない。失敗分はバックアップを残し再挑戦可能に。
+                }
+            }
+            return restored;
+        }
+
         using var dlg = new RestoreDialog(ordered);
         dlg.ShowDialog(owner);
 
@@ -90,6 +139,7 @@ public sealed class BackupCoordinator : IDisposable
             case RestoreDialog.RestoreAction.Later:
                 break; // 何もしない（次回再提案）
         }
+        return 0;
     }
 
     /// <summary>UI スレッドで文書を走査し、必要なバックアップ書込/削除ジョブを投入する。</summary>
@@ -187,7 +237,10 @@ public sealed class BackupCoordinator : IDisposable
     /// </summary>
     public void Shutdown()
     {
-        if (!_enabled || _shutDown) return;
+        // ガードは _shutDown のみ: セッション途中で無効化されても、有効だった間に書いた
+        // バックアップ（_map の HasBackup）をクリーン終了で削除する。一度も有効になって
+        // いなければ _map は空・_writer は null で各行は無害に素通りする。
+        if (_shutDown) return;
         _shutDown = true;
         _timer.Stop();
         foreach (var info in _map.Values)

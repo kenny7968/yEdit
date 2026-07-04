@@ -116,11 +116,12 @@ public sealed partial class MainForm : Form
         UpdateTitle();
         UpdateStatus();
 
-        // 前回の異常終了で残ったバックアップがあれば復元提案（起動時に一度だけ）。
+        // 前回の異常終了で残ったバックアップがあれば復元提案（起動時に一度だけ）。確認 OFF では無確認で全復元。
         if (!_restoreOffered)
         {
             _restoreOffered = true;
-            _backup.OfferRestoreOnStartup(this, _file.RestoreFromBackup);
+            int restored = _backup.OfferRestoreOnStartup(this, _file.RestoreFromBackup, _settings.ConfirmRestoreOnStartup);
+            if (restored > 0) _announcer.Say($"バックアップを {restored} 件復元しました");
         }
     }
 
@@ -370,16 +371,20 @@ public sealed partial class MainForm : Form
         }
     }
 
-    /// <summary>設定ダイアログを開き、OK なら全タブへ外観適用＋永続化する。
-    /// 項目→コントロールの対応はダイアログに閉じ、ここは Result を差し替えるだけにする。</summary>
+    /// <summary>設定ダイアログを開き、OK なら全タブへ外観適用＋バックアップ設定の即時反映＋永続化する。
+    /// 項目→コントロールの対応はダイアログに閉じ、ここは Result を差し替えるだけにする。
+    /// 優先 SR の変更だけは再起動後有効のため、変更時にその旨を能動通知する。</summary>
     private void OpenSettings()
     {
         using var dlg = new SettingsDialog(_settings);
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        _settings = dlg.Result;
+        var result = dlg.Result;   // Result は取得のたびに組み立てるため一度だけ読む
+        bool srChanged = result.PreferredScreenReader != _settings.PreferredScreenReader;
+        _settings = result;
         foreach (var doc in _docs.Documents) EditorAppearance.Apply(doc.Editor, _settings);
+        _backup.UpdateSettings(_settings.BackupEnabled, _settings.BackupIntervalSeconds);
         SaveSettingsSafe();
-        _announcer.Say("設定を適用しました");
+        _announcer.Say(srChanged ? "設定を適用しました 読み上げ設定は再起動後に有効になります" : "設定を適用しました");
     }
 
     /// <summary>

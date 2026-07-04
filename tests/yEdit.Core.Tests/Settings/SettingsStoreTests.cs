@@ -158,4 +158,57 @@ public class SettingsStoreTests
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
+
+    [Fact]
+    public void Load_normalizes_new_keys_out_of_range()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            File.WriteAllText(path,
+                "{\"TabWidth\":0,\"CaretWidth\":99,\"PreferredScreenReader\":\"jaws\"}");
+            var s = SettingsStore.Load(path);
+            Assert.Equal(4, s.TabWidth);                    // 範囲外→既定
+            Assert.Equal(1, s.CaretWidth);                  // 範囲外→既定
+            Assert.Equal("nvda", s.PreferredScreenReader);  // 未知値→既定
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public void Load_normalizes_null_preferred_screen_reader()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            File.WriteAllText(path, "{\"PreferredScreenReader\":null}");
+            var s = SettingsStore.Load(path);
+            Assert.Equal("nvda", s.PreferredScreenReader);  // 明示 null→既定
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public void Load_preserves_valid_new_keys()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            File.WriteAllText(path,
+                "{\"TabWidth\":8,\"CaretWidth\":5,\"PreferredScreenReader\":\"pctalker\"," +
+                "\"CsvAutoModeOnOpen\":true,\"TabsToSpaces\":true,\"ShowLineNumbers\":true," +
+                "\"HighlightCurrentLine\":true,\"ShowWhitespace\":true,\"ConfirmRestoreOnStartup\":false}");
+            var s = SettingsStore.Load(path);
+            Assert.Equal(8, s.TabWidth);
+            Assert.Equal(5, s.CaretWidth);
+            Assert.Equal("pctalker", s.PreferredScreenReader);
+            Assert.True(s.CsvAutoModeOnOpen);
+            Assert.True(s.TabsToSpaces);
+            Assert.True(s.ShowLineNumbers);
+            Assert.True(s.HighlightCurrentLine);
+            Assert.True(s.ShowWhitespace);
+            Assert.False(s.ConfirmRestoreOnStartup);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
 }

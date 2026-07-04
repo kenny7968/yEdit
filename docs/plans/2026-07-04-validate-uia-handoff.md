@@ -75,6 +75,7 @@ NVDA の設計思想 —「アプリケーションが UIA 等のアクセシビ
 
 - 修正方針案: `SrRouteSelector.Select` の規則を「NVDA 稼働時のみ NVDA 経路（＝UIA 撤収）。それ以外（PC-Talker 稼働・どちらも非稼働）は UIA 提供経路」へ戻す方向で再設計。ただし「優先するスクリーンリーダー」設定（`SpeechSettingsTab`）との整合（設定の意味・文言）を要検討。能動発声モード（`SpeechMode`）と受動読み（UIA 提供可否）の分離が必要になる可能性あり（現状は `SrRoute` でペア固定）。
 - テスト: `SrRouteSelectorTests` の期待値更新＋SR なしケースの追加。
+- **対応済み（2026-07-04・fix/sr-route-no-sr）**: 汎用 UIA 経路 `SrRoute.Uia` を新設し「検出された SR の経路。両方稼働なら優先設定。どちらも非検出なら汎用 UIA 経路」に改定。能動/受動の軸分離は不要だった（第 3 値で両導出が自然に正しくなる）。設計 = docs/plans/2026-07-04-sr-route-no-sr-design.md。
 
 ### (3) MSAA 抑制の撤去（実機 OK 確認済み・実施可）
 

@@ -251,9 +251,10 @@ Scintilla 公式ドキュメント:
 **起動時に SR を判定して構成を切替**（クラスは常に元の "Scintilla"）:
 | 判定 | ServeUiaProvider | 読まれ方 |
 |---|---|---|
-| **NVDA 起動中** | **false** | NVDA が**ネイティブ Scintilla**を読む（64bit でも読めた・実機確認） |
-| それ以外（PC-Talker 等） | **true** | PC-Talker が**我々の UIA**を読む |
-- 判定の要は「**NVDA が動いているか**」だけ: `ScreenReaders.IsNvdaRunning()` = プロセス `nvda` の有無。NVDA があれば譲り、無ければ UIA を出す（PC-Talker・SRなし・他UIA系SR で安全）。
+| **NVDA 経路**（NVDA 検出。両方稼働で優先=NVDA を含む） | **false** | NVDA が**ネイティブ Scintilla**を読む（64bit でも読めた・実機確認） |
+| **PC-Talker 経路**（PC-Talker 検出。両方稼働で優先=PC-Talker を含む） | **true** | PC-Talker が**我々の UIA**を読む |
+| **汎用 UIA 経路**（どちらも非検出・2026-07-04 新設） | **true** | ナレーター/JAWS 等の UIA 系 SR・SR なしで安全 |
+- 経路解決規則（2026-07-04 改定・docs/plans/2026-07-04-sr-route-no-sr-design.md）: **検出された SR の経路。両方稼働なら「優先するスクリーンリーダー」設定が決める。どちらも非検出なら汎用 UIA 経路**（純ロジック = Core の `SrRouteSelector.Select`）。NVDA 検出はプロセス `nvda` の有無（`SrContext` 内 private）。「NVDA があれば譲り、無ければ UIA を出す」原則は不変（PC-Talker・SRなし・他UIA系SR で安全）。
 - 注: 当初 NVDA 経路ではクライアント MSAA 抑制（`SuppressClientMsaa=true`＝WM_GETOBJECT(OBJID_CLIENT) に 0 返し）も併用していたが、2026-07-04 の表面計測＋実機 NVDA 音声確認で不要と確定し撤去した（docs/plans/2026-07-04-validate-uia-handoff.md）。現在の SR 適応は `ServeUiaProvider` の 1 点のみ。
 - 実装: `MainForm` 起動時に判定 → `_editor.ServeUiaProvider` を設定（現行は `ApplySrAdaptation`）。プローブ当時は手動上書き `--nvda`/`--pctalker`、低レベル `--no-uia`/`--no-msaa`/`--rename-class`/`--edit` も残置していた（本番アプリでは廃止）。起動構成はログ `[config]` 行に出る。
 - **SR非依存で検証済**: nvda 起動中＋フラグ無し → UIA 要素 served=False（NVDAモード）／`--pctalker` → served=True（PC-Talkerモード）。

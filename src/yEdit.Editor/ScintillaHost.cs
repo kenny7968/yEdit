@@ -79,25 +79,19 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool ServeUiaProvider { get; set; } = true;
 
-    /// <summary>
-    /// WM_GETOBJECT(OBJID_CLIENT) で 0 を返し、ウィンドウのネイティブ MSAA を抑制する。
-    /// ApplySrAdaptation が SR 経路で確定する（ネイティブ読み＝NVDA 経路のときのみ抑制）。
-    /// </summary>
-    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public bool SuppressClientMsaa { get; set; }
-
     // ==================== SR 適応設定（確定アーキテクチャ） ====================
 
     /// <summary>
-    /// 起動時に確定した SR 経路を UIA/MSAA の提供可否へ反映する（確定アーキテクチャ）。
+    /// 起動時に確定した SR 経路を UIA プロバイダの提供可否へ反映する（確定アーキテクチャ）。
     /// ネイティブ読み（NVDA 経路）→ 我々は引っ込む。それ以外（PC-Talker 経路）→ UIA 提供。
+    /// かつて NVDA 経路で併用したクライアント MSAA 抑制は実測で不要と確定し撤去済み
+    /// （docs/plans/2026-07-04-validate-uia-handoff.md §2）。再導入しないこと。
     /// 判定は App 層（SrContext）が起動時に1回だけ行い、全タブへ同じ値を渡す（タブ間一貫）。
     /// ハンドル生成前に呼ぶこと（WM_GETOBJECT 前に値を確定させる）。
     /// </summary>
     public void ApplySrAdaptation(bool useNativeReading)
     {
         ServeUiaProvider = !useNativeReading;
-        SuppressClientMsaa = useNativeReading;
     }
 
     // ==================== 初期化 ====================
@@ -134,17 +128,10 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
             // WM_GETOBJECT の objid は DWORD。送信元により 64bit LPARAM へ符号拡張される
             // 場合と未拡張(0xFFFFFFF8 等)の場合があるため 32bit 符号付きに正規化する。
             int objid = unchecked((int)m.LParam.ToInt64());
-            bool serve = objid == NativeMethods.UiaRootObjectId && ServeUiaProvider;
-            if (serve)
+            if (objid == NativeMethods.UiaRootObjectId && ServeUiaProvider)
             {
                 _provider ??= new TextControlProvider(this);
                 m.Result = AutomationInteropProvider.ReturnRawElementProvider(Handle, m.WParam, m.LParam, _provider);
-                return;
-            }
-            if (objid == NativeMethods.OBJID_CLIENT && SuppressClientMsaa)
-            {
-                // ネイティブ MSAA を返さない（PC-Talker を UIA ブリッジへ誘導する試み）。
-                m.Result = nint.Zero;
                 return;
             }
         }

@@ -8,6 +8,6 @@ public enum SrRoute
 {
     /// <summary>NVDA 経路: UIA プロバイダを出さずネイティブ Scintilla 読みに任せ、能動発声は UIA 通知。</summary>
     Nvda,
-    /// <summary>PC-Talker 経路: 自前 UIA プロバイダ提供＋ネイティブ MSAA 抑制、能動発声は PCTKPReadW 直叩き。</summary>
+    /// <summary>PC-Talker 経路: 自前 UIA プロバイダ提供、能動発声は PCTKPReadW 直叩き。</summary>
     PcTalker,
 }

@@ -36,9 +36,9 @@ public sealed partial class MainForm : Form
     // MenuStrip の Activate/Deactivate イベントで明示的に追跡する。
     private bool _menuActive;
 
-    public MainForm()
+    public MainForm(AppSettings settings)
     {
-        _settings = SettingsStore.Load(_settingsPath);
+        _settings = settings;   // Program.Main が読込済み（優先 SR を SR 判定へ渡すため先読みしている）
 
         Text = "yEdit";
         Width = _settings.WindowWidth;
@@ -95,7 +95,7 @@ public sealed partial class MainForm : Form
     private ScintillaHost CreateEditor()
     {
         var e = new ScintillaHost { Dock = DockStyle.Fill };
-        e.ApplySrAdaptation(SrContext.NvdaRunning); // ハンドル生成前に起動時確定の SR 適応を反映
+        e.ApplySrAdaptation(useNativeReading: SrContext.UseNativeReading); // ハンドル生成前に起動時確定の SR 適応を反映
         EditorAppearance.Apply(e, _settings);  // フォント＋配色テーマを適用（M7）
         return e;
     }

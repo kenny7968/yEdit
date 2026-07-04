@@ -70,14 +70,14 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     /// <summary>
     /// WM_GETOBJECT(UiaRootObjectId) で我々の UIA プロバイダを返すか。
     /// false なら base へ素通し（Scintilla / Win32 既定の a11y のみ）。
-    /// ApplySrAdaptation が SR 適応（NVDA=ネイティブ読み／それ以外=UIA）で確定する。
+    /// ApplySrAdaptation が SR 経路（ネイティブ読み=NVDA 経路／それ以外=UIA 提供）で確定する。
     /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool ServeUiaProvider { get; set; } = true;
 
     /// <summary>
     /// WM_GETOBJECT(OBJID_CLIENT) で 0 を返し、ウィンドウのネイティブ MSAA を抑制する。
-    /// ApplySrAdaptation が SR 適応で確定する（NVDA 起動中のみ抑制）。
+    /// ApplySrAdaptation が SR 経路で確定する（ネイティブ読み＝NVDA 経路のときのみ抑制）。
     /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool SuppressClientMsaa { get; set; }
@@ -85,15 +85,15 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     // ==================== SR 適応設定（確定アーキテクチャ） ====================
 
     /// <summary>
-    /// 起動時に確定した SR 環境を UIA/MSAA の提供可否へ反映する（確定アーキテクチャ）。
-    /// NVDA 起動中 → 我々は引っ込む（ネイティブ Scintilla に任せる）。それ以外 → UIA 提供。
+    /// 起動時に確定した SR 経路を UIA/MSAA の提供可否へ反映する（確定アーキテクチャ）。
+    /// ネイティブ読み（NVDA 経路）→ 我々は引っ込む。それ以外（PC-Talker 経路）→ UIA 提供。
     /// 判定は App 層（SrContext）が起動時に1回だけ行い、全タブへ同じ値を渡す（タブ間一貫）。
     /// ハンドル生成前に呼ぶこと（WM_GETOBJECT 前に値を確定させる）。
     /// </summary>
-    public void ApplySrAdaptation(bool nvdaRunning)
+    public void ApplySrAdaptation(bool useNativeReading)
     {
-        ServeUiaProvider = !nvdaRunning;
-        SuppressClientMsaa = nvdaRunning;
+        ServeUiaProvider = !useNativeReading;
+        SuppressClientMsaa = useNativeReading;
     }
 
     // ==================== 初期化 ====================

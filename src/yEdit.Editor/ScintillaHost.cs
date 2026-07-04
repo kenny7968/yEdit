@@ -110,7 +110,11 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
         // 内部コードを常に UTF-8 に固定（ラッパー既定だが明示）。
         DirectMessage(Sci.SCI_SETCODEPAGE, (nint)Sci.SC_CP_UTF8);
 
-        _provider ??= new TextControlProvider(this);
+        // NVDA 経路（ネイティブ読み）ではプロバイダを作らない＝RaiseUia を全経路で不発にする。
+        // 作ってしまうと、NVDA 常駐時は ClientsAreListening が true のため、提供していない
+        // プロバイダから UIA イベントが飛ぶ（実測: 復帰時の FocusChanged が UIA→MSAA ブリッジ
+        // 経由で NVDA のフォーカス追跡を乗っ取り、以後無音になる）。
+        if (ServeUiaProvider) _provider ??= new TextControlProvider(this);
 
         UpdateUI += OnUpdateUI;          // 選択／内容更新（SCN_UPDATEUI）
         TextChanged += OnTextChangedEvt; // 本文変更（SCN_MODIFIED 由来）
@@ -294,7 +298,9 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
 
     private void RaiseUia(AutomationEvent ev)
     {
-        if (_provider == null || !AutomationInteropProvider.ClientsAreListening) return;
+        // ServeUiaProvider=false（NVDA 経路）では発火禁止。_provider 未生成で実質不発だが、
+        // 「NVDA 経路では我々は完全に引っ込む」という不変条件をここでも明示的に守る。
+        if (!ServeUiaProvider || _provider == null || !AutomationInteropProvider.ClientsAreListening) return;
         try { AutomationInteropProvider.RaiseAutomationEvent(ev, _provider, new AutomationEventArgs(ev)); }
         catch { /* SR への通知失敗で編集を巻き添えにしない */ }
     }

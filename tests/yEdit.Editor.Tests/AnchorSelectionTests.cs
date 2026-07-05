@@ -75,4 +75,61 @@ public class AnchorSelectionTests
             Assert.Equal((2, 5), c.GetSelectionCharRange());
         }
     });
+
+    // ---- レビュー S-1: 新 API のサロゲート/クランプ契約テスト ----
+
+    [Fact]
+    public void SetSelectionAnchored_SnapsSurrogateLowToHigh() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abc😀def");   // 😀 は high@3, low@4
+        using (f) using (c)
+        {
+            c.SetSelectionAnchored(anchor: 4, caret: 0);
+            Assert.Equal(3, c.SelectionAnchor);   // low→high スナップ
+            Assert.Equal(0, c.CaretCharOffset);
+        }
+    });
+
+    [Fact]
+    public void MoveCaretWithSelection_ClampsToCharLength() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            c.SetSelectionAnchored(anchor: 0, caret: 0);
+            c.MoveCaretWithSelection(9999);
+            Assert.Equal(3, c.CaretCharOffset);   // CharLength にクランプ
+            Assert.Equal(0, c.SelectionAnchor);   // アンカー保持
+        }
+    });
+
+    [Fact]
+    public void SetSelectionAnchored_RightDirection_Works() => Sta.Run(() =>
+    {
+        // 右方向(anchor < caret)の設定も正しく反映されることを明示検証
+        var (f, c) = MakeControl("abcdef");
+        using (f) using (c)
+        {
+            c.SetSelectionAnchored(anchor: 1, caret: 5);
+            Assert.Equal(1, c.SelectionAnchor);
+            Assert.Equal(5, c.CaretCharOffset);
+            Assert.Equal((1, 5), c.GetSelectionCharRange());
+        }
+    });
+
+    // ---- レビュー S-2: 選択折りたたみ契約 ----
+
+    [Fact]
+    public void MoveCaretWithSelection_CollapsesSelection_WhenCaretEqualsAnchor() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abcdef");
+        using (f) using (c)
+        {
+            c.SetSelectionAnchored(anchor: 3, caret: 5);
+            c.MoveCaretWithSelection(3);   // = _anchor
+            Assert.Equal((3, 3), c.GetSelectionCharRange());   // 選択消滅
+            Assert.Equal(3, c.CaretCharOffset);
+            Assert.Equal(3, c.SelectionAnchor);
+        }
+    });
 }

@@ -288,6 +288,21 @@ public sealed class EditorControl : Control
         }
     }
 
+    /// <summary>
+    /// 上書き入力モード(Overtype)。true のとき文字挿入は直後 1 文字を潰す=Insert キーで App 層が
+    /// トグルする想定(P3 Task 9 で配線予定)。改行(<c>\r</c>/<c>\n</c>)の直前では潰さず単純挿入
+    /// (Scintilla 互換)。サロゲートペアの high 位置にキャレットがあるときは pair 全体(2 code units)を潰す。
+    /// </summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool Overtype { get; set; }
+
+    /// <summary>
+    /// 読み取り専用モード。true のとき編集経路(OnKeyPress・Task 9〜11 の削除/貼り付け系)を
+    /// 全て早期 return する。選択状態やキャレット移動は禁止しない(閲覧用途の想定)。
+    /// </summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool ReadOnly { get; set; }
+
     /// <summary>キャレット位置(UTF-16 文字オフセット)。書き込みは <see cref="SetCaretCharOffset"/>。</summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public int CaretCharOffset => _caret;
@@ -498,6 +513,35 @@ public sealed class EditorControl : Control
         if (value > max) return max;
         return value;
     }
+
+    /// <summary>
+    /// 編集(Insert/Delete/Replace)後の共通後処理: スクロールバー再計算+キャレット再配置+
+    /// 追従スクロール+再描画。<c>_desiredXpx</c> は編集経路では常にリセット(-1)される想定なので
+    /// 呼び出し側(OnKeyPress/Task 9〜11 の削除系)で個別に設定する。Task 9〜11 でも共用する
+    /// (§0-6 の一貫性)。
+    /// </summary>
+    /// <remarks>
+    /// 順序は「バッファ変化 → スクロールバー再計算(Update*) → キャレット再配置(PositionCaret)
+    /// → 追従スクロール(BringCaretIntoView) → 再描画(Invalidate)」。
+    /// - Update*Scrollbar が先: 挿入で総行数/最長行が変わっている可能性があるため、Position/追従の
+    ///   前に Maximum/LargeChange を反映する必要がある。
+    /// - PositionCaret は BringCaretIntoView の内部で必要な OS 側キャレット反映を先出しする
+    ///   (BringCaretIntoView 自体は TopLine/ScrollX の setter を経由するときに PositionCaret を
+    ///   間接的に呼ぶが、可視範囲内で TopLine/ScrollX が変わらない編集経路では呼ばれないため)。
+    /// - BringCaretIntoView は挿入後キャレットが下端/右端を越えたら TopLine/ScrollX を追随させる。
+    /// - Invalidate は最後(BringCaretIntoView 経由の setter が変化なしの場合でも本文が変わっている)。
+    /// </remarks>
+    private void AfterEdit()
+    {
+        UpdateVerticalScrollbar();
+        UpdateHorizontalScrollbar();
+        PositionCaret();
+        BringCaretIntoView();
+        Invalidate();
+    }
+
+    /// <summary>診断用(テストで文書全体を取得)。SetSource 前は空文字列。</summary>
+    internal string GetText() => _buffer?.Current.GetText(0, _buffer.Current.CharLength) ?? string.Empty;
 
     protected override void OnResize(EventArgs e)
     {
@@ -763,6 +807,73 @@ public sealed class EditorControl : Control
             RaiseCaretEnteredEmptyLineIfNeeded();    // Task 13 で本実装(現在はスタブ=no-op)
             e.Handled = true;
         }
+    }
+
+    /// <summary>
+    /// 文字挿入(WM_CHAR)入り口(P3 Task 8)。<see cref="Overtype"/> ON では直後 1 文字を潰す
+    /// (改行はスキップ・サロゲートペアは 2 code units を潰す)。<see cref="ReadOnly"/> ON では no-op。
+    /// </summary>
+    /// <remarks>
+    /// 実装方針:
+    /// - <b>制御文字は無視</b>: WM_CHAR は Ctrl 修飾の 0x01〜0x1F も来る(Ctrl+A=0x01 等)。編集操作は
+    ///   全て <c>OnKeyDown</c> 経路(Task 6 の Ctrl+A・Task 9 の BackSpace/Enter/Tab)で処理する。
+    ///   BackSpace(0x08)/Enter(0x0D)/Tab(0x09) も Task 9 で <c>OnKeyDown</c> で扱う予定=ここでは素通り。
+    /// - <b>選択があれば無条件 Replace</b>: Overtype 影響なし(選択範囲を完全に置換)。
+    /// - <b>Overtype で改行スキップ</b>: <c>\r</c>/<c>\n</c> の直前では潰さず単純挿入(Scintilla 互換)。
+    /// - <b>サロゲート考慮</b>: <c>_caret</c> が high surrogate 位置なら pair 全体を潰す。
+    ///   BMP 外の文字を新たに挿入するケース(WM_CHAR 2 回発火)は Task 8 対象外=将来の IME/貼付で対応。
+    /// - <b>_desiredXpx リセット</b>: 挿入で垂直位置が変わる可能性があるため、水平移動系と同じく -1 に。
+    /// - <b>AfterEdit へ集約</b>: スクロールバー再計算 → キャレット再配置 → 追従スクロール → Invalidate
+    ///   を編集系共通の後処理に集約(Task 9〜11 でも再利用)。
+    /// - <b>e.Handled = true</b>: WinForms のフォーカス処理や親フォームへのバブリングを抑止。
+    /// </remarks>
+    protected override void OnKeyPress(KeyPressEventArgs e)
+    {
+        base.OnKeyPress(e);
+        if (_buffer is null || ReadOnly) return;
+        char ch = e.KeyChar;
+
+        // 制御文字(BackSpace/Enter/Tab/Ctrl+X 系 0x01〜0x1F)は無視。
+        // 編集用途はすべて OnKeyDown 経路で処理する(Task 9 で BackSpace/Enter/Tab 配線予定)。
+        if (ch < 0x20) return;
+
+        var (s, en) = GetSelectionCharRange();
+        string ins = ch.ToString();
+
+        if (s != en)
+        {
+            // 選択があるときは無条件で置換(Overtype 影響なし)。
+            _buffer.Replace(s, en - s, ins);
+            _caret = _anchor = s + ins.Length;
+        }
+        else if (Overtype)
+        {
+            // 上書き: 直後 1 文字を潰す。ただし改行(CR/LF)は潰さない。
+            // 単一 Replace(=Splice) で「削除+挿入」を 1 Undo 単位で表現する。
+            var snap = _buffer.Current;
+            int overwriteLen = 0;
+            if (_caret < snap.CharLength)
+            {
+                char nc = snap.GetChar(_caret);
+                if (nc != '\r' && nc != '\n')
+                {
+                    // サロゲートペアは 2 code units 分潰す(high + low を pair として扱う)。
+                    overwriteLen = (char.IsHighSurrogate(nc) && _caret + 1 < snap.CharLength
+                                    && char.IsLowSurrogate(snap.GetChar(_caret + 1))) ? 2 : 1;
+                }
+            }
+            _buffer.Replace(_caret, overwriteLen, ins);
+            _caret = _anchor = _caret + ins.Length;
+        }
+        else
+        {
+            _buffer.Insert(_caret, ins);
+            _caret = _anchor = _caret + ins.Length;
+        }
+
+        _desiredXpx = -1;
+        AfterEdit();
+        e.Handled = true;
     }
 
     /// <summary>

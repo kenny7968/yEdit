@@ -132,6 +132,36 @@ SR側の癖に起因するため新コントロールへ移植する:
 - **テスト**: xUnit単体+ランダム編集ファズ(素朴string実装との突合・数万操作)+性能ベンチ(1GB合成データ: 編集<1ms・スナップショットO(1)・行変換O(log n))
 - **DoD**: 全緑+ファズ無差異+ベンチ目標達成
 
+#### P1 結果(2026-07-05・**DoD全達成**)
+
+- 実装計画=`2026-07-05-p1-textbuffer.md`(Task 1〜14・実施記録あり)。`yEdit.Core.Buffers` 名前空間に純追加(既存コード変更は csproj の InternalsVisibleTo のみ)。公開型は `TextBuffer`/`TextSnapshot`/`TextBufferBuilder`/`UndoResult` の4つ
+- **テスト**: 既存289 → **415 全緑・build 0警告**(P1新規126件: Utf8Scan/Sanitizer/TextChunk格子/PieceStatsモノイド結合律/永続AVL/行照会/スナップショット/Builder/編集/Undo/Reader・WriteTo往復/サイズ上限/ファズ)
+- **ファズ無差異**: 5シード{1,2,3,42,20260705}×30,000操作=計150,000操作 PASS(モデルはスナップ規則を独立実装した素朴string)
+- **1GBベンチ**(`dotnet run --project tests/yEdit.Core.Bench -c Release -- --mb 1024` → EXIT 0):
+
+| 計測 | 結果(1GB=561.8M文字/18.7M行) | 目標 |
+|---|---|---|
+| 構築 | 2.6s / 1025ピース | 記録 |
+| ランダムsplice 10,000回 | **平均 78.8µs / p99 188µs** | 平均<1ms・p99<1ms |
+| Current取得 | **2.3 ns/回**(O(1)) | O(1) |
+| GetLineStart / GetLineIndexOfChar | 26.9µs / 19.2µs | <100µs |
+| GetText(200) | 28.1µs | <100µs |
+| 連続タイピング1万字の断片化 | Δ2ピース | 断片化しない |
+| メモリ | managed 1027MB / WS 1053MB | 文書+O(ピース) |
+
+- **計画からの主な逸脱**(詳細=p1計画書の実施記録。いずれも実測ベンチFAILを起点とした最適化+レビュー対応):
+  - `TextChunk.SplitStats`(分割点+接頭辞統計を1走査)追加。ピース分割の後半統計はモノイド差分でO(1)導出
+  - Splice の SnapLow(GetChar×2)廃止=実効位置を Split 結果統計から導出(スナップは Split 内に一本化)
+  - `GetLineIndexOfChar` のCRLF中間判定は PrefixStats.LastIsCr+IsLfAt(1点照会・接頭辞末尾CR時のみ)
+  - `MarkSaved()` は coalescing 境界(Undoが保存点を飛び越えないため)
+  - InternalsVisibleTo に `yEdit.Core.Bench` も追加(internal `PieceCount` 計測用)
+- **別エージェントレビュー**: Critical 0 / Important 1(文書上限2GB非強制→Builder/Spliceにガード追加で解消済み・閾値注入テスト付き)/ Minor 7(4件対応済み: XMLコメント位置・右側マージ注記・共有ブロック永続性テスト・スレッド前提文書化)
+- **P2+への申し送り**:
+  - Undo履歴は無制限(永続構造なので実コストは小さいが、長時間セッションでは追記ブロックが解放されない。上限方針またはApp層 `ClearUndo` 運用をP6で判断)
+  - `GetChar` は GetText(pos,1) 経由でstring確保あり(`GetLineEnd(includeBreak:false)` が最大2回呼ぶ。ベンチ目標は達成済み。P5で行末照会が高頻度になるなら IsLfAt 同型のバイト照会へ)
+  - EOL一括変換(ConvertEols)は未実装(計画どおりP6で Builder 再構築として実装)
+  - 単語境界(WordStart/WordEnd)はバッファ責務外=P5でスナップショット上に実装
+
 ### P2: EditorControl骨格+描画(読み取り専用ビューア水準)
 - 仮想化レイアウト・折り返し・行番号・選択/キャレット行強調/空白EOL可視化/セルハイライト・スクロール・システムキャレット・外観設定適用
 - レイアウト計算は純ロジック分離でxUnit対象化(折り返し位置・文字⇔座標変換)

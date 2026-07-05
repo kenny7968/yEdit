@@ -163,6 +163,59 @@ public class TextEditingTests
         }
     });
 
+    [Fact]
+    public void ShiftInsert_DoesNotToggleOvertype() => Sta.Run(() =>
+    {
+        // Shift+Insert は Task 11 の Paste 用に予約=Task 9 では Overtype をトグルしない
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            SendKey(c, Keys.Insert | Keys.Shift);
+            Assert.False(c.Overtype);
+        }
+    });
+
+    // ===== ReadOnly 網羅(S-2)=====
+
+    [Fact]
+    public void Delete_ReadOnly_NoOp() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            c.ReadOnly = true;
+            c.SetCaretCharOffset(1);
+            SendKey(c, Keys.Delete);
+            Assert.Equal("abc", c.GetText());
+        }
+    });
+
+    [Fact]
+    public void Enter_ReadOnly_NoOp() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            c.ReadOnly = true;
+            c.SetCaretCharOffset(3);
+            SendKey(c, Keys.Enter);
+            Assert.Equal("abc", c.GetText());
+        }
+    });
+
+    [Fact]
+    public void Tab_ReadOnly_NoOp() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            c.ReadOnly = true;
+            c.SetCaretCharOffset(1);
+            SendKey(c, Keys.Tab);
+            Assert.Equal("abc", c.GetText());
+        }
+    });
+
     // ===== IsInputKey Tab =====
     [Fact]
     public void IsInputKey_IncludesTab() => Sta.Run(() =>

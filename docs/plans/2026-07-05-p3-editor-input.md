@@ -1341,6 +1341,15 @@ case Keys.Insert:
 git commit -am "P3: Task 9 削除/Enter/Insert 配線 + EolMode(サロゲート対応)"
 ```
 
+### Task 9 レビュー申し送り(将来対応)
+
+- **BackSpace の CRLF ペア削除(S-5・P6 検討)**: `NavigationCommands.MoveLeftChar` は
+  1 code-point 削除なので、キャレットが `"\r\n"` の直後にあると LF だけを削除して
+  CR が残る(Windows ネイティブ Edit と同挙動)。`Enter → BackSpace` で 1 発戻したい
+  直感的 UX に反する。P6 の App 層配線時に「CRLF 境界での BackSpace 一括削除」を
+  検討候補として記録(実装は BackSpace 経路で `snap.GetChar(_caret-1) == '\n' &&
+  _caret >= 2 && snap.GetChar(_caret-2) == '\r'` 判定で 2 code-units 削除)。
+
 ---
 
 ### Task 10: Undo/Redo 配線 + Modified/SetSavePoint/EmptyUndoBuffer

@@ -823,7 +823,8 @@ public sealed class EditorControl : Control
                 else if (_caret > 0)
                 {
                     // MoveLeftChar はサロゲートペアを 1 文字として左寄せする(_caret-2 になる)。
-                    int start = NavigationCommands.MoveLeftChar(_buffer.Current, _caret);
+                    // switch 冒頭で捕獲した snap を使う(UI スレッド専用契約により Delete case と等価)。
+                    int start = NavigationCommands.MoveLeftChar(snap, _caret);
                     _buffer.Delete(start, _caret - start);
                     _caret = _anchor = start;
                 }
@@ -874,10 +875,14 @@ public sealed class EditorControl : Control
                 return;
             }
             case Keys.Insert:
-                // 修飾なしで Overtype トグル。Ctrl+Insert=Copy / Shift+Insert=Paste は
-                // Task 11(クリップボード)で追加する case が switch 上でこの case より
-                // 「先に」置かれる予定(when 節付きで) — Task 9 単独では素通り扱いとし、
-                // Overtype をトグルしない(修飾なしのときだけトグル)。
+                // 修飾なしで Overtype トグル(Ctrl/Shift 修飾時はモードトグルせず、
+                // e.Handled=true で消費して Task 11 の case 追加=Ctrl+Insert=Copy /
+                // Shift+Insert=Paste 待ちにする=switch 上で修飾付き case を上に置けば
+                // 自動的にそちらが横取りする設計)。
+                // Alt 修飾は通常 WinForms のメニュー mnemonic 側に捕捉されるため到達確率は
+                // 低いが、到達した場合は現行実装では Overtype がトグルされる(Alt を判定
+                // していないため)。挙動を厳密化したければ `!alt` を条件に追加する
+                // (現状は簡潔さを優先=Alt はメニュー予約経路として非対応)。
                 if (!ctrl && !shift) Overtype = !Overtype;
                 e.Handled = true;
                 return;

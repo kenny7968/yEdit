@@ -1832,3 +1832,16 @@ git commit -am "P3: 設計書 §3 に P3 結果を追記(DoD 達成)"
 - **矩形選択 / 列モード**: v1 スコープ外(設計書 §0-10)。
 - **クリップボード形式**: `TextDataFormat.UnicodeText` 固定(§0-10)。RTF/HTML は将来。
 - **Tab キーのフォーム間フォーカス移動**: P3 では `IsInputKey` で Tab を EditorControl 側に取り込む。フォーカス移動は App 層(P6)でメニューショートカット等で代替。
+
+## Task 15 最終レビュー申し送り(2026-07-06・P3 全体レビュー結果)
+
+別エージェント最終レビュー結果: **Critical 0 / Important 0 / DoD 全達成**でマージ可判定。以下 3 件は P5/P6 送りの Suggestion として記録。
+
+- **`_lastCaretLine` の setter 同期は audit trail 化**(Task 13 I-1 fix の残骸): 4 setter で `_lastCaretLine` を書き込むが、`RaiseCaretEnteredEmptyLineIfNeeded(fromLine)` が引数版になったため実際の発火判定には `_lastCaretLine` 読み出しは使われない=デッドコード気味だが不変維持の記録として害なし。P5 で UIA イベント発火設計時に redundant なら削除検討。
+- **`Keys.Enter` を IsInputKey に含めていない**(Task 6 申し送り S-2 の Enter 版・P6 embedding 時対応): 現状 `IsInputKey` は Arrow/Home/End/Page/Tab のみ。EditorControl を `AcceptButton` を持つ Form に埋め込む場合、Form.ProcessDialogKey が Enter を先に食う可能性。yEdit の `MainForm` は AcceptButton なしで実害なし=P6 で App 層に組み込む際に `Keys.Enter` を IsInputKey へ追加する。
+- **ReadOnly 時のキー消費**: `Ctrl+X/V/Z/Y`/`Shift+Delete`/`Back`/`Delete`/`Enter`/`Tab` は `when !ReadOnly` ガードで case マッチ失敗=`e.Handled=true` を設定せず親コントロールへバブルする。実挙動として問題は観測されていないが consistency gap として記録=P6 で `default:` fallback or `Handled=true` 設定の検討候補。
+
+## Task 6/7 の追加申し送り決着(P3 完了時)
+
+- **Ctrl+A 後の可視化**(Task 6 申し送り I-1): Notepad/VSCode 慣習に合わせて Ctrl+A では BringCaretIntoView を呼ばない選択で Task 7 で決着済み。P7 実機評価で最終確認。
+- **PageUp/PageDown の rows 計算統一**(Task 7 申し送り): OnKeyDown の Page 分岐は `ClientSize.Height / LineHeightPx`、BringCaretIntoView は paintHeight ベース(hscroll 高減算後)。Task 15 で統一検討としていたが、両者は目的が異なる(1 ページ移動 vs 可視性判定)ため現状のまま=P5/P6 で必要になったら整理。

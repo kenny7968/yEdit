@@ -686,13 +686,26 @@ public sealed class EditorControl : Control
     {
         ArgumentNullException.ThrowIfNull(settings);
 
-        // フォント差し替え + GdiCharMetrics 再構築(古い Font は明示的に Dispose して GDI HFONT リーク回避)
+        // フォント差し替え + GdiCharMetrics 再構築(古い Font は明示的に Dispose して GDI HFONT リーク回避)。
+        // 例外安全: newFont / newMetrics を両方作り切ってから旧 Font を Dispose する。
+        // GdiCharMetrics のコンストラクタが throw した場合は newFont も破棄して呼び出し元へ propagate
+        // (旧 _font / _metrics は生きたまま=次回 OnPaint も従前の高さで安全に描画できる)。
         var newFont = new Font(
             string.IsNullOrEmpty(settings.FontName) ? "ＭＳ ゴシック" : settings.FontName,
             settings.FontSize > 0 ? settings.FontSize : 12f);
+        GdiCharMetrics newMetrics;
+        try
+        {
+            newMetrics = new GdiCharMetrics(newFont);
+        }
+        catch
+        {
+            newFont.Dispose();
+            throw;
+        }
         _font.Dispose();
         _font = newFont;
-        _metrics = new GdiCharMetrics(_font);
+        _metrics = newMetrics;
 
         // テーマから ViewportStyle 算出 + Graphics.Clear 用 BackColor 同期
         var theme = AppearanceThemes.ById(settings.Theme);
@@ -703,22 +716,41 @@ public sealed class EditorControl : Control
         _showLineNumbers = settings.ShowLineNumbers;
         _showWhitespace = settings.ShowWhitespace;
         _highlightCurrentLine = settings.HighlightCurrentLine;
+        // WrapColumns の実値が変わったときだけ ScrollX をリセットする(フォント色だけ変更等で
+        // 横スクロール位置が不用意にホームへ戻る副作用を避ける)。折り返し ON への遷移では
+        // ScrollX=0 が必要=UpdateHorizontalScrollbar 内の HideAndResetHScroll でも 0 にされるが、
+        // ここでも先に落としておくことで PositionCaret が過渡的な旧 _scrollX を参照するのを防ぐ。
+        int oldWrapColumns = _wrapColumns;
         _wrapColumns = Math.Max(0, settings.WrapColumnEnabled ? settings.WrapColumn : 0);
-        _scrollX = 0;
+        if (_wrapColumns != oldWrapColumns) _scrollX = 0;
 
         // LineHeightPx / 折り返し設定が変わった可能性があるので両スクロールバーを再計算 →
-        // キャレット再配置(新 LineHeightPx でのシステムキャレット再作成は次回 OnGotFocus 時)。
+        // キャレット再配置。
         UpdateVerticalScrollbar();
         UpdateHorizontalScrollbar();
+
+        // フォーカス保持中に LineHeightPx が変わったら system caret を作り直す
+        // (前回 OnGotFocus 時の古い高さのままだと視覚的にキャレットが行高と合わない)。
+        // フォーカス無し時は次回 OnGotFocus で新しい _metrics.LineHeightPx を使って作られる。
+        if (_hasFocus)
+        {
+            NativeMethods.DestroyCaret();
+            NativeMethods.CreateCaret(Handle, nint.Zero, 2, _metrics.LineHeightPx);
+            NativeMethods.ShowCaret(Handle);
+        }
         PositionCaret();
         Invalidate();
     }
 
     /// <summary>
     /// <see cref="AppearanceTheme"/> の Fore/Back RGB から派生色を算出して <see cref="ViewportStyle"/> を組む。
-    /// 現在行背景/行番号色/空白グリフ色は Back に Fore をブレンドして導出(App 層 <c>EditorAppearance</c> の
-    /// <c>Blend</c> 移植)。強調 OFF 時の CurrentLineBack は Alpha=0 で「未使用」を明示。
-    /// 選択背景と枠色は現行 App 層と同じ固定値(P6 でテーマ拡張が入るなら再検討)。
+    /// App 層 <c>EditorAppearance</c> の <c>Blend</c> の手法(Back と Fore の線形補間)を流用しつつ、
+    /// 各成分の混色比は以下の内訳:
+    /// - CurrentLineBack (ratio=0.12): App 層と厳密一致(移植)
+    /// - LineNumberFore (ratio=0.5) / WhitespaceGlyph (ratio=0.3): 自作コントロール独自の派生
+    ///   (App 層は Scintilla の既定色を使うため直接の対応値なし)
+    /// 強調 OFF 時の CurrentLineBack は Alpha=0 で「未使用」を明示。
+    /// 選択背景と枠色は現行 App 層と同じ固定値(P6 でテーマ拡張が入るなら再検討=Task 15 の申し送り参照)。
     /// </summary>
     private static ViewportStyle BuildStyle(AppearanceTheme theme, bool highlightCurrentLine)
     {

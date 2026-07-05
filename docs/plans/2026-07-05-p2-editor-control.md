@@ -691,6 +691,18 @@ Expected: 0 警告。
 
 **Step 3-5: 実装 → 緑 → コミット** `"P2: 外観適用(フォント+テーマ+表示設定のバインド)"`
 
+**設計判断の申し送り(Task 15 でクローズ判断 / P6 で対応)**:
+
+- **選択背景色のテーマ非追従(SelectionBack 固定 0xADD8E6)**: App 層の現行 `EditorAppearance.Apply`
+  はテーマの前景/背景を反転して選択に高コントラストを与える(弱視配慮=設計原則
+  [[yedit-sighted-users-first-class]])。P2 の `BuildStyle` は薄青固定で、黒地系テーマ
+  (白/黄/緑) では選択のコントラストが下がる。P6 で App 層接続時に:
+  - `BuildStyle` の SelectionBack を `theme.ForeRgb` にする(=前景色反転)、かつ
+  - FrameBuilder が「選択内のテキスト色を反転させる」新オプションを受け取れるようにする
+  のセットで対応する予定。**Task 15 のレビュー時にこの申し送りが残っていることを確認する**
+- **セルハイライト枠色のテーマ非追従(HighlightOutline 固定 0xD77800)**: 同様。P6 で
+  弱視要件を満たすテーマ追従を追加検討
+
 ---
 
 ### Task 14: 性能ベンチ + smoke 起動器

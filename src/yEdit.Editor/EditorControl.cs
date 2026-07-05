@@ -311,6 +311,25 @@ public sealed class EditorControl : Control
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public LineEnding EolMode { get; set; } = LineEnding.Crlf;
 
+    /// <summary>
+    /// SavePoint(<see cref="SetSavePoint"/>)以後にバッファが変更されたか。SetSource 前 / 現ルート ==
+    /// 保存時ルート の間は false。P6 の <c>ScintillaHost.Modified</c> と同名(移植先での機械的置換用)。
+    /// </summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool Modified => _buffer?.Modified ?? false;
+
+    /// <summary>
+    /// Undo 可否(履歴あり)。SetSource 前は false。P6 の <c>ScintillaHost.CanUndo</c> と同名。
+    /// </summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool CanUndo => _buffer?.CanUndo ?? false;
+
+    /// <summary>
+    /// Redo 可否(Undo 後で新規編集がまだ無い)。SetSource 前は false。P6 の <c>ScintillaHost.CanRedo</c> と同名。
+    /// </summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool CanRedo => _buffer?.CanRedo ?? false;
+
     /// <summary>キャレット位置(UTF-16 文字オフセット)。書き込みは <see cref="SetCaretCharOffset"/>。</summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public int CaretCharOffset => _caret;
@@ -547,6 +566,55 @@ public sealed class EditorControl : Control
         BringCaretIntoView();
         Invalidate();
     }
+
+    /// <summary>
+    /// Undo 実行(P3 Task 10)。<see cref="TextBuffer.Undo"/> の結果を反映し、キャレットを
+    /// 推奨位置(=Pos + RemovedLen=削除内容が復元された末尾)へ移動する。選択は解除
+    /// (Task 8/9 と同じ<c>_caret = _anchor = pos</c> パターン)。<c>_desiredXpx</c> は編集経路の
+    /// 一貫性で -1 リセット。SetSource 前 / 履歴なし(<see cref="TextBuffer.Undo"/> が null)は no-op。
+    /// P6 の <c>ScintillaHost.Undo</c> と同名(<see cref="Control.Undo"/> は <c>TextBoxBase</c> 以下の
+    /// メソッドで Control 直接派生の本クラスには存在しないため <c>new</c> 不要)。
+    /// </summary>
+    public void Undo()
+    {
+        if (_buffer is null) return;
+        var r = _buffer.Undo();
+        if (r is null) return;
+        int pos = Math.Clamp(r.Value.CaretPos, 0, _buffer.Current.CharLength);
+        _caret = _anchor = pos;
+        _desiredXpx = -1;
+        AfterEdit();
+    }
+
+    /// <summary>
+    /// Redo 実行(P3 Task 10)。<see cref="TextBuffer.Redo"/> の結果を反映し、キャレットを
+    /// 推奨位置(=Pos + InsertedLen=再挿入内容の末尾)へ移動する。それ以外の副作用は
+    /// <see cref="Undo"/> と同じ(選択解除・desiredXpx リセット・AfterEdit で追従スクロール)。
+    /// </summary>
+    public void Redo()
+    {
+        if (_buffer is null) return;
+        var r = _buffer.Redo();
+        if (r is null) return;
+        int pos = Math.Clamp(r.Value.CaretPos, 0, _buffer.Current.CharLength);
+        _caret = _anchor = pos;
+        _desiredXpx = -1;
+        AfterEdit();
+    }
+
+    /// <summary>
+    /// SavePoint を打つ(<see cref="TextBuffer.MarkSaved"/> の別名)。以後 <see cref="Modified"/> は
+    /// 現ルートとの参照比較で判定される。SetSource 前は no-op。P6 の <c>ScintillaHost.SetSavePoint</c>
+    /// と同名(App 層 Save 経路からの機械的置換用)。
+    /// </summary>
+    public void SetSavePoint() => _buffer?.MarkSaved();
+
+    /// <summary>
+    /// EmptyUndoBuffer 相当(<see cref="TextBuffer.ClearUndo"/> の別名)。Undo/Redo 履歴を破棄する。
+    /// 保存点は維持されるため <see cref="Modified"/> の値は変わらない。SetSource 前は no-op。
+    /// P6 の <c>ScintillaHost.EmptyUndoBuffer</c> と同名。
+    /// </summary>
+    public void EmptyUndoBuffer() => _buffer?.ClearUndo();
 
     /// <summary>診断用(テストで文書全体を取得)。SetSource 前は空文字列。</summary>
     internal string GetText() => _buffer?.Current.GetText(0, _buffer.Current.CharLength) ?? string.Empty;
@@ -803,6 +871,19 @@ public sealed class EditorControl : Control
                 // これを忘れると次の Up/Down が「Ctrl+A 前の古い列」を目指す(Task 6 レビュー S-1)。
                 _desiredXpx = -1;
                 _buffer.BreakUndoCoalescing();
+                e.Handled = true;
+                return;
+
+            // ===== P3 Task 10: Undo / Redo =====
+            // ReadOnly 時は Undo/Redo も no-op(App 側で Save 直後に ReadOnly にした後、
+            // 誤操作 Ctrl+Z で内容が変わるのを防ぐ)。Undo/Redo 本体はメソッドに集約=
+            // App 層メニュー/ツールバー等からの直接呼び出しと Ctrl+Z/Y の両経路を統一する。
+            case Keys.Z when ctrl && !ReadOnly:
+                Undo();
+                e.Handled = true;
+                return;
+            case Keys.Y when ctrl && !ReadOnly:
+                Redo();
                 e.Handled = true;
                 return;
 

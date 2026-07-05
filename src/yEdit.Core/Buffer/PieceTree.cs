@@ -1,0 +1,131 @@
+namespace yEdit.Core.Buffers;
+
+/// <summary>
+/// 永続平衡ピース木(join-based AVL・"Just Join for Parallel Ordered Sets" の手法)。
+/// ノードは完全不変(経路コピーで編集)。Join(left, piece, right) だけで挿入/削除/分割を組み立てる。
+/// スナップショットはルート参照を持つだけで O(1)。
+/// </summary>
+internal static class PieceTree
+{
+    internal sealed class Node
+    {
+        public readonly Node? Left, Right;
+        public readonly Piece Piece;
+        public readonly byte Height;      // 葉=1
+        public readonly PieceStats Sum;   // Left+Piece+Right の結合統計
+
+        public Node(Node? left, Piece piece, Node? right)
+        {
+            Left = left; Right = right; Piece = piece;
+            Height = (byte)(1 + Math.Max(H(left), H(right)));
+            Sum = PieceStats.Combine(PieceStats.Combine(SumOf(left), piece.Stats), SumOf(right));
+        }
+    }
+
+    private static int H(Node? n) => n?.Height ?? 0;
+    public static PieceStats SumOf(Node? n) => n?.Sum ?? PieceStats.Empty;
+
+    private static Node RotL(Node t) => new(new Node(t.Left, t.Piece, t.Right!.Left), t.Right.Piece, t.Right.Right);
+    private static Node RotR(Node t) => new(t.Left!.Left, t.Left.Piece, new Node(t.Left.Right, t.Piece, t.Right));
+
+    /// <summary>高さ差が任意の2木を p を挟んで結合(AVL join)。</summary>
+    public static Node Join(Node? l, Piece p, Node? r)
+    {
+        if (H(l) > H(r) + 1) return JoinOnLeft(l!, p, r);
+        if (H(r) > H(l) + 1) return JoinOnRight(l, p, r!);
+        return new Node(l, p, r);
+    }
+
+    private static Node JoinOnLeft(Node l, Piece p, Node? r)
+    {   // 左が高い: 左の右背骨を降りて r と釣り合う位置で接ぐ
+        if (H(l.Right) <= H(r) + 1)
+        {
+            var t = new Node(l.Right, p, r);
+            return t.Height <= l.Height + 1 && H(l.Left) + 2 > t.Height
+                ? new Node(l.Left, l.Piece, t)
+                : RotL(new Node(l.Left, l.Piece, RotR(t)));   // 標準の再平衡
+        }
+        var joined = JoinOnLeft(l.Right!, p, r);
+        var node = new Node(l.Left, l.Piece, joined);
+        return joined.Height <= H(l.Left) + 1 ? node : RotL(node);
+    }
+
+    private static Node JoinOnRight(Node? l, Piece p, Node r)
+    {   // 右が高い: 右の左背骨を降りて l と釣り合う位置で接ぐ(JoinOnLeft の対称形)
+        if (H(r.Left) <= H(l) + 1)
+        {
+            var t = new Node(l, p, r.Left);
+            return t.Height <= r.Height + 1 && H(r.Right) + 2 > t.Height
+                ? new Node(t, r.Piece, r.Right)
+                : RotR(new Node(RotL(t), r.Piece, r.Right));
+        }
+        var joined = JoinOnRight(l, p, r.Left!);
+        var node = new Node(joined, r.Piece, r.Right);
+        return joined.Height <= H(r.Right) + 1 ? node : RotR(node);
+    }
+
+    /// <summary>文字オフセット pos で分割(pos はコード点境界にスナップ済み前提)。</summary>
+    public static (Node? Left, Node? Right) Split(Node? t, int pos)
+    {
+        if (t is null) return (null, null);
+        int leftChars = SumOf(t.Left).CharLen;
+        if (pos < leftChars)
+        { var (a, b) = Split(t.Left, pos); return (a, Join(b, t.Piece, t.Right)); }
+        pos -= leftChars;
+        if (pos == 0 && t.Piece.CharLen > 0)
+            return (t.Left, Join(null, t.Piece, t.Right));   // ピース左境界: 空ピースを作らない
+        if (pos >= t.Piece.CharLen)
+        { var (a, b) = Split(t.Right, pos - t.Piece.CharLen); return (Join(t.Left, t.Piece, a), b); }
+        // ピース内部分割: チャンク照会でバイト境界を求め2ピース化
+        int byteMid = t.Piece.Chunk.CharToByte(t.Piece.ByteStart, t.Piece.ByteLen, pos);
+        var p1 = Piece.Of(t.Piece.Chunk, t.Piece.ByteStart, byteMid - t.Piece.ByteStart);
+        var p2 = Piece.Of(t.Piece.Chunk, byteMid, t.Piece.ByteStart + t.Piece.ByteLen - byteMid);
+        return (Join(t.Left, p1, null), Join(null, p2, t.Right));
+    }
+
+    /// <summary>ピースを挟まない結合(削除で使用)。左木の最右ピースを抜いて Join。</summary>
+    public static Node? Join2(Node? l, Node? r)
+    {
+        if (l is null) return r;
+        if (r is null) return l;
+        var (rest, last) = SplitLast(l);
+        return Join(rest, last, r);
+    }
+
+    /// <summary>最右ピースの取り出し(隣接マージ用)。</summary>
+    public static (Node? Remaining, Piece Last) SplitLast(Node l)
+    {
+        if (l.Right is null) return (l.Left, l.Piece);
+        var (rest, last) = SplitLast(l.Right);
+        return (Join(l.Left, l.Piece, rest), last);
+    }
+
+    /// <summary>最左ピースの取り出し(隣接マージ用)。</summary>
+    public static (Piece First, Node? Remaining) SplitFirst(Node r)
+    {
+        if (r.Left is null) return (r.Piece, r.Right);
+        var (first, rest) = SplitFirst(r.Left);
+        return (first, Join(rest, r.Piece, r.Right));
+    }
+
+    /// <summary>ピース列から平衡木を一括構築(中央分割・O(n))。ビルダー用。</summary>
+    public static Node? BuildBalanced(ReadOnlySpan<Piece> pieces)
+    {
+        if (pieces.IsEmpty) return null;
+        int mid = pieces.Length / 2;
+        return new Node(BuildBalanced(pieces[..mid]), pieces[mid], BuildBalanced(pieces[(mid + 1)..]));
+    }
+
+    /// <summary>in-order列挙(WriteTo/Reader用)。明示スタックで深い木でも再帰なし。</summary>
+    public static IEnumerable<Piece> Enumerate(Node? t)
+    {
+        var stack = new Stack<Node>();
+        while (t is not null || stack.Count > 0)
+        {
+            while (t is not null) { stack.Push(t); t = t.Left; }
+            var n = stack.Pop();
+            yield return n.Piece;
+            t = n.Right;
+        }
+    }
+}

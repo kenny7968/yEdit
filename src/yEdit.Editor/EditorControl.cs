@@ -30,12 +30,15 @@ public sealed class EditorControl : Control
     private bool _highlightCurrentLine;
     private bool _showWhitespace;
 
-    // キャレット/選択の内部状態(Task 9 で SetCaretCharOffset/SetSelectionCharRange 経由で更新)
-    // Invariant: _selStart <= _selEnd は API 側(SetSelectionCharRange)で保証・OnPaint も念のため
-    // Min/Max で正規化してから SelectionRange を組み立てる。SetCaret は選択も同 offset に潰す。
+    // キャレット/選択の内部状態(P3 Task 2 でアンカー概念を導入=_selStart/_selEnd から _anchor に置換)。
+    // 選択範囲は [Math.Min(_anchor, _caret), Math.Max(_anchor, _caret)]。
+    // - _anchor == _caret: 選択なし(単純キャレット位置)
+    // - _anchor <  _caret: 右方向に伸びた選択(キャレットが末尾)
+    // - _anchor >  _caret: 左方向に伸びた選択(キャレットが先頭・shift+←/Home で作られる)
+    // SetCaretCharOffset は選択解除仕様=_anchor = _caret = snapped に潰す。
+    // MoveCaretWithSelection はアンカー保持でキャレットのみ動かす共通経路(shift+移動系)。
     private int _caret;
-    private int _selStart;
-    private int _selEnd;
+    private int _anchor;
 
     // Task 10: システムキャレットのフォーカス状態フラグ。CreateCaret/DestroyCaret はフォーカスを
     // 持つ間のみ有効なため、SetCaretCharOffset 等から PositionCaret を呼ぶ際にガードに使う。
@@ -46,7 +49,7 @@ public sealed class EditorControl : Control
     private int _caretWidthPx = 2;
 
     // セルハイライト状態(HighlightCharRange で設定・ClearHighlight で null)。
-    // テキスト選択(_selStart/_selEnd)とは独立した装飾で、単一アクティブ。
+    // テキスト選択(_anchor/_caret)とは独立した装飾で、単一アクティブ。
     private SelectionRange? _cellHighlight;
 
     public EditorControl()
@@ -263,7 +266,7 @@ public sealed class EditorControl : Control
 
     /// <summary>
     /// キャレット論理行の背景を <see cref="ViewportStyle.CurrentLineBack"/> で塗るか。
-    /// <b>選択がある間(_selStart != _selEnd)は塗らない</b>=OnPaint で FrameBuilder への
+    /// <b>選択がある間(_anchor != _caret)は塗らない</b>=OnPaint で FrameBuilder への
     /// currentLineLogical に -1 を渡す(選択矩形との視覚的競合を避けるため)。
     /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -283,7 +286,15 @@ public sealed class EditorControl : Control
     public int CaretCharOffset => _caret;
 
     /// <summary>
-    /// キャレット位置を UTF-16 文字オフセットで設定する(選択はクリアされる=_selStart=_selEnd=offset)。
+    /// 選択アンカー(UTF-16 文字オフセット)。<c>_anchor == _caret</c> のときは選択なし。
+    /// 書き込みは <see cref="SetSelectionAnchored(int, int)"/> または <see cref="SetSelectionCharRange(int, int)"/>。
+    /// P3 Task 2 で導入(shift+左方向の選択保持=キャレット &lt; アンカーのケース)。
+    /// </summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int SelectionAnchor => _anchor;
+
+    /// <summary>
+    /// キャレット位置を UTF-16 文字オフセットで設定する(選択はクリアされる=_anchor=_caret=snapped)。
     /// サロゲートペア中間位置(low)は前方(high)にスナップ。範囲外は [0, CharLength] にクランプ。
     /// SetSource 前の呼び出しは no-op(_buffer が null のため)。
     /// </summary>
@@ -291,38 +302,74 @@ public sealed class EditorControl : Control
     {
         if (_buffer is null) return;
         int snapped = SnapAndClamp(offset);
-        if (_caret == snapped && _selStart == snapped && _selEnd == snapped) return;
+        if (_caret == snapped && _anchor == snapped) return;
         _caret = snapped;
-        _selStart = snapped;
-        _selEnd = snapped;
+        _anchor = snapped;   // 単純キャレット移動は選択解除
         PositionCaret();
         Invalidate();
     }
 
     /// <summary>現在の選択範囲(UTF-16 文字オフセット・Start &lt;= End で返す)。</summary>
+    /// <remarks>
+    /// 内部状態(<c>_anchor</c>/<c>_caret</c>)は非対称=どちらが Min/Max かは選択方向で変わる。
+    /// 呼び出し側が「アンカーはどこか」を知りたい場合は <see cref="SelectionAnchor"/> を使う。
+    /// </remarks>
     public (int Start, int End) GetSelectionCharRange()
-        => (Math.Min(_selStart, _selEnd), Math.Max(_selStart, _selEnd));
+        => (Math.Min(_anchor, _caret), Math.Max(_anchor, _caret));
 
     /// <summary>
-    /// 選択範囲を設定する。<paramref name="start"/> &gt; <paramref name="end"/> の場合は
-    /// 内部で正規化(Start &lt;= End)。両端はサロゲートペア中間位置なら前方スナップ・
-    /// 範囲外はクランプ。キャレットは選択の末尾(正規化後の End)に置く。
-    /// SetSource 前の呼び出しは no-op。
+    /// 選択範囲を設定する(対称版=方向を持たない)。<paramref name="start"/> &gt; <paramref name="end"/>
+    /// の場合は内部で正規化。両端はサロゲートペア中間位置なら前方スナップ・範囲外はクランプ。
+    /// 内部では <c>_anchor = Min(start, end)</c>・<c>_caret = Max(start, end)</c> にマップする
+    /// (=キャレットは選択末尾=右方向の選択)。SetSource 前の呼び出しは no-op。
     /// </summary>
     /// <remarks>
-    /// キャレットが常に選択末尾に置かれるため、shift+左矢印方向の選択(キャレット=Min・
-    /// アンカー=Max)は現行 API で表現できない。P3 で入力ハンドラを追加する際にアンカー
-    /// 概念を導入する API(非対称版)を追加予定。
+    /// 非対称版(キャレット位置を明示指定=shift+左方向の選択)は <see cref="SetSelectionAnchored(int, int)"/>
+    /// を使う。既存呼び出し側の挙動を変えないためこの API はキャレット末尾固定のまま維持する。
     /// </remarks>
     public void SetSelectionCharRange(int start, int end)
     {
         if (_buffer is null) return;
         int s = SnapAndClamp(Math.Min(start, end));
         int e = SnapAndClamp(Math.Max(start, end));
-        if (_selStart == s && _selEnd == e && _caret == e) return;
-        _selStart = s;
-        _selEnd = e;
+        if (_anchor == s && _caret == e) return;
+        _anchor = s;
         _caret = e;
+        PositionCaret();
+        Invalidate();
+    }
+
+    /// <summary>
+    /// アンカー保持でキャレットのみを <paramref name="newCaret"/> に移動する(shift+移動系の共通経路)。
+    /// サロゲートペア中間位置は前方スナップ・範囲外はクランプ。
+    /// <c>newCaret == _anchor</c> のとき選択が消える(=アンカーと同位置)。
+    /// SetSource 前の呼び出しは no-op。
+    /// </summary>
+    public void MoveCaretWithSelection(int newCaret)
+    {
+        if (_buffer is null) return;
+        int snapped = SnapAndClamp(newCaret);
+        if (_caret == snapped) return;
+        _caret = snapped;
+        // _anchor は保持
+        PositionCaret();
+        Invalidate();
+    }
+
+    /// <summary>
+    /// アンカーとキャレットを個別指定して選択範囲を設定する(非対称版)。
+    /// <paramref name="anchor"/> &gt; <paramref name="caret"/> のときはキャレットが Min=選択先頭
+    /// (=shift+左方向の選択)。両端はサロゲートペア中間位置なら前方スナップ・範囲外はクランプ。
+    /// SetSource 前の呼び出しは no-op。
+    /// </summary>
+    public void SetSelectionAnchored(int anchor, int caret)
+    {
+        if (_buffer is null) return;
+        int a = SnapAndClamp(anchor);
+        int c = SnapAndClamp(caret);
+        if (_anchor == a && _caret == c) return;
+        _anchor = a;
+        _caret = c;
         PositionCaret();
         Invalidate();
     }
@@ -611,13 +658,16 @@ public sealed class EditorControl : Control
 
             // 選択がある間は現在行強調 FillRect を抑止する(選択矩形と重ねると
             // ハイライトが二重になり視覚的に読みにくいため=EditorControl 層の責務)。
-            bool hasSelection = _selStart != _selEnd;
+            bool hasSelection = _anchor != _caret;
             int currentLineLogical = (_highlightCurrentLine && !hasSelection)
                 ? snap.GetLineIndexOfChar(_caret)
                 : -1;
-            SelectionRange? selection = hasSelection
-                ? new SelectionRange(Math.Min(_selStart, _selEnd), Math.Max(_selStart, _selEnd))
-                : null;
+            SelectionRange? selection = null;
+            if (hasSelection)
+            {
+                var (selS, selE) = GetSelectionCharRange();
+                selection = new SelectionRange(selS, selE);
+            }
 
             var frame = FrameBuilder.Build(
                 snap, rows, paintWidth, paintHeight,

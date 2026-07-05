@@ -18,8 +18,11 @@ public sealed class EditorControl : Control
     private readonly ICharMetrics _metrics;
     private readonly ViewportStyle _style;
     private readonly VScrollBar _vscroll;
+    private readonly HScrollBar _hscroll;
     private TextBuffer? _buffer;
     private int _topLine;
+    private int _wrapColumns;
+    private int _scrollX;
     private bool _showLineNumbers;
     private bool _highlightCurrentLine;
     private bool _showWhitespace;
@@ -57,6 +60,18 @@ public sealed class EditorControl : Control
         // Scroll イベントは「ユーザー操作(ドラッグ/ホイール/キー)」でのみ発火。
         // TopLine setter からの `_vscroll.Value = ...` では発火しないため、
         // TopLine ↔ VScrollBar 間の無限ループは起こらない(セッター側の != チェックは念のため)。
+        //
+        // Dock 順の注意: WinForms の DefaultLayout は Controls コレクションを逆順で docking する。
+        // 「後に Add した子ほど先に dock 処理される=フルエッジを取る」ため、HScrollBar を先に、
+        // VScrollBar を後に Add することで:
+        //   - VScrollBar が右端全高(Explorer と同じ慣習)
+        //   - HScrollBar が下端の残り幅(VScroll の左まで)
+        // となる。ここを逆順にすると HScrollBar が下端全幅を取ってしまい、右下の角に
+        // VScroll が張り付かない見た目になる。
+        _hscroll = new HScrollBar { Dock = DockStyle.Bottom, SmallChange = 10, Visible = false };
+        _hscroll.Scroll += (_, e) => ScrollX = e.NewValue;
+        Controls.Add(_hscroll);
+
         _vscroll = new VScrollBar { Dock = DockStyle.Right, SmallChange = 1, Enabled = false };
         _vscroll.Scroll += (_, e) => TopLine = e.NewValue;
         Controls.Add(_vscroll);
@@ -71,6 +86,7 @@ public sealed class EditorControl : Control
         _buffer = buffer;
         _topLine = 0;
         UpdateVerticalScrollbar();
+        UpdateHorizontalScrollbar();
         Invalidate();
     }
 
@@ -100,8 +116,48 @@ public sealed class EditorControl : Control
             Invalidate();
         }
     }
+    /// <summary>
+    /// 折り返し桁数(半角換算)。0 以下で折り返し OFF。負値は 0 に丸める。
+    /// ON: 水平スクロールバー非表示・視覚行を <c>WrapColumns × 半角1文字幅</c> で折り返す。
+    /// OFF: 水平スクロールバー表示(必要な場合)+ <see cref="ScrollX"/> で表示原点を左右シフト。
+    /// 変化時: <see cref="ScrollX"/> を 0 にリセット・HScrollBar 表示切替・キャレット再配置・Invalidate。
+    /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public int WrapColumns { get; set; }           // Task 12 で本実装
+    public int WrapColumns
+    {
+        get => _wrapColumns;
+        set
+        {
+            int clamped = Math.Max(0, value);
+            if (_wrapColumns == clamped) return;
+            _wrapColumns = clamped;
+            _scrollX = 0;
+            UpdateHorizontalScrollbar();
+            PositionCaret();
+            Invalidate();
+        }
+    }
+
+    /// <summary>
+    /// 水平スクロール位置(px)。折り返し OFF 時のみ有効(ON 時は 0 固定・set は no-op)。
+    /// [0, MaxScrollX] にクランプ(MaxScrollX は HScrollBar.Maximum - LargeChange + 1 相当)。
+    /// 変化時のみ HScrollBar.Value を追従・キャレット再配置・Invalidate。
+    /// </summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int ScrollX
+    {
+        get => _scrollX;
+        set
+        {
+            if (_wrapColumns > 0) return;   // 折り返し ON では水平スクロール無効
+            int clamped = ClampScrollX(value);
+            if (clamped == _scrollX) return;
+            _scrollX = clamped;
+            if (_hscroll.Value != clamped) _hscroll.Value = clamped;
+            PositionCaret();
+            Invalidate();
+        }
+    }
     /// <summary>
     /// 行番号マージンを表示するか。true にすると <see cref="MeasureLineNumberWidth"/> 幅のマージンを確保し、
     /// FrameBuilder が右寄せで行番号を発行する(現在行のみ <see cref="ViewportStyle.Foreground"/> で強調)。
@@ -287,10 +343,70 @@ public sealed class EditorControl : Control
         _vscroll.Enabled = maxLine > 0;
     }
 
+    /// <summary>
+    /// HScrollBar の表示可否・Maximum / LargeChange を現在の buffer と ClientSize から再計算する。
+    /// - 折り返し ON / 未 SetSource / 内容が可視領域に収まる → 非表示・_scrollX=0
+    /// - 折り返し OFF で内容がはみ出す → 表示。可視分の視覚行のうち最長 pixel 幅を上限にする
+    ///   (1GB でも計算量は O(可視行数))。
+    /// 順序: LargeChange → Maximum → SmallChange → Value(WinForms ScrollBar.Maximum の計算式が
+    /// LargeChange に依存するため)。
+    /// </summary>
+    private void UpdateHorizontalScrollbar()
+    {
+        if (_buffer is null || _wrapColumns > 0)
+        {
+            _hscroll.Visible = false;
+            _scrollX = 0;
+            return;
+        }
+        var snap = _buffer.Current;
+        int paintWidth = Math.Max(0, ClientSize.Width - _vscroll.Width);
+        // HScroll 表示可否を決めるための計算では、まだ表示していない前提で高さいっぱいを見る
+        // (可視行がわずかに多めになるだけで最長幅の推定には害がない)。
+        int probeHeight = Math.Max(0, ClientSize.Height);
+        var rows = ViewportLayout.Build(snap, _topLine, probeHeight, wrapColumns: 0, _metrics);
+        int lnWidth = _showLineNumbers ? MeasureLineNumberWidth(snap.LineCount) : 0;
+        int maxLineWidthPx = 0;
+        foreach (var row in rows)
+        {
+            if (row.SegmentLength == 0) continue;
+            string lineText = snap.GetText(row.SegmentStartChar, row.SegmentLength);
+            int width = _metrics.MeasureRun(lineText.AsSpan());
+            if (width > maxLineWidthPx) maxLineWidthPx = width;
+        }
+        int contentWidth = lnWidth + maxLineWidthPx;
+        if (contentWidth <= paintWidth)
+        {
+            _hscroll.Visible = false;
+            _scrollX = 0;
+            return;
+        }
+        // 表示に必要
+        int largeChange = Math.Max(1, paintWidth);
+        _hscroll.LargeChange = largeChange;
+        _hscroll.Maximum = contentWidth - 1 + Math.Max(0, largeChange - 1);
+        _hscroll.SmallChange = Math.Max(1, _metrics.MeasureRun("0"));
+        int maxScrollX = _hscroll.Maximum - Math.Max(0, largeChange - 1);
+        if (_scrollX > maxScrollX) _scrollX = Math.Max(0, maxScrollX);
+        if (_scrollX < 0) _scrollX = 0;
+        _hscroll.Value = _scrollX;
+        _hscroll.Visible = true;
+    }
+
+    private int ClampScrollX(int value)
+    {
+        int max = _hscroll.Maximum - Math.Max(0, _hscroll.LargeChange - 1);
+        if (max < 0) max = 0;
+        if (value < 0) return 0;
+        if (value > max) return max;
+        return value;
+    }
+
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
         UpdateVerticalScrollbar();
+        UpdateHorizontalScrollbar();
         PositionCaret();
     }
 
@@ -320,38 +436,36 @@ public sealed class EditorControl : Control
     }
 
     /// <summary>
-    /// <c>_caret</c>(UTF-16 char offset)からクライアント座標(px)を算出し、
-    /// システムキャレット位置に反映する。可視外(TopLine 未到達 / 下端超過)は
-    /// 見えない位置 (-1000, -1000) へ退避。フォーカス無し・buffer 未設定時は何もしない。
+    /// 与えられた UTF-16 char offset のクライアント座標(px)と可視性を算出する純ロジック。
+    /// - Visible=false: TopLine 未到達 / paintHeight を超える論理行 / y &gt;= paintHeight
+    /// - Visible=true: (X, Y) は「行番号マージン含む・_scrollX を引く前」の座標
     /// </summary>
     /// <remarks>
-    /// 折り返し ON 時は TopLine ～ キャレット行までの各論理行に対して <c>LineLayout.Wrap</c>
+    /// 折り返し ON 時は TopLine ～ 対象行までの各論理行に対して <c>LineLayout.Wrap</c>
     /// を呼び直す(1 論理行ずつ GetText + Wrap)。Task 14 のベンチで顕在化するようなら
     /// Frame の再利用等で最適化する(Task 9 レビュー M-3 の申し送り)。
+    /// Task 10 レビュー I-1 対応: 積み上げループ内で paintHeight 超えを検出したら早期退避する
+    /// (100 万行のような巨大文書でキャレットが末尾方向にあるとき無駄な Wrap を避けるため)。
     /// </remarks>
-    private void PositionCaret()
+    private (int X, int Y, bool Visible) ComputeCaretPoint(int offset)
     {
-        if (!_hasFocus || _buffer is null) return;
+        if (_buffer is null) return (0, 0, false);
         var snap = _buffer.Current;
-        int logicalLine = snap.GetLineIndexOfChar(_caret);
+        int logicalLine = snap.GetLineIndexOfChar(offset);
 
-        // TopLine 未到達なら不可視(スクロールでキャレット行が上にはみ出している)
-        if (logicalLine < _topLine)
-        {
-            NativeMethods.SetCaretPos(-1000, -1000);
-            return;
-        }
+        // TopLine 未到達なら不可視(スクロールで対象行が上にはみ出している)
+        if (logicalLine < _topLine) return (0, 0, false);
 
         int lineStart = snap.GetLineStart(logicalLine);
         int lineEnd = snap.GetLineEnd(logicalLine, includeBreak: false);
         int lineLen = lineEnd - lineStart;
         string lineText = lineLen == 0 ? string.Empty : snap.GetText(lineStart, lineLen);
-        int maxWidthPx = WrapColumns > 0 ? WrapColumns * _metrics.MeasureRun("0") : 0;
+        int maxWidthPx = _wrapColumns > 0 ? _wrapColumns * _metrics.MeasureRun("0") : 0;
         var segments = LineLayout.Wrap(lineText, maxWidthPx, _metrics);
 
-        int caretInLine = _caret - lineStart;
+        int caretInLine = offset - lineStart;
 
-        // caret がどの視覚セグメントに属するかを決める。
+        // 対象がどの視覚セグメントに属するかを決める。
         // - 通常は「seg.OffsetInLine + seg.Length で終わる直前」まで
         // - 最終セグメントに限り「末尾ちょうど」も許容(EOL キャレット位置)
         int segIdx = segments.Count - 1;
@@ -370,7 +484,11 @@ public sealed class EditorControl : Control
         var segSpan = lineText.AsSpan(chosenSeg.OffsetInLine, chosenSeg.Length);
         int xInSeg = PixelMapper.OffsetToPx(segSpan, localOffset, _metrics);
 
-        // TopLine の先頭視覚行を Y=0 として、キャレット視覚行までの積み上げ視覚行数を算出。
+        int lineHeight = _metrics.LineHeightPx;
+        int paintHeight = Math.Max(0, ClientSize.Height - (_hscroll.Visible ? _hscroll.Height : 0));
+
+        // TopLine の先頭視覚行を Y=0 として、対象視覚行までの積み上げ視覚行数を算出。
+        // paintHeight を超えたら以降の Wrap は無駄なので早期退避(Task 10 I-1)。
         int visualRowsBeforeThisLine = 0;
         for (int line = _topLine; line < logicalLine; line++)
         {
@@ -380,21 +498,48 @@ public sealed class EditorControl : Control
             string lText = lLen == 0 ? string.Empty : snap.GetText(lStart, lLen);
             var segs = LineLayout.Wrap(lText, maxWidthPx, _metrics);
             visualRowsBeforeThisLine += segs.Count;
+            if (visualRowsBeforeThisLine * lineHeight >= paintHeight)
+                return (0, 0, false);
         }
         int totalVisualRow = visualRowsBeforeThisLine + segIdx;
 
-        int lnWidth = ShowLineNumbers ? MeasureLineNumberWidth(snap.LineCount) : 0;
+        int lnWidth = _showLineNumbers ? MeasureLineNumberWidth(snap.LineCount) : 0;
         int x = lnWidth + xInSeg;
-        int y = totalVisualRow * _metrics.LineHeightPx;
+        int y = totalVisualRow * lineHeight;
 
-        // 下端超過(クライアント高さ以上)なら不可視位置へ退避
-        if (y >= ClientSize.Height)
-        {
-            NativeMethods.SetCaretPos(-1000, -1000);
-            return;
-        }
+        // 下端超過(paint 領域の高さ以上)なら不可視
+        if (y >= paintHeight) return (0, 0, false);
 
-        NativeMethods.SetCaretPos(x, y);
+        return (x, y, true);
+    }
+
+    /// <summary>
+    /// <c>_caret</c>(UTF-16 char offset)からクライアント座標(px)を算出し、
+    /// システムキャレット位置に反映する。可視外(TopLine 未到達 / 下端超過)は
+    /// 見えない位置 (-1000, -1000) へ退避。フォーカス無し・buffer 未設定時は何もしない。
+    /// 折り返し OFF 時は最終位置から <see cref="ScrollX"/> を引いてから SetCaretPos する。
+    /// </summary>
+    private void PositionCaret()
+    {
+        if (!_hasFocus || _buffer is null) return;
+        var (x, y, visible) = ComputeCaretPoint(_caret);
+        if (visible) NativeMethods.SetCaretPos(x - _scrollX, y);
+        else NativeMethods.SetCaretPos(-1000, -1000);
+    }
+
+    /// <summary>
+    /// UTF-16 文字オフセットのクライアント座標(px)を返す(P2 計画 §1 の公開 API)。
+    /// SetSource 前 / 可視外(TopLine 未到達 / 下端超過)は <see cref="Point.Empty"/> を返す。
+    /// 返す座標は <see cref="ScrollX"/> 反映後の実描画位置(折り返し OFF 時は -_scrollX された値)。
+    /// サロゲート中間位置・範囲外は内部で <see cref="SnapAndClamp"/> により正規化する。
+    /// </summary>
+    public Point PointFromCharOffset(int offset)
+    {
+        if (_buffer is null) return Point.Empty;
+        int snapped = SnapAndClamp(offset);
+        var (x, y, visible) = ComputeCaretPoint(snapped);
+        if (!visible) return Point.Empty;
+        return new Point(x - _scrollX, y);
     }
 
     protected override void OnMouseWheel(MouseEventArgs e)
@@ -413,12 +558,13 @@ public sealed class EditorControl : Control
         if (_buffer is not null)
         {
             var snap = _buffer.Current;
-            // Control.ClientSize は docked 子コントロールを引かないため、VScrollBar 幅を明示的に減算。
-            // (ScrollableControl と違って Control は DisplayRectangle でも同じ挙動)
+            // Control.ClientSize は docked 子コントロールを引かないため、VScrollBar 幅・
+            // HScrollBar 高さを明示的に減算。(ScrollableControl と違って Control は
+            // DisplayRectangle でも同じ挙動)
             int paintWidth = Math.Max(0, ClientSize.Width - _vscroll.Width);
-            int paintHeight = ClientSize.Height;
-            var rows = ViewportLayout.Build(snap, _topLine, paintHeight, WrapColumns, _metrics);
-            int lnWidth = ShowLineNumbers ? MeasureLineNumberWidth(snap.LineCount) : 0;
+            int paintHeight = Math.Max(0, ClientSize.Height - (_hscroll.Visible ? _hscroll.Height : 0));
+            var rows = ViewportLayout.Build(snap, _topLine, paintHeight, _wrapColumns, _metrics);
+            int lnWidth = _showLineNumbers ? MeasureLineNumberWidth(snap.LineCount) : 0;
 
             // 選択がある間は現在行強調 FillRect を抑止する(選択矩形と重ねると
             // ハイライトが二重になり視覚的に読みにくいため=EditorControl 層の責務)。
@@ -443,26 +589,38 @@ public sealed class EditorControl : Control
         base.OnPaint(e);
     }
 
+    /// <summary>
+    /// Frame の Ops を GDI 呼び出しに変換する。折り返し OFF 時の水平スクロール(<see cref="_scrollX"/>)は、
+    /// <b>最初の op(背景全域 FillRect)を除く</b>すべての op の X から差し引く形で反映する
+    /// (先頭以外の X は「本文/選択/現在行/行番号/枠」いずれも文書座標に紐付いており、
+    /// スクロール原点シフト対象として一様に扱ってよいため)。
+    /// 行番号マージンも一緒にシフトされる(仕様=YAGNI・固定したいなら将来タスクで対応)。
+    /// 折り返し ON 時は <see cref="_scrollX"/>=0 なので実質シフトなし。
+    /// </summary>
     private void RenderFrame(Graphics g, Frame frame)
     {
+        bool isFirst = true;
         foreach (var op in frame.Ops)
         {
+            int x = op.X;
+            if (!isFirst) x -= _scrollX;
+            isFirst = false;
             switch (op.Kind)
             {
                 case PaintOpKind.FillRect:
                     using (var b = new SolidBrush(ToColor(op.Back)))
-                        g.FillRectangle(b, op.X, op.Y, op.Width, op.Height);
+                        g.FillRectangle(b, x, op.Y, op.Width, op.Height);
                     break;
                 case PaintOpKind.DrawText:
                     TextRenderer.DrawText(
                         g, op.Text ?? string.Empty, _font,
-                        new Rectangle(op.X, op.Y, op.Width, op.Height),
+                        new Rectangle(x, op.Y, op.Width, op.Height),
                         ToColor(op.Fore),
                         TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.Left);
                     break;
                 case PaintOpKind.DrawLine:
                     using (var p = new Pen(ToColor(op.Fore)))
-                        g.DrawLine(p, op.X, op.Y, op.X + op.Width, op.Y + op.Height);
+                        g.DrawLine(p, x, op.Y, x + op.Width, op.Y + op.Height);
                     break;
             }
         }

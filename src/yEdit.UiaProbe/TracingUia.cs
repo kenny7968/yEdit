@@ -12,6 +12,8 @@ namespace yEdit.UiaProbe;
 /// どのメソッド/TextUnit で本文を読むかを実機ログで判別するためのデコレータ。
 /// yEdit.Accessibility(本番コード)には手を触れず、プローブ側で TextControlProvider を包む。
 /// 全メソッドが UIA の RPC スレッドから呼ばれ得るため、trace デリゲートはスレッド安全であること。
+/// 注意: 呼び出し毎の Peek(GetText)+ファイルI/Oがホットパスに乗るため、
+/// 応答速度・性能系の検証はトレースOFF(UiaTrace 未設定)で行うこと。
 /// </summary>
 internal sealed class TracingRootProvider :
     IRawElementProviderSimple,

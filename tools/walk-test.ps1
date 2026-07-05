@@ -2,11 +2,12 @@
 #   Expand(Char) once, then repeated Move(Char,1) + GetText.
 # Correct provider must yield: こ, れ, は, ' ', U, I (chars of line 0).
 # Buggy provider yields: こ, '', '', ... (Move collapses the range).
+param([string]$Exe = "<repo>\src\yEdit.UiaProbe\bin\Debug\net9.0-windows\yEdit.UiaProbe.exe")
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 
-$exe = "<repo>\src\yEdit.UiaProbe\bin\Debug\net9.0-windows\yEdit.UiaProbe.exe"
+$exe = $Exe
 $proc = Start-Process -FilePath $exe -PassThru
 Start-Sleep -Seconds 2
 

@@ -1,9 +1,10 @@
 # UIA client verification for yEdit.UiaProbe (ASCII only to avoid PS 5.1 encoding issues).
+param([string]$Exe = "<repo>\src\yEdit.UiaProbe\bin\Debug\net9.0-windows\yEdit.UiaProbe.exe")
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 
-$exe = "<repo>\src\yEdit.UiaProbe\bin\Debug\net9.0-windows\yEdit.UiaProbe.exe"
+$exe = $Exe
 $proc = Start-Process -FilePath $exe -PassThru
 Start-Sleep -Seconds 2
 

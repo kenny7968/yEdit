@@ -34,6 +34,11 @@
 - Document: 
 - Edit: 
 
+## 備考(判定時の注意)
+
+- プローブでは座標系API(GetBoundingRectangles / RangeFromPoint)が未実装(P5で本実装)。
+  視覚追従・フォーカスハイライト・点字ルーティング系の癖は記録のみとし、No-Go の判定材料にしない。
+
 ## Go/No-Go 判定基準(設計書 §4)
 
 - **No-Go(致命)**: いずれかの主要SR(NVDA/PC-Talker)で #1/#2(基本ナビ読み)または #8(SayAll)が不可・実用に耐えない

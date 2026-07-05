@@ -238,6 +238,11 @@ public sealed class UiaTextControl : Control, IUiaTextHost
     private void MoveCaret(int newPos, bool extend)
     {
         newPos = Clamp(newPos);
+        // 行またぎ移動(CaretByLine)やクリック(HitTest)は UTF-16 桁の生計算のため、
+        // サロゲートペアの中間に着地し得る。孤立サロゲートを SR に読ませないようスナップ。
+        if (newPos > 0 && newPos < _text.Length
+            && char.IsLowSurrogate(_text[newPos]) && char.IsHighSurrogate(_text[newPos - 1]))
+            newPos--;
         _caret = newPos;
         if (!extend) _anchor = newPos;
         OnCaretChanged();

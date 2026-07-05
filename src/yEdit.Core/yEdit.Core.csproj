@@ -11,4 +11,8 @@
     <PackageReference Include="UTF.Unknown" Version="2.6.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="yEdit.Core.Tests" />
+  </ItemGroup>
+
 </Project>

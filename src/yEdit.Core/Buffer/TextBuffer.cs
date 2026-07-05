@@ -94,16 +94,17 @@ public sealed class TextBuffer
     /// <summary>全編集の共通経路。範囲 [pos, pos+delLen) を insert で置き換える。</summary>
     private void Splice(int pos, int delLen, string insert)
     {
-        // 1) サロゲートペア中間は前方(低い方)へスナップ(§0-3)
-        int start = SnapLow(pos);
-        int end = SnapLow(pos + delLen);
-        if (start == end && insert.Length == 0) return;   // 無変化
+        if (delLen == 0 && insert.Length == 0) return;   // 無変化
 
         var rootBefore = _current.Root;
 
-        // 2) 木を [0,start) / [start,end) / [end,…) に分割し中央を捨てる
-        var (l, rest) = PieceTree.Split(rootBefore, start);
-        var (_, r) = PieceTree.Split(rest, end - start);
+        // 1)-2) 分割(サロゲートペア中間は Split 内で前方=低い方へスナップ§0-3)。
+        //        実効位置は分割結果の統計から得る(追加走査なし)
+        var (l, rest) = PieceTree.Split(rootBefore, pos);
+        int start = PieceTree.SumOf(l).CharLen;
+        var (mid, r) = PieceTree.Split(rest, pos + delLen - start);
+        int removed = PieceTree.SumOf(mid).CharLen;
+        if (removed == 0 && insert.Length == 0) return;   // スナップの結果無変化(ルート参照も不変)
 
         // 3) 挿入テキストを追記バッファへ
         var newPieces = _append.Append(insert);
@@ -137,20 +138,13 @@ public sealed class TextBuffer
         }
 
         // 5) 再結合+Undoログ記録
-        var mid = left;
-        foreach (var p in newPieces) mid = PieceTree.Join(mid, p, null);
-        var newRoot = PieceTree.Join2(mid, right);
+        var joined = left;
+        foreach (var p in newPieces) joined = PieceTree.Join(joined, p, null);
+        var newRoot = PieceTree.Join2(joined, right);
         _current = new TextSnapshot(newRoot);
         // 挿入のUTF-16長: 孤立サロゲート→U+FFFD 置換は1単位→1単位なので insert.Length と一致
-        _history.Record(rootBefore, newRoot, start, end - start, insert.Length,
+        _history.Record(rootBefore, newRoot, start, removed, insert.Length,
                         insert.Contains('\n') || insert.Contains('\r'));
-    }
-
-    /// <summary>サロゲートペア中間なら前方(低い方)の境界へ。</summary>
-    private int SnapLow(int p)
-    {
-        if (p > 0 && p < _current.CharLength && char.IsLowSurrogate(_current.GetChar(p))) p--;
-        return p;
     }
 
     private void ValidateRange(int pos, int length)

@@ -67,10 +67,32 @@ public sealed class TextSnapshot
     {
         if (pos < 0 || pos > CharLength)
             throw new ArgumentOutOfRangeException(nameof(pos));
-        int breaks = PieceTree.PrefixStats(_root, pos).Breaks;
-        // CRLFの途中(pos-1がCR かつ posがLF)= breakはまだ完了していない
-        if (pos > 0 && pos < CharLength && GetChar(pos) == '\n' && GetChar(pos - 1) == '\r') breaks--;
+        var prefix = PieceTree.PrefixStats(_root, pos);
+        int breaks = prefix.Breaks;
+        // CRLFの途中(pos-1がCR かつ posがLF)= breakはまだ完了していない。
+        // 接頭辞末尾がCRのときだけ pos のLF判定を行う(通常経路は追加走査なし)
+        if (prefix.LastIsCr && pos < CharLength && IsLfAt(pos)) breaks--;
         return breaks;
+    }
+
+    /// <summary>pos の文字がLFか(バイト1点照会・stringデコードなし)。pos &lt; CharLength 前提。</summary>
+    private bool IsLfAt(int pos)
+    {
+        var t = _root;
+        while (true)
+        {
+            int leftChars = PieceTree.SumOf(t!.Left).CharLen;
+            if (pos < leftChars) { t = t.Left; continue; }
+            pos -= leftChars;
+            if (pos < t.Piece.CharLen)
+            {
+                if (pos == 0) return t.Piece.Stats.FirstIsLf;
+                int b = t.Piece.Chunk.CharToByte(t.Piece.ByteStart, t.Piece.ByteLen, pos);
+                return t.Piece.Chunk.Span[b] == (byte)'\n';
+            }
+            pos -= t.Piece.CharLen;
+            t = t.Right;
+        }
     }
 
     /// <summary>全文を供給する TextReader(全文string非実体化・Markdig/regex行適用向け)。</summary>

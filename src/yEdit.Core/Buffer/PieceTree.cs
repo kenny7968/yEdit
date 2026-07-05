@@ -76,10 +76,18 @@ internal static class PieceTree
             return (t.Left, Join(null, t.Piece, t.Right));   // ピース左境界: 空ピースを作らない
         if (pos >= t.Piece.CharLen)
         { var (a, b) = Split(t.Right, pos - t.Piece.CharLen); return (Join(t.Left, t.Piece, a), b); }
-        // ピース内部分割: チャンク照会でバイト境界を求め2ピース化
-        int byteMid = t.Piece.Chunk.CharToByte(t.Piece.ByteStart, t.Piece.ByteLen, pos);
-        var p1 = Piece.Of(t.Piece.Chunk, t.Piece.ByteStart, byteMid - t.Piece.ByteStart);
-        var p2 = Piece.Of(t.Piece.Chunk, byteMid, t.Piece.ByteStart + t.Piece.ByteLen - byteMid);
+        // ピース内部分割: 1走査で分割点と接頭辞統計を求め、残り半分はモノイド差分でO(1)導出
+        var piece = t.Piece;
+        var (byteMid, prefix) = piece.Chunk.SplitStats(piece.ByteStart, piece.ByteLen, pos);
+        if (byteMid == piece.ByteStart)   // 先頭コード点中間へのスナップ → ピース左境界扱い(空ピースを作らない)
+            return (t.Left, Join(null, piece, t.Right));
+        var p1 = new Piece(piece.Chunk, piece.ByteStart, byteMid - piece.ByteStart, prefix);
+        var total = piece.Stats;
+        bool p2FirstIsLf = piece.Chunk.Span[byteMid] == (byte)'\n';
+        var p2 = new Piece(piece.Chunk, byteMid, piece.ByteStart + piece.ByteLen - byteMid,
+            new PieceStats(total.ByteLen - prefix.ByteLen, total.CharLen - prefix.CharLen,
+                total.Breaks - prefix.Breaks + (prefix.LastIsCr && p2FirstIsLf ? 1 : 0),
+                p2FirstIsLf, total.LastIsCr));
         return (Join(t.Left, p1, null), Join(null, p2, t.Right));
     }
 
@@ -151,9 +159,8 @@ internal static class PieceTree
             if (pos < t.Piece.CharLen)
             {
                 if (pos == 0) return acc;
-                int byteMid = t.Piece.Chunk.CharToByte(t.Piece.ByteStart, t.Piece.ByteLen, pos);
-                return PieceStats.Combine(acc,
-                    t.Piece.Chunk.StatsOfRange(t.Piece.ByteStart, byteMid - t.Piece.ByteStart));
+                var (_, prefix) = t.Piece.Chunk.SplitStats(t.Piece.ByteStart, t.Piece.ByteLen, pos);
+                return PieceStats.Combine(acc, prefix);
             }
             acc = PieceStats.Combine(acc, t.Piece.Stats);
             pos -= t.Piece.CharLen;

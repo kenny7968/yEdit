@@ -145,6 +145,56 @@ public class TextChunkTests
     }
 
     [Fact]
+    public void SplitStats_matches_naive_prefix_scan()
+    {
+        string doc = BuildMixedDoc();
+        byte[] bytes = Encoding.UTF8.GetBytes(doc);
+        var chunk = new TextChunk(bytes, gridBytes: 8);
+        var bounds = CharBoundaries(doc);
+        var rnd = new Random(20260705);
+        for (int t = 0; t < 200; t++)
+        {
+            int i = bounds[rnd.Next(bounds.Count)], j = bounds[rnd.Next(bounds.Count)];
+            if (i > j) (i, j) = (j, i);
+            int a = ByteOff(doc, i), b = ByteOff(doc, j);
+            // 範囲内のランダムな境界 k まで
+            int k = i;
+            foreach (int cand in bounds)
+                if (cand >= i && cand <= j && rnd.Next(4) == 0) { k = cand; break; }
+            var (byteMid, prefix) = chunk.SplitStats(a, b - a, k - i);
+            Assert.Equal(ByteOff(doc, k), byteMid);
+            AssertStatsEqual(bytes[a..byteMid], prefix);
+        }
+    }
+
+    [Fact]
+    public void SplitStats_snaps_low_at_surrogate_middle()
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes("a😀b");
+        var chunk = new TextChunk(bytes, gridBytes: 4);
+        var (byteMid, prefix) = chunk.SplitStats(0, bytes.Length, 2);   // ペア中間
+        Assert.Equal(1, byteMid);                                       // "a" の直後へスナップ
+        Assert.Equal(1, prefix.CharLen);
+    }
+
+    [Fact]
+    public void SplitStats_crlf_edge_conventions()
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes("x\r\ny\r");
+        var chunk = new TextChunk(bytes, gridBytes: 2);
+        // 接頭辞 "x\r" (CRLFの途中で切る) → 末尾CRは単独扱いで1 break
+        var (mid1, p1) = chunk.SplitStats(0, bytes.Length, 2);
+        Assert.Equal(2, mid1);
+        Assert.Equal(1, p1.Breaks);
+        Assert.True(p1.LastIsCr);
+        // 範囲 [2,5)="\ny\r" の接頭辞 "\ny" → 1 break
+        var (mid2, p2) = chunk.SplitStats(2, 3, 2);
+        Assert.Equal(4, mid2);
+        Assert.Equal(1, p2.Breaks);
+        Assert.True(p2.FirstIsLf);
+    }
+
+    [Fact]
     public void GetString_roundtrips()
     {
         string doc = BuildMixedDoc();

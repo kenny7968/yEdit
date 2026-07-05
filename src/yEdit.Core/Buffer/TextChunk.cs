@@ -87,6 +87,48 @@ internal sealed class TextChunk
     }
 
     /// <summary>
+    /// 範囲先頭から charDelta 文字目の分割バイト位置と接頭辞 [byteStart, ByteMid) の統計を
+    /// 1回の格子走査で返す(ピース分割・接頭辞統計の高速経路)。charDelta がサロゲート中間なら低い方へスナップ。
+    /// </summary>
+    public (int ByteMid, PieceStats Prefix) SplitStats(int byteStart, int byteLen, int charDelta)
+    {
+        var s = _bytes.Span;
+        var (chA, fA) = CumAt(byteStart);
+        int target = chA + charDelta;
+
+        int j = GridIndexForChar(target);
+        int pos, cum, f;
+        if (_gByte[j] >= byteStart) { pos = _gByte[j]; cum = _gChar[j]; f = _gBreaks[j]; }
+        else { pos = byteStart; cum = chA; f = fA; }
+        int jump = pos;
+
+        // 実lookaheadでbreakを数えながら target 文字まで前進(f規約への補正は走査後)
+        while (cum < target)
+        {
+            byte b = s[pos];
+            int step = b < 0x80 ? 1 : b < 0xE0 ? 2 : b < 0xF0 ? 3 : 4;
+            int units = step == 4 ? 2 : 1;
+            if (cum + units > target) break;   // サロゲート中間 → 低い方へスナップ
+            if (b == (byte)'\n') f++;
+            else if (b == (byte)'\r' && (pos + 1 >= s.Length || s[pos + 1] != (byte)'\n')) f++;
+            cum += units;
+            pos += step;
+        }
+        if (pos > jump)
+        {
+            // f(x)規約: x-1 の CR は単独扱い(実lookaheadでは CRLF として未計上なら +1)
+            if (s[pos - 1] == (byte)'\r' && pos < s.Length && s[pos] == (byte)'\n') f++;
+            // jump点の BreaksTo は jump-1 の CR を単独計上済み。実際は CRLF なら LF 側と二重になるため −1
+            if (jump > 0 && s[jump - 1] == (byte)'\r' && s[jump] == (byte)'\n') f--;
+        }
+
+        if (pos == byteStart) return (pos, PieceStats.Empty);
+        int breaks = f - fA + (byteStart > 0 && s[byteStart - 1] == (byte)'\r' && s[byteStart] == (byte)'\n' ? 1 : 0);
+        return (pos, new PieceStats(pos - byteStart, cum - chA, breaks,
+                                    s[byteStart] == (byte)'\n', s[pos - 1] == (byte)'\r'));
+    }
+
+    /// <summary>
     /// 範囲内の文字区間 [charFrom, charTo) を string 化。両端がサロゲート中間でもよい
     /// (コード点境界へ広げて切り出し→部分stringスライス)。
     /// </summary>

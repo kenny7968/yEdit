@@ -777,4 +777,27 @@ Expected: build 0警告・全テスト緑(289+新規)
 
 ## 実施記録
 
-(実行時に追記)
+### 2026-07-05 Task 1〜13 実施
+
+- **テスト**: 既存289 → 408(P1新規119件)。全緑・build 0警告
+- **ファズ(Task 12)**: 5シード{1,2,3,42,20260705}×30,000操作=計150,000操作 無差異PASS(1分28秒)
+- **1GBベンチ(Task 13)**: `dotnet run --project tests/yEdit.Core.Bench -c Release -- --mb 1024` → **EXIT 0(全目標達成)**
+
+| # | シナリオ | 結果(1GB) | 目標 | 判定 |
+|---|---|---|---|---|
+| 1 | 構築 | 2.6s / 561,841,654文字 / 18,728,056行 / 1025ピース | 記録のみ | ― |
+| 2 | splice 10,000回 | 平均 78.8 µs / p99 188.0 µs | 平均<1ms かつ p99<1ms | PASS |
+| 3 | Current取得 | 2.3 ns/回 | O(1)(<1µs) | PASS |
+| 4 | GetLineStart | 26.9 µs/回 | 平均<100µs | PASS |
+| 5 | GetLineIndexOfChar | 19.2 µs/回 | 平均<100µs | PASS |
+| 6 | GetText(200) | 28.1 µs/回 | 平均<100µs | PASS |
+| 7 | 連続タイピング断片化 | Δ2(21425→21427) | Δ≤50 | PASS |
+| 8 | メモリ | managed 1027MB / WorkingSet 1053MB(文書1024MB) | 記録のみ | ― |
+
+(参考: 256MBでも全PASS。構築0.6s・splice平均96µs/p99 199µs)
+
+- **計画からの逸脱(いずれも性能ゲート達成のための実測ベース最適化・全テストで検証済み)**:
+  1. `TextChunk.SplitStats` を追加(分割点+接頭辞統計を1走査で返す)。`PieceTree.Split` のピース内部分割は後半統計をモノイド差分でO(1)導出(旧: CharToByte+Piece.Of×2 で同領域を4〜5回走査 → splice p99 1.19msでFAILしていた)
+  2. `TextBuffer.Splice` の SnapLow(GetChar×2)を廃止し、実効位置を Split 結果の統計から導出(スナップは Split 内のコード点境界スナップに一本化・意味は同一)
+  3. `TextSnapshot.GetLineIndexOfChar` のCRLF中間判定は PrefixStats の LastIsCr を利用し、LF照会(IsLfAt=バイト1点照会)は接頭辞末尾CR時のみ実行(旧: GetChar×2常時 → 107.8µsでFAILしていた)
+  4. `MarkSaved()` は coalescing 境界とする(Undoが保存点を飛び越えて融合エントリを戻さないため。Task 10のテスト仕様が要求)

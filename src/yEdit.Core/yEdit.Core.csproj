@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="yEdit.Core.Tests" />
+    <InternalsVisibleTo Include="yEdit.Core.Bench" />
   </ItemGroup>
 
 </Project>

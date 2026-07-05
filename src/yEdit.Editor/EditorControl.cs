@@ -780,7 +780,13 @@ public sealed class EditorControl : Control
     /// <see cref="ComputeCaretPoint"/> は <c>_scrollX</c> 適用前の X を返す(=行番号マージン含む
     /// 描画原点座標)。現在の可視ウィンドウは [<c>_scrollX</c>, <c>_scrollX + paintWidth</c>)。
     /// 右端に張り付かせるときは caret を可視領域末尾から半角 1 文字幅分内側に置く
-    /// (キャレットが右端ぎりぎりで隠れるのを防ぐ)。
+    /// (キャレットが右端ぎりぎりで隠れるのを防ぐ)。paintWidth が半角 1 文字幅より狭い極小
+    /// ウィンドウでは、この 1 サイクル余分にスクロールしても届かず ScrollX がクランプで
+    /// 頭打ちになるが、そのケースは表示自体が破綻しているので実害なし(S-3 レビュー)。
+    /// 垂直方向の可視行数は <c>paintHeight = ClientSize.Height - hscroll.Height</c> ベースで
+    /// 計算する(<see cref="ComputeCaretPoint"/> の可視性判定と一致させる=Task 7 レビュー I-1)。
+    /// 一致していないと、最下論理行にキャレットが来たとき「垂直はまだ可視」と誤判断され
+    /// hscroll の下に張り付いたまま TopLine が動かないケースが発生する。
     /// </remarks>
     public void BringCaretIntoView()
     {
@@ -788,7 +794,9 @@ public sealed class EditorControl : Control
         var snap = _buffer.Current;
 
         int logicalLine = snap.GetLineIndexOfChar(_caret);
-        int visibleRows = Math.Max(1, ClientSize.Height / Math.Max(1, _metrics.LineHeightPx));
+        // I-1 対応: paintHeight ベースで可視行数を算出(ComputeCaretPoint の可視性判定と一致)。
+        int paintHeight = Math.Max(0, ClientSize.Height - (_hscroll.Visible ? _hscroll.Height : 0));
+        int visibleRows = Math.Max(1, paintHeight / Math.Max(1, _metrics.LineHeightPx));
 
         // 垂直: caret 論理行が [TopLine, TopLine+visibleRows) に入るように TopLine 調整
         if (logicalLine < _topLine)
@@ -826,12 +834,23 @@ public sealed class EditorControl : Control
     /// 指定範囲 <c>[start, start+length)</c> の末尾を可視化する(検索ジャンプ・GoTo・
     /// EnsureVisible 相当)。内部でキャレットを一時的に end に置いて
     /// <see cref="BringCaretIntoView"/> を呼ぶが、呼び出し前のキャレット位置と
-    /// アンカーは復元する(=装飾スクロールなので選択・キャレット状態は変えない)。
-    /// SetSource 前は no-op。
+    /// アンカーは try/finally で必ず復元する(=装飾スクロールなので選択・
+    /// キャレット状態は変えない)。SetSource 前は no-op。
     /// </summary>
-    /// <param name="start">開始 UTF-16 文字オフセット(範囲末尾を可視化する仕様なので
-    /// 内部では未使用=<paramref name="length"/> 加算前のクランプは行わない)。</param>
+    /// <param name="start">開始 UTF-16 文字オフセット。範囲末尾 (<c>start+length</c>) の
+    /// 計算にのみ使い、start 単独位置の可視化は行わない(=start は <see cref="SnapAndClamp"/>
+    /// を通さない)。</param>
     /// <param name="length">長さ(UTF-16 コード単位)。負値は 0 として扱う。</param>
+    /// <remarks>
+    /// C-1 対応(Task 7 レビュー): finally で <see cref="PositionCaret"/> を呼び、
+    /// OS 側システムキャレット位置を savedCaret に戻す。これをやらないと
+    /// <see cref="TopLine"/>/<see cref="ScrollX"/> setter が内部で呼ぶ
+    /// <see cref="PositionCaret"/> が <c>_caret = end</c> のまま SetCaretPos を発火し、
+    /// field 復元後も blinking caret / IME 変換開始位置 / UIA フォーカスキャレット位置が
+    /// end に取り残される(P5 の UIA 接続で顕在化する)。
+    /// try/finally 化は I-2(将来 <see cref="BringCaretIntoView"/> に throw を混ぜ込んだ
+    /// ときの state 残留防止)も兼ねる。
+    /// </remarks>
     public void EnsureVisibleCharRange(int start, int length)
     {
         if (_buffer is null) return;
@@ -843,12 +862,21 @@ public sealed class EditorControl : Control
 
         int savedCaret = _caret;
         int savedAnchor = _anchor;
-        _caret = end;
-        _anchor = end;
-        BringCaretIntoView();
-        _caret = savedCaret;
-        _anchor = savedAnchor;
-        Invalidate();
+        try
+        {
+            _caret = end;
+            _anchor = end;
+            BringCaretIntoView();
+        }
+        finally
+        {
+            _caret = savedCaret;
+            _anchor = savedAnchor;
+            // OS 側キャレットを savedCaret の座標に戻す(TopLine/ScrollX setter が
+            // 内部で _caret=end のまま SetCaretPos を発火した副作用を上書きする)。
+            // 末尾 Invalidate は削除: setter が Invalidate 発行済み、no-op ケースなら不要。
+            PositionCaret();
+        }
     }
 
     /// <summary>

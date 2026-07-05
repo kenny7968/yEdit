@@ -1064,6 +1064,21 @@ public void EnsureVisibleCharRange(int start, int length)
 git commit -am "P3: Task 7 キャレット追従スクロール(BringCaretIntoView + EnsureVisibleCharRange)"
 ```
 
+### Task 7 レビュー申し送り(将来対応)
+
+- **編集後処理ヘルパ抽出(S-4・Task 8 冒頭検討)**: Task 8/9 の編集経路では
+  `_desiredXpx = -1` / `AfterEdit`(scroll 再計算)/ `BringCaretIntoView` /
+  `RaiseCaretEnteredEmptyLineIfNeeded` の後処理を漏れなく呼ぶ必要がある。
+  Task 8 冒頭で共通ヘルパ `AfterCaretChange(kind: Edit|PureMove|Jump)` を切り出す
+  余地あり。SetCaretCharOffset に組み込むと Ctrl+A の CharLength ジャンプで
+  可視化まで走ってしまうため慎重に切り分ける(現行 Ctrl+A は BringCaretIntoView
+  を呼ばない=Notepad/VSCode 慣習)。
+
+- **PageUp/PageDown の rows 計算統一(将来 refactor)**: OnKeyDown の Page 分岐は
+  `ClientSize.Height / LineHeightPx` を使うが、Task 7 の BringCaretIntoView は
+  paintHeight ベース(hscroll 高減算後)を使う。Task 15 の最終整理で統一検討
+  (Task 7 レビュー I-1 対応で BringCaretIntoView 側は paintHeight ベースになった)。
+
 ---
 
 ### Task 8: 文字挿入(OnKeyPress + Overtype)

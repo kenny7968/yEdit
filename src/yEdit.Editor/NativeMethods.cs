@@ -27,4 +27,10 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool DestroyCaret();
+
+    // GetCaretPos は Task 7 レビュー C-1 の回帰テストで使用(EnsureVisibleCharRange 後に
+    // OS 側キャレット位置が savedCaret に戻っていることを検証する)。
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetCaretPos(out System.Drawing.Point lpPoint);
 }

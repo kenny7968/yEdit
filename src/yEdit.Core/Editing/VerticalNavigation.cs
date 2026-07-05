@@ -11,29 +11,34 @@ namespace yEdit.Core.Editing;
 /// <remarks>
 /// 前提違反時(caret が範囲外/サロゲート中間)は、TextSnapshot 側から
 /// <see cref="ArgumentOutOfRangeException"/> が透過的に伝播する(NavigationCommands と同方針)。
-/// currentDesiredPx == -1 のとき、現在の caret 位置から desired X を新規計算する
-/// (=キャレット移動系以外の起点=マウスクリック直後 / 編集直後 / 起動直後)。
+/// <paramref name="currentDesiredPx"/> が負値のとき、現在の caret 位置から desired X を新規計算する
+/// (慣例的に -1 を渡す=キャレット移動系以外の起点=マウスクリック直後 / 編集直後 / 起動直後)。
+/// 判定は実装上 <c>currentDesiredPx &gt;= 0</c>=有効値・それ以外=新規計算。
 /// wrapColumns &lt;= 0 は「折り返しなし」= 各論理行 1 視覚行として扱う。
 /// </remarks>
 public static class VerticalNavigation
 {
     /// <summary>下方向 1 視覚行の移動。desired X を保持したまま次の視覚行へ移す。</summary>
+    /// <param name="currentDesiredPx">前回移動時の desired X(px)。負値なら現在 caret から新規計算(慣例的に -1 を使う)。</param>
     /// <returns>(移動先 caret, 次回に渡す desiredPx)</returns>
     public static (int caret, int desiredPx) MoveDown(
         TextSnapshot snap, int caret, int currentDesiredPx, int wrapColumns, ICharMetrics metrics)
         => MoveVerticalRelative(snap, caret, currentDesiredPx, wrapColumns, metrics, deltaRows: +1);
 
     /// <summary>上方向 1 視覚行の移動。</summary>
+    /// <param name="currentDesiredPx">前回移動時の desired X(px)。負値なら現在 caret から新規計算(慣例的に -1 を使う)。</param>
     public static (int caret, int desiredPx) MoveUp(
         TextSnapshot snap, int caret, int currentDesiredPx, int wrapColumns, ICharMetrics metrics)
         => MoveVerticalRelative(snap, caret, currentDesiredPx, wrapColumns, metrics, deltaRows: -1);
 
     /// <summary>下方向 visibleRows 視覚行の移動(PageDown)。visibleRows &lt;= 0 は 1 に丸める。</summary>
+    /// <param name="currentDesiredPx">前回移動時の desired X(px)。負値なら現在 caret から新規計算(慣例的に -1 を使う)。</param>
     public static (int caret, int desiredPx) PageDown(
         TextSnapshot snap, int caret, int currentDesiredPx, int wrapColumns, int visibleRows, ICharMetrics metrics)
         => MoveVerticalRelative(snap, caret, currentDesiredPx, wrapColumns, metrics, deltaRows: Math.Max(1, visibleRows));
 
     /// <summary>上方向 visibleRows 視覚行の移動(PageUp)。</summary>
+    /// <param name="currentDesiredPx">前回移動時の desired X(px)。負値なら現在 caret から新規計算(慣例的に -1 を使う)。</param>
     public static (int caret, int desiredPx) PageUp(
         TextSnapshot snap, int caret, int currentDesiredPx, int wrapColumns, int visibleRows, ICharMetrics metrics)
         => MoveVerticalRelative(snap, caret, currentDesiredPx, wrapColumns, metrics, deltaRows: -Math.Max(1, visibleRows));

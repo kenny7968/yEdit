@@ -672,6 +672,20 @@ Expected: 3〜5 件緑。
 git commit -am "P3: Task 4 VerticalNavigation 純ロジック(Up/Down/Page + desired col)"
 ```
 
+### Task 4 レビュー申し送り(将来対応)
+
+- **最終行 Down 挙動の実機判定**(S-4): 現行 `VerticalNavigation.MoveDown` は最終行到達で
+  同列停留(= vim normal mode 相当・シンプル)。Notepad/VSCode/Word は行末に飛ぶ挙動。
+  Task 6 の EditorControl 配線後の実機テストで最終判定する(必要なら WalkVisualRows
+  内の「文書末打ち切り」直後に「seg=最終・caret=lineEnd 相当」の分岐を追加)。
+
+- **超長行性能懸念**(S-5・P7 申し送り): `MoveVerticalRelative` は論理行全体を
+  `snap.GetText(lineStart, lineEnd - lineStart)` で string 化 → `LineLayout.Wrap` で
+  code-point 単位に走査する。単一 1GB 行(CSV/log)で 1 キーストロークが実質フリーズ。
+  典型ケース(< 1000 chars/line)は問題なし。P7(ベンチ検証)で「単一超長行」の
+  非機能要件項目を追加。将来的な最適化案: `TextSnapshot.GetTextSpan(int, int)` で
+  `ReadOnlySpan<char>` を返す API 追加(コピー回避)。PieceTable との相性次第。
+
 ---
 
 ### Task 5: WordBoundary 純ロジック(Ctrl+←→)

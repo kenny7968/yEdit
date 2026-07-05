@@ -130,4 +130,35 @@ public class VerticalNavigationTests
         Assert.Equal(10, t);
         Assert.Equal(48, d);
     }
+
+    // ===== S-1: サロゲート/CJK 統合(PixelMapper の code-point 対応の回帰保険) =====
+    [Fact]
+    public void MoveDown_SurrogatePair_DoesNotSplit()
+    {
+        // 行0: "a😀b"(surrogate: a=1, 😀=2(high@1,low@2), b=1 → CharLength=4)
+        // 行1: "wxyz"(4 code units)
+        // MonoCharMetrics: a=8, 😀=16(サロゲートペア=half*2=16px), b=8
+        // caret=1(a の直後)から Down → desired=8 → 行1 の col=1 に相当(px=8)→ 5+1=6
+        var s = Snap("a😀b\nwxyz");
+        var (t, d) = VerticalNavigation.MoveDown(s, caret: 1, currentDesiredPx: -1, wrapColumns: 0, M);
+        Assert.Equal(6, t);
+        Assert.Equal(8, d);
+
+        // caret=3(😀 の直後=high と low の後)から Down → desired=24(=a 8 + 😀 16)
+        // 行1 col=3 位置(px=24)→ 5+3=8
+        var (t2, d2) = VerticalNavigation.MoveDown(s, caret: 3, currentDesiredPx: -1, wrapColumns: 0, M);
+        Assert.Equal(8, t2);
+        Assert.Equal(24, d2);
+    }
+
+    [Fact]
+    public void MoveDown_CjkFullWidth_KeepsPxColumn()
+    {
+        // "あいう"(全角3・各16px) → 行末 caret=3 の px = 48
+        // 行1: "abcdef"(半角6・各8px)。desired=48 は "abcdef" 全長=48 とちょうど一致 → 行末 caret=4+6=10
+        var s = Snap("あいう\nabcdef");
+        var (t, d) = VerticalNavigation.MoveDown(s, caret: 3, currentDesiredPx: -1, wrapColumns: 0, M);
+        Assert.Equal(10, t);
+        Assert.Equal(48, d);
+    }
 }

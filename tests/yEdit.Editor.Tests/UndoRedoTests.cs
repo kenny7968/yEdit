@@ -191,6 +191,57 @@ public class UndoRedoTests
         }
     });
 
+    [Fact]
+    public void Undo_Method_NoOp_WhenReadOnly() => Sta.Run(() =>
+    {
+        // I-1 対応の回帰保護: メソッド直接呼び出しでも ReadOnly なら Undo が no-op になる
+        // (App 層メニュー shortcut は OnKeyDown を経由しないため・CSV グリッドモード互換)
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            c.SetCaretCharOffset(3);
+            SendKeyPress(c, 'X');
+            Assert.Equal("abcX", c.GetText());
+            c.ReadOnly = true;
+            c.Undo();   // メソッド直接呼び出しでも no-op
+            Assert.Equal("abcX", c.GetText());
+        }
+    });
+
+    [Fact]
+    public void Redo_Method_NoOp_WhenReadOnly() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            c.SetCaretCharOffset(3);
+            SendKeyPress(c, 'X');
+            c.Undo();
+            Assert.True(c.CanRedo);
+            c.ReadOnly = true;
+            c.Redo();   // メソッド直接呼び出しでも no-op
+            Assert.Equal("abc", c.GetText());
+        }
+    });
+
+    // ===== Redo スタック消費 =====
+
+    [Fact]
+    public void Redo_ClearsCanRedo_AfterConsuming() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            c.SetCaretCharOffset(3);
+            SendKeyPress(c, 'X');
+            c.Undo();
+            Assert.True(c.CanRedo);
+            c.Redo();
+            Assert.False(c.CanRedo);   // Redo スタックが消費された
+            Assert.True(c.CanUndo);    // Undo スタックには積まれた
+        }
+    });
+
     // ===== BackSpace + Undo =====
 
     [Fact]

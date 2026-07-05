@@ -571,13 +571,23 @@ public sealed class EditorControl : Control
     /// Undo 実行(P3 Task 10)。<see cref="TextBuffer.Undo"/> の結果を反映し、キャレットを
     /// 推奨位置(=Pos + RemovedLen=削除内容が復元された末尾)へ移動する。選択は解除
     /// (Task 8/9 と同じ<c>_caret = _anchor = pos</c> パターン)。<c>_desiredXpx</c> は編集経路の
-    /// 一貫性で -1 リセット。SetSource 前 / 履歴なし(<see cref="TextBuffer.Undo"/> が null)は no-op。
-    /// P6 の <c>ScintillaHost.Undo</c> と同名(<see cref="Control.Undo"/> は <c>TextBoxBase</c> 以下の
-    /// メソッドで Control 直接派生の本クラスには存在しないため <c>new</c> 不要)。
+    /// 一貫性で -1 リセット。SetSource 前 / 履歴なし(<see cref="TextBuffer.Undo"/> が null)
+    /// / <see cref="ReadOnly"/> は no-op。
+    /// P6 の <c>ScintillaHost.Undo</c> と同名(<c>Undo</c> は <see cref="Control"/> の直接メンバではなく
+    /// <c>TextBoxBase</c> で導入される名前=本クラスは Control 直接派生のため隠すべき同名メソッドが
+    /// 無く <c>new</c> キーワード不要)。
     /// </summary>
+    /// <remarks>
+    /// ReadOnly ガードはメソッド本体側で行う(<see cref="OnKeyDown"/> の <c>Keys.Z</c> case にも
+    /// <c>when !ReadOnly</c> を残しているが、これは二重防御=App 層 <c>MainForm</c> のメニュー
+    /// shortcut は <see cref="OnKeyDown"/> を経由せず本メソッドを直接呼ぶため、本体側で弾く必要が
+    /// ある)。Scintilla の <c>SCI_UNDO</c> が read-only モードで no-op になる挙動と合わせる=P6 で
+    /// <c>ScintillaHost</c> を本コントロールへ機械的置換した際に CSV グリッドモード
+    /// (<c>CsvController.Editor.ReadOnly = true</c>)などの ReadOnly 経路で挙動が退行しない。
+    /// </remarks>
     public void Undo()
     {
-        if (_buffer is null) return;
+        if (_buffer is null || ReadOnly) return;
         var r = _buffer.Undo();
         if (r is null) return;
         int pos = Math.Clamp(r.Value.CaretPos, 0, _buffer.Current.CharLength);
@@ -589,11 +599,12 @@ public sealed class EditorControl : Control
     /// <summary>
     /// Redo 実行(P3 Task 10)。<see cref="TextBuffer.Redo"/> の結果を反映し、キャレットを
     /// 推奨位置(=Pos + InsertedLen=再挿入内容の末尾)へ移動する。それ以外の副作用は
-    /// <see cref="Undo"/> と同じ(選択解除・desiredXpx リセット・AfterEdit で追従スクロール)。
+    /// <see cref="Undo"/> と同じ(選択解除・desiredXpx リセット・AfterEdit で追従スクロール・
+    /// SetSource 前 / <see cref="ReadOnly"/> は no-op)。
     /// </summary>
     public void Redo()
     {
-        if (_buffer is null) return;
+        if (_buffer is null || ReadOnly) return;
         var r = _buffer.Redo();
         if (r is null) return;
         int pos = Math.Clamp(r.Value.CaretPos, 0, _buffer.Current.CharLength);

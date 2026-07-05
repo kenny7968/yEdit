@@ -139,10 +139,17 @@ public sealed class EditorControl : Control
     }
 
     /// <summary>
-    /// 水平スクロール位置(px)。折り返し OFF 時のみ有効(ON 時は 0 固定・set は no-op)。
+    /// 水平スクロール位置(px)。<b>折り返し OFF かつ HScrollBar 表示中のみ有効</b>
+    /// (ON 時 / 内容が可視領域に収まり HScroll 非表示の間は 0 固定・set は no-op)。
     /// [0, MaxScrollX] にクランプ(MaxScrollX は HScrollBar.Maximum - LargeChange + 1 相当)。
     /// 変化時のみ HScrollBar.Value を追従・キャレット再配置・Invalidate。
     /// </summary>
+    /// <remarks>
+    /// HScrollBar 非表示時ガードが無いと、直前まで表示されていたときの
+    /// <c>_hscroll.Maximum</c> が残存しており ClampScrollX が非ゼロ値を通してしまう
+    /// (=本来スクロール不要なのに描画が左シフトする)。<see cref="UpdateHorizontalScrollbar"/>
+    /// の hide 分岐で Maximum/LargeChange をリセットすることでも二重に防いでいる。
+    /// </remarks>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public int ScrollX
     {
@@ -150,6 +157,7 @@ public sealed class EditorControl : Control
         set
         {
             if (_wrapColumns > 0) return;   // 折り返し ON では水平スクロール無効
+            if (!_hscroll.Visible) return;  // HScroll 非表示時は水平スクロール意味なし
             int clamped = ClampScrollX(value);
             if (clamped == _scrollX) return;
             _scrollX = clamped;
@@ -345,20 +353,16 @@ public sealed class EditorControl : Control
 
     /// <summary>
     /// HScrollBar の表示可否・Maximum / LargeChange を現在の buffer と ClientSize から再計算する。
-    /// - 折り返し ON / 未 SetSource / 内容が可視領域に収まる → 非表示・_scrollX=0
+    /// - 折り返し ON / 未 SetSource / 内容が可視領域に収まる → 非表示・_scrollX=0・
+    ///   Maximum/LargeChange を初期値へリセット(残存値でクランプが緩まないように)
     /// - 折り返し OFF で内容がはみ出す → 表示。可視分の視覚行のうち最長 pixel 幅を上限にする
     ///   (1GB でも計算量は O(可視行数))。
-    /// 順序: LargeChange → Maximum → SmallChange → Value(WinForms ScrollBar.Maximum の計算式が
-    /// LargeChange に依存するため)。
+    /// 順序: Maximum → LargeChange → SmallChange → Value(<see cref="UpdateVerticalScrollbar"/> と統一。
+    /// 逆順だと Maximum が小さいときに LargeChange が内部で clip されるケースがある)。
     /// </summary>
     private void UpdateHorizontalScrollbar()
     {
-        if (_buffer is null || _wrapColumns > 0)
-        {
-            _hscroll.Visible = false;
-            _scrollX = 0;
-            return;
-        }
+        if (_buffer is null || _wrapColumns > 0) { HideAndResetHScroll(); return; }
         var snap = _buffer.Current;
         int paintWidth = Math.Max(0, ClientSize.Width - _vscroll.Width);
         // HScroll 表示可否を決めるための計算では、まだ表示していない前提で高さいっぱいを見る
@@ -375,22 +379,37 @@ public sealed class EditorControl : Control
             if (width > maxLineWidthPx) maxLineWidthPx = width;
         }
         int contentWidth = lnWidth + maxLineWidthPx;
-        if (contentWidth <= paintWidth)
-        {
-            _hscroll.Visible = false;
-            _scrollX = 0;
-            return;
-        }
+        if (contentWidth <= paintWidth) { HideAndResetHScroll(); return; }
+
         // 表示に必要
         int largeChange = Math.Max(1, paintWidth);
-        _hscroll.LargeChange = largeChange;
+        // WinForms 慣習に合わせ Maximum → LargeChange の順で設定
+        // (逆順だと Maximum が小さいときに LargeChange が内部で clip されるケースがある)。
         _hscroll.Maximum = contentWidth - 1 + Math.Max(0, largeChange - 1);
+        _hscroll.LargeChange = largeChange;
         _hscroll.SmallChange = Math.Max(1, _metrics.MeasureRun("0"));
         int maxScrollX = _hscroll.Maximum - Math.Max(0, largeChange - 1);
         if (_scrollX > maxScrollX) _scrollX = Math.Max(0, maxScrollX);
         if (_scrollX < 0) _scrollX = 0;
         _hscroll.Value = _scrollX;
         _hscroll.Visible = true;
+    }
+
+    /// <summary>
+    /// HScrollBar を非表示にし、Maximum/LargeChange を初期値にリセットする。
+    /// <see cref="ScrollX"/> は「HScroll 非表示中は set が no-op」で守られているが、
+    /// 直前の表示状態で Maximum が非ゼロのまま残ると、内部から <see cref="ClampScrollX"/> 経由で
+    /// 触れた場合に非ゼロ値を通してしまう(RenderFrame の一様シフトで内容が左にズレる)。
+    /// リセットしておくことで防御を二重化する。
+    /// </summary>
+    private void HideAndResetHScroll()
+    {
+        _hscroll.Visible = false;
+        // 縮小方向は WinForms の内部 clip が働いても LargeChange=1 に落ち着くだけなので順序不問。
+        _hscroll.LargeChange = 1;
+        _hscroll.Maximum = 0;
+        _scrollX = 0;
+        if (_hscroll.Value != 0) _hscroll.Value = 0;
     }
 
     private int ClampScrollX(int value)
@@ -590,21 +609,18 @@ public sealed class EditorControl : Control
     }
 
     /// <summary>
-    /// Frame の Ops を GDI 呼び出しに変換する。折り返し OFF 時の水平スクロール(<see cref="_scrollX"/>)は、
-    /// <b>最初の op(背景全域 FillRect)を除く</b>すべての op の X から差し引く形で反映する
-    /// (先頭以外の X は「本文/選択/現在行/行番号/枠」いずれも文書座標に紐付いており、
-    /// スクロール原点シフト対象として一様に扱ってよいため)。
-    /// 行番号マージンも一緒にシフトされる(仕様=YAGNI・固定したいなら将来タスクで対応)。
-    /// 折り返し ON 時は <see cref="_scrollX"/>=0 なので実質シフトなし。
+    /// Frame の Ops を GDI 呼び出しに変換する。折り返し OFF 時の水平スクロール(<see cref="_scrollX"/>)は
+    /// <b>全 op の X から一様に差し引く</b>形で反映する(_wrapColumns&gt;0 時は _scrollX=0 で実質シフトなし)。
+    /// 先頭 op(背景全域 FillRect)も一緒にシフトされるが、OnPaint 冒頭で
+    /// <c>g.Clear(BackColor)</c> が全 client 領域を BackColor で塗っており、DefaultStyle.Background
+    /// と BackColor が一致している(共に White)ため、シフトで生じる右側の隙間は視覚的にクリアの
+    /// BackColor と同色になり結果は同じ。行番号マージンも一緒にシフトされる(仕様=YAGNI)。
     /// </summary>
     private void RenderFrame(Graphics g, Frame frame)
     {
-        bool isFirst = true;
         foreach (var op in frame.Ops)
         {
-            int x = op.X;
-            if (!isFirst) x -= _scrollX;
-            isFirst = false;
+            int x = op.X - _scrollX;   // 一様シフト
             switch (op.Kind)
             {
                 case PaintOpKind.FillRect:

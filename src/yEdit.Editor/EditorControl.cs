@@ -164,6 +164,11 @@ public sealed class EditorControl : Control
     /// 範囲外はクランプ。キャレットは選択の末尾(正規化後の End)に置く。
     /// SetSource 前の呼び出しは no-op。
     /// </summary>
+    /// <remarks>
+    /// キャレットが常に選択末尾に置かれるため、shift+左矢印方向の選択(キャレット=Min・
+    /// アンカー=Max)は現行 API で表現できない。P3 で入力ハンドラを追加する際にアンカー
+    /// 概念を導入する API(非対称版)を追加予定。
+    /// </remarks>
     public void SetSelectionCharRange(int start, int end)
     {
         if (_buffer is null) return;
@@ -186,8 +191,9 @@ public sealed class EditorControl : Control
         var snap = _buffer.Current;
         if (offset <= 0) return 0;
         if (offset >= snap.CharLength) return snap.CharLength;
+        // offset > 0 は L187 の早期 return で保証済み
         char c = snap.GetChar(offset);
-        if (char.IsLowSurrogate(c) && offset > 0)
+        if (char.IsLowSurrogate(c))
         {
             char prev = snap.GetChar(offset - 1);
             if (char.IsHighSurrogate(prev)) return offset - 1;

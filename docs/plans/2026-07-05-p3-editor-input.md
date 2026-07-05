@@ -799,6 +799,21 @@ public static class WordBoundary
 git commit -am "P3: Task 5 WordBoundary(Ctrl+←→・CJK 対応)"
 ```
 
+### Task 5 レビュー申し送り(将来対応)
+
+- **NavigationCommands/WordBoundary の命名統一と重複解消**(S-1/S-2・Task 15 or 将来 refactor 候補):
+  - 引数名: `NavigationCommands` は `s`、`WordBoundary` は `snap` で不一致。Task 15 の設計書追記時に
+    `NavigationCommands` 側を `snap` に統一する候補として記録。
+  - `WordBoundary.MoveLeftCp`/`MoveRightCp` は `NavigationCommands.MoveLeftChar`/`MoveRightChar` と
+    事実上同じロジック(サロゲート BMP 判定を含む)。Task 15 で「WordBoundary から
+    NavigationCommands の同名関数を呼ぶ」形へ集約する候補として記録。動作等価の pure refactor。
+
+- **CJK 拡張範囲の実機検証**(S-4・P7 申し送り): 現行 `ClassOf` の Han 判定は BMP `U+4E00..U+9FFF`
+  のみ。CJK Ext A(U+3400..U+4DBF)/ CJK Compatibility Ideographs(U+F900..U+FAFF)/ Ext B以降
+  (サロゲート)は Other 扱い。Scintilla 版 M3 の実装と等価(計画どおり)。P7 実機検証で
+  「熟語 Ctrl+←→ が期待どおり単語まとまりで飛ぶか」を確認項目に追加。拡張が必要なら
+  `HanExtension` クラスを追加し `0x3400..0x4DBF`, `0xF900..0xFAFF` を含める。
+
 ---
 
 ### Task 6: キーバインド配線(移動系:Arrow/Home/End/Page/Ctrl-Arrow/Ctrl+A)

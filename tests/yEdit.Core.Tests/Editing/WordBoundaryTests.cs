@@ -100,4 +100,38 @@ public class WordBoundaryTests
         // その前は 😀(Other)= class 切替 → 3 で止まる
         Assert.Equal(3, WordBoundary.PrevWordStart(s, 4));
     }
+
+    // ===== 境界ケース(レビュー S-5 追加分) =====
+
+    [Fact]
+    public void PrevWordStart_FromLineBreak_ReturnsPrevWordStart()
+    {
+        // "abc\r\ndef" の caret=5(改行直後 'd' の頭)から Prev
+        // MoveLeftCp=4('\n') → LineBreak → 3('\r')→ LineBreak → 2('c')Latin で停止
+        // wordCls=Latin, prev=1 も Latin → prev=0 も Latin → 返却 0
+        var s = S("abc\r\ndef");
+        Assert.Equal(0, WordBoundary.PrevWordStart(s, 5));
+    }
+
+    [Fact]
+    public void WordBoundary_FullwidthSpace_TreatedAsOther()
+    {
+        // "あ　い"(全角空白 U+3000 挟み)
+        // ひらがな→全角空白(Other)→ひらがな の切替を認識
+        // caret=0 から Next → "あ" の後 → Other(全角空白)頭=1
+        var s = S("あ　い");
+        Assert.Equal(1, WordBoundary.NextWordStart(s, 0));
+        // caret=1(全角空白) → Other の後(全角空白は 1 文字連続) → "い" 頭=2
+        Assert.Equal(2, WordBoundary.NextWordStart(s, 1));
+    }
+
+    [Fact]
+    public void PrevWordStart_OnlyWhitespace_ReturnsZero()
+    {
+        // "   "(空白のみ)caret=3 → 空白連続だけの Prev 経路
+        // MoveLeftCp=2 → Whitespace → ループで pos=0 まで
+        // wordCls=Whitespace, pos=0 なので追加ループなし → 0
+        var s = S("   ");
+        Assert.Equal(0, WordBoundary.PrevWordStart(s, 3));
+    }
 }

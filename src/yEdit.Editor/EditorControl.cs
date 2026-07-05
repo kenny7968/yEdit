@@ -766,10 +766,90 @@ public sealed class EditorControl : Control
     }
 
     /// <summary>
-    /// キャレットが可視領域外に出たとき TopLine / ScrollX を追従させる(Task 7 で本実装)。
-    /// P3 Task 6 では OnKeyDown の呼び出し箇所を確定させるためのスタブ(no-op)。
+    /// 現在のキャレット位置(<c>_caret</c>)を可視領域内に収める(P3 Task 7)。
+    /// - 垂直: キャレットの論理行が [TopLine, TopLine + visibleRows) の外なら <see cref="TopLine"/> を調整。
+    /// - 水平: 折り返し OFF かつ <see cref="_hscroll"/> 表示中で、キャレット X が
+    ///   [ScrollX, ScrollX + paintWidth) の外なら <see cref="ScrollX"/> を調整。
+    /// - SetSource 前 / 折り返し ON では水平調整は no-op。
+    /// - Task 6 で仕込んだ OnKeyDown 経路の呼び出しはそのまま本実装へ流れる(Ctrl+A は
+    ///   慣例に合わせて意図的に呼び出さない=Task 6 レビュー I-1 の判断)。
+    /// - App 層 Task 7 送り(検索ジャンプ・GoTo)から <see cref="EnsureVisibleCharRange"/>
+    ///   経由で呼ばれることを想定して public 昇格。
     /// </summary>
-    private void BringCaretIntoView() { }
+    /// <remarks>
+    /// <see cref="ComputeCaretPoint"/> は <c>_scrollX</c> 適用前の X を返す(=行番号マージン含む
+    /// 描画原点座標)。現在の可視ウィンドウは [<c>_scrollX</c>, <c>_scrollX + paintWidth</c>)。
+    /// 右端に張り付かせるときは caret を可視領域末尾から半角 1 文字幅分内側に置く
+    /// (キャレットが右端ぎりぎりで隠れるのを防ぐ)。
+    /// </remarks>
+    public void BringCaretIntoView()
+    {
+        if (_buffer is null) return;
+        var snap = _buffer.Current;
+
+        int logicalLine = snap.GetLineIndexOfChar(_caret);
+        int visibleRows = Math.Max(1, ClientSize.Height / Math.Max(1, _metrics.LineHeightPx));
+
+        // 垂直: caret 論理行が [TopLine, TopLine+visibleRows) に入るように TopLine 調整
+        if (logicalLine < _topLine)
+        {
+            TopLine = logicalLine;
+        }
+        else if (logicalLine >= _topLine + visibleRows)
+        {
+            TopLine = logicalLine - visibleRows + 1;
+        }
+
+        // 水平: 折り返し OFF かつ HScroll 表示中のみ有効
+        // (ScrollX setter 自体も _wrapColumns>0 / !_hscroll.Visible で no-op だが、
+        //  ここで先に判定することで ComputeCaretPoint の無駄呼びを回避する)
+        if (_wrapColumns == 0 && _hscroll.Visible)
+        {
+            var (x, _, visible) = ComputeCaretPoint(_caret);
+            if (visible)
+            {
+                int paintWidth = Math.Max(0, ClientSize.Width - _vscroll.Width);
+                if (x < _scrollX)
+                {
+                    ScrollX = x;
+                }
+                else if (x >= _scrollX + paintWidth)
+                {
+                    // 右端に張り付かせる: caret を可視領域末尾から 1 半角幅分内側に置く
+                    ScrollX = x - paintWidth + _metrics.MeasureRun("0");
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 指定範囲 <c>[start, start+length)</c> の末尾を可視化する(検索ジャンプ・GoTo・
+    /// EnsureVisible 相当)。内部でキャレットを一時的に end に置いて
+    /// <see cref="BringCaretIntoView"/> を呼ぶが、呼び出し前のキャレット位置と
+    /// アンカーは復元する(=装飾スクロールなので選択・キャレット状態は変えない)。
+    /// SetSource 前は no-op。
+    /// </summary>
+    /// <param name="start">開始 UTF-16 文字オフセット(範囲末尾を可視化する仕様なので
+    /// 内部では未使用=<paramref name="length"/> 加算前のクランプは行わない)。</param>
+    /// <param name="length">長さ(UTF-16 コード単位)。負値は 0 として扱う。</param>
+    public void EnsureVisibleCharRange(int start, int length)
+    {
+        if (_buffer is null) return;
+        // 範囲末尾のみ可視化する仕様(start 側は SnapAndClamp 不要=BringCaretIntoView は
+        // end のみに反応する)。start + length は int 加算オーバーフロー対策で long 経由。
+        long endLong = (long)start + Math.Max(0, length);
+        int endInt = endLong > int.MaxValue ? int.MaxValue : (int)endLong;
+        int end = SnapAndClamp(endInt);
+
+        int savedCaret = _caret;
+        int savedAnchor = _anchor;
+        _caret = end;
+        _anchor = end;
+        BringCaretIntoView();
+        _caret = savedCaret;
+        _anchor = savedAnchor;
+        Invalidate();
+    }
 
     /// <summary>
     /// 純キャレット移動でキャレットが空行に入ったとき、UIA / SR にイベントを上げる

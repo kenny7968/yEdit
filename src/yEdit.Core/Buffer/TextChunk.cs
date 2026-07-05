@@ -1,0 +1,176 @@
+using System.Text;
+
+namespace yEdit.Core.Buffers;
+
+/// <summary>
+/// 不変UTF-8バイトチャンク+格子(既定64KB)の累積統計表。
+/// ピース分割・行検索・文字⇔バイト変換の走査を格子1マスに局所化する(O(log n + 格子幅))。
+///
+/// 格子表: エントリ (ByteOff, CharOff, BreaksTo)。ByteOff は格子点をコード点境界へ前方スナップした位置。
+/// CharOff/BreaksTo はチャンク先頭からの累積。
+/// BreaksTo(x) の規約: [0,x) 内の LF数+「LFが直後に続かないCR」数、ただし x-1 の CR は(次を見ずに)単独扱いで数える。
+/// 範囲統計の導出式: Breaks[a,b) = BreaksTo(b) − BreaksTo(a) + (a>0 かつ bytes[a-1]=CR かつ bytes[a]=LF ? 1 : 0)
+///   (検算: "\r\n" の a=1,b=2 → 1−1+1 = 1 = 区分"\n"単体のBreaks)
+/// </summary>
+internal sealed class TextChunk
+{
+    private readonly ReadOnlyMemory<byte> _bytes;
+    // 格子表(ByteOff/CharOff とも昇順)。先頭エントリは必ず (0, 0, 0)
+    private readonly int[] _gByte;
+    private readonly int[] _gChar;
+    private readonly int[] _gBreaks;
+
+    public TextChunk(ReadOnlyMemory<byte> bytes, int gridBytes = 64 * 1024)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(gridBytes, 1);
+        _bytes = bytes;
+        var span = bytes.Span;
+        int n = span.Length;
+        int capacity = n / gridBytes + 2;
+        var gb = new List<int>(capacity) { 0 };
+        var gc = new List<int>(capacity) { 0 };
+        var gk = new List<int>(capacity) { 0 };
+        for (long nominal = gridBytes; nominal < n; nominal += gridBytes)
+        {
+            int p = (int)nominal;
+            while (p < n && (span[p] & 0xC0) == 0x80) p++;   // コード点境界へ前方スナップ
+            if (p >= n || p == gb[^1]) continue;
+            var (ch, f) = ScanForward(span, gb[^1], gc[^1], gk[^1], p);
+            gb.Add(p); gc.Add(ch); gk.Add(f);
+        }
+        _gByte = [.. gb];
+        _gChar = [.. gc];
+        _gBreaks = [.. gk];
+    }
+
+    public ReadOnlySpan<byte> Span => _bytes.Span;
+    public int ByteLength => _bytes.Length;
+
+    /// <summary>[byteStart, byteStart+byteLen) の区分ローカル統計。両端はコード点境界前提。</summary>
+    public PieceStats StatsOfRange(int byteStart, int byteLen)
+    {
+        if (byteLen == 0) return PieceStats.Empty;
+        var s = _bytes.Span;
+        int a = byteStart, b = byteStart + byteLen;
+        var (chA, fA) = CumAt(a);
+        var (chB, fB) = CumAt(b);
+        int breaks = fB - fA + (a > 0 && s[a - 1] == (byte)'\r' && s[a] == (byte)'\n' ? 1 : 0);
+        return new PieceStats(byteLen, chB - chA, breaks, s[a] == (byte)'\n', s[b - 1] == (byte)'\r');
+    }
+
+    /// <summary>範囲先頭から charDelta 文字(UTF-16単位)進んだバイトオフセット(範囲内保証・サロゲート中間は呼び出し側でスナップ済み)。</summary>
+    public int CharToByte(int byteStart, int byteLen, int charDelta)
+    {
+        var s = _bytes.Span;
+        var (chA, _) = CumAt(byteStart);
+        int target = chA + charDelta;
+        // CharOff ≤ target の最遠格子点から前進走査(byteStart より手前なら byteStart から)
+        int j = GridIndexForChar(target);
+        int pos, cum;
+        if (_gByte[j] >= byteStart) { pos = _gByte[j]; cum = _gChar[j]; }
+        else { pos = byteStart; cum = chA; }
+        while (cum < target)
+        {
+            byte b = s[pos];
+            int step = b < 0x80 ? 1 : b < 0xE0 ? 2 : b < 0xF0 ? 3 : 4;
+            int units = step == 4 ? 2 : 1;
+            if (cum + units > target) break;   // サロゲート中間=低い方へスナップ(契約上は到達しない)
+            cum += units;
+            pos += step;
+        }
+        return pos;
+    }
+
+    /// <summary>
+    /// 範囲内 k 番目(1始まり)の break 終端文字(LF または単独CR)の、範囲先頭からの文字オフセット。
+    /// ピースローカル semantics: 範囲末尾の CR は単独扱い(=終端)、範囲内の CRLF は LF が終端。
+    /// </summary>
+    public int NthBreakEndChar(int byteStart, int byteLen, int k)
+    {
+        var s = _bytes.Span;
+        int a = byteStart, b = byteStart + byteLen;
+        var (chA, fA) = CumAt(a);
+        int corrA = a > 0 && s[a - 1] == (byte)'\r' && s[a] == (byte)'\n' ? 1 : 0;
+
+        // 「その格子点までの範囲内終端数 < k」の最遠格子点まで表で飛び、残りを線形走査
+        int scanPos = a, scanChar = chA, cnt = 0;
+        for (int j = GridIndexFor(a) + 1; j < _gByte.Length && _gByte[j] < b; j++)
+        {
+            int x = _gByte[j];
+            if (x <= a) continue;
+            // [a,x) 内の終端数: x-1 の CR が実際は CRLF(次がLF)なら終端は x 側なので 1 引く
+            int ends = _gBreaks[j] - fA + corrA
+                     - (s[x - 1] == (byte)'\r' && s[x] == (byte)'\n' ? 1 : 0);
+            if (ends >= k) break;
+            scanPos = x; scanChar = _gChar[j]; cnt = ends;
+        }
+
+        int chRel = scanChar - chA;
+        for (int i = scanPos; i < b; i++)
+        {
+            byte c = s[i];
+            bool isEnd = c == (byte)'\n'
+                      || (c == (byte)'\r' && (i + 1 >= b || s[i + 1] != (byte)'\n'));
+            if (isEnd && ++cnt == k) return chRel;
+            if ((c & 0xC0) != 0x80) chRel++;
+            if (c >= 0xF0) chRel++;
+        }
+        throw new ArgumentOutOfRangeException(nameof(k), k, "範囲内のbreak終端数を超えています。");
+    }
+
+    /// <summary>範囲を string へデコード(両端はコード点境界前提)。</summary>
+    public string GetString(int byteStart, int byteLen)
+        => Encoding.UTF8.GetString(_bytes.Span.Slice(byteStart, byteLen));
+
+    /// <summary>コード点境界 x における累積 (CharOff, BreaksTo)。最寄り格子点から線形走査。</summary>
+    private (int CharOff, int BreaksTo) CumAt(int x)
+    {
+        int j = GridIndexFor(x);
+        return ScanForward(_bytes.Span, _gByte[j], _gChar[j], _gBreaks[j], x);
+    }
+
+    /// <summary>ByteOff ≤ x の最大格子インデックス。</summary>
+    private int GridIndexFor(int x)
+    {
+        int lo = 0, hi = _gByte.Length - 1;
+        while (lo < hi)
+        {
+            int mid = (lo + hi + 1) >> 1;
+            if (_gByte[mid] <= x) lo = mid; else hi = mid - 1;
+        }
+        return lo;
+    }
+
+    /// <summary>CharOff ≤ targetChar の最大格子インデックス。</summary>
+    private int GridIndexForChar(int targetChar)
+    {
+        int lo = 0, hi = _gChar.Length - 1;
+        while (lo < hi)
+        {
+            int mid = (lo + hi + 1) >> 1;
+            if (_gChar[mid] <= targetChar) lo = mid; else hi = mid - 1;
+        }
+        return lo;
+    }
+
+    /// <summary>
+    /// 累積値既知のコード点境界 from から境界 to までを線形走査し (CharOff, BreaksTo) を返す。
+    /// BreaksTo の規約合わせ: f(from) は from-1 の CR を単独扱いで計上済みなので、実際は CRLF
+    /// (from の直後が LF)だった場合は局所走査で加わる LF の +1 と相殺するため 1 引く。
+    /// </summary>
+    private static (int CharOff, int BreaksTo) ScanForward(ReadOnlySpan<byte> s, int from, int fromChar, int fromBreaks, int to)
+    {
+        if (to == from) return (fromChar, fromBreaks);
+        int ch = fromChar, br = fromBreaks;
+        if (from > 0 && s[from - 1] == (byte)'\r' && s[from] == (byte)'\n') br--;
+        for (int i = from; i < to; i++)
+        {
+            byte b = s[i];
+            if ((b & 0xC0) != 0x80) ch++;
+            if (b >= 0xF0) ch++;
+            if (b == (byte)'\n') br++;
+            else if (b == (byte)'\r' && (i + 1 >= to || s[i + 1] != (byte)'\n')) br++;
+        }
+        return (ch, br);
+    }
+}

@@ -60,6 +60,15 @@ public sealed class EditorControl : Control
     // テキスト選択(_anchor/_caret)とは独立した装飾で、単一アクティブ。
     private SelectionRange? _cellHighlight;
 
+    // P3 Task 12: マウスドラッグ選択中フラグ(MouseDown で true・MouseUp / ボタン離した drift で false)。
+    // このフラグが立っている間だけ MouseMove がキャレット位置を更新する(=非押下時の drift 無視)。
+    private bool _mouseDragging;
+
+    // P3 Task 12: ホイールデルタ蓄積(1 tick = 120)。
+    // トラックパッド等の細切れ発火で 40+40+40=120 のように 1 tick を溜めるため、
+    // 発火閾値 (>=120 / <=-120) に達したら SystemInformation.MouseWheelScrollLines 行送りを 1 回発動する。
+    private int _wheelAccum;
+
     public EditorControl()
     {
         SetStyle(
@@ -853,13 +862,252 @@ public sealed class EditorControl : Control
         return new Point(x - _scrollX, y);
     }
 
+    /// <summary>
+    /// マウスホイール(P3 Task 12 で精度改善版に更新)。
+    /// - Delta は 1 tick = 120 単位。細切れデルタは <see cref="_wheelAccum"/> に蓄積し、閾値に達したら発火。
+    /// - 1 tick あたりの行送り量は <see cref="SystemInformation.MouseWheelScrollLines"/> を使う
+    ///   (レジストリ未設定 / 「1 ページ」設定=-1 では既定 3 にフォールバック)。
+    /// - Delta&gt;0=上方向スクロール=<see cref="TopLine"/> 減。TopLine setter がクランプするため
+    ///   上限/下限を跨ぐ蓄積は自然に上端/下端で頭打ちになる。
+    /// </summary>
     protected override void OnMouseWheel(MouseEventArgs e)
     {
         base.OnMouseWheel(e);
         if (_buffer is null) return;
-        const int scrollLines = 3;  // 1 tick = 3 論理行(WinForms 既定を採らず固定で開始・P3 で調整余地)
-        int delta = -Math.Sign(e.Delta) * scrollLines;  // Delta>0=上方向 → TopLine 減
-        TopLine = _topLine + delta;
+        _wheelAccum += e.Delta;
+        int wheelLines = SystemInformation.MouseWheelScrollLines;
+        // SystemInformation.MouseWheelScrollLines は「1 ページスクロール」設定時 -1 を返す仕様。
+        // <=0 の全ケースを 3 行(WinForms 標準の既定値)にフォールバックすることで簡潔化する。
+        if (wheelLines <= 0) wheelLines = 3;
+        while (_wheelAccum >= 120)
+        {
+            TopLine = _topLine - wheelLines;
+            _wheelAccum -= 120;
+        }
+        while (_wheelAccum <= -120)
+        {
+            TopLine = _topLine + wheelLines;
+            _wheelAccum += 120;
+        }
+    }
+
+    /// <summary>
+    /// マウス左ボタン Down(P3 Task 12)。クライアント座標→char offset を計算し、
+    /// Shift 併用時は <see cref="MoveCaretWithSelection"/>(アンカー保持=選択拡張)、
+    /// 無修飾時は <see cref="SetCaretCharOffset"/>(選択解除)にディスパッチする。
+    /// 右ボタン等は無視(将来のコンテキストメニュー配線に予約)。
+    /// SetSource 前 / 左以外のボタンは no-op。
+    /// </summary>
+    /// <remarks>
+    /// Focus() を明示的に呼ぶのは、TabStop=true のコントロールでもマウスクリックで自動的に
+    /// フォーカスを得ないケース(親 Form が他の子にフォーカスを持たせている等)への保険。
+    /// desiredXpx は水平方向の移動系と同じ扱いで -1 リセット(次の Up/Down で再計算)。
+    /// BreakUndoCoalescing は「純キャレット移動をまたいだ連続タイピングの分割」で
+    /// OnKeyDown の移動系と同じ流儀(Scintilla 互換)。
+    /// </remarks>
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        base.OnMouseDown(e);
+        if (_buffer is null || e.Button != MouseButtons.Left) return;
+        Focus();
+        int target = OffsetFromClientPoint(e.X, e.Y);
+        bool shift = (ModifierKeys & Keys.Shift) != 0;
+        if (shift)
+            MoveCaretWithSelection(target);
+        else
+            SetCaretCharOffset(target);
+        _mouseDragging = true;
+        _desiredXpx = -1;
+        _buffer.BreakUndoCoalescing();
+        BringCaretIntoView();
+        RaiseCaretEnteredEmptyLineIfNeeded();
+    }
+
+    /// <summary>
+    /// マウス移動(P3 Task 12・ドラッグ選択)。
+    /// - <c>_mouseDragging</c>=false または左ボタン非押下時は no-op。
+    /// - 押下中ならクライアント座標→char offset を計算し、アンカー保持でキャレットのみ動かす
+    ///   (=ドラッグで選択範囲を広げる/縮める)。
+    /// </summary>
+    /// <remarks>
+    /// MouseDown → コントロール外で MouseUp → コントロール内に戻る、といった外部 Capture 経路で
+    /// ボタン離しを取り逃すケースへの保険として、e.Button に Left が含まれていない Move が届いたら
+    /// フラグを落として抜ける(=次の MouseDown まで移動しない)。
+    /// </remarks>
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (!_mouseDragging || _buffer is null) return;
+        if ((e.Button & MouseButtons.Left) == 0)
+        {
+            _mouseDragging = false;
+            return;
+        }
+        int target = OffsetFromClientPoint(e.X, e.Y);
+        MoveCaretWithSelection(target);
+        BringCaretIntoView();
+    }
+
+    /// <summary>
+    /// マウス左ボタン Up(P3 Task 12)。ドラッグ選択終了=フラグを落とすのみ。
+    /// 座標→char offset の計算はしない(<see cref="OnMouseMove"/> が Up 直前の Move で
+    /// すでに最終位置に置いているため)。左ボタン以外は無視。
+    /// </summary>
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+        if (e.Button != MouseButtons.Left) return;
+        _mouseDragging = false;
+    }
+
+    /// <summary>
+    /// マウス左ボタン ダブルクリック(P3 Task 12・単語選択)。
+    /// クライアント座標→char offset を計算し、<see cref="PrevWordBoundary"/>/<see cref="NextWordBoundary"/>
+    /// で target を含む単語の [start, end) を <see cref="SetSelectionAnchored"/> で設定する。
+    /// SetSource 前 / 左以外のボタンは no-op。
+    /// </summary>
+    /// <remarks>
+    /// WinForms は「Down → Up → Click → Down → Up → DoubleClick」の順に発火するため、
+    /// OnMouseDown 側で単発キャレット移動が既に走っている。DoubleClick で選択範囲を上書きする形で
+    /// 単語選択を確定させる(Notepad と同挙動)。
+    /// </remarks>
+    protected override void OnMouseDoubleClick(MouseEventArgs e)
+    {
+        base.OnMouseDoubleClick(e);
+        if (_buffer is null || e.Button != MouseButtons.Left) return;
+        int target = OffsetFromClientPoint(e.X, e.Y);
+        var snap = _buffer.Current;
+        int start = PrevWordBoundary(snap, target);
+        int end = NextWordBoundary(snap, target);
+        SetSelectionAnchored(start, end);
+        _desiredXpx = -1;
+        _buffer.BreakUndoCoalescing();
+        BringCaretIntoView();
+    }
+
+    /// <summary>
+    /// クライアント座標(px)から論理オフセット(UTF-16 char)を算出する純ヘルパ(P3 Task 12)。
+    /// - Y &lt; 0 は <see cref="_topLine"/> の先頭視覚行にクランプ
+    /// - 最終視覚行を超えた Y は文書末尾(=<see cref="TextSnapshot.CharLength"/>)にクランプ
+    ///   (Notepad と同挙動=末尾行より下の空領域クリックで caret が文書末尾に来る)
+    /// - X の行末超過は <see cref="PixelMapper.PxToOffset"/> がセグメント末尾にクランプ
+    /// </summary>
+    /// <remarks>
+    /// 折り返し ON 時は 1 論理行ずつ <see cref="LineLayout.Wrap"/> を呼び直しつつ視覚行を歩く。
+    /// Task 14 のベンチで顕在化するようなら Frame 再利用等で最適化(<see cref="ComputeCaretPoint"/>
+    /// の Task 9 レビュー M-3 と同じ申し送り)。
+    /// </remarks>
+    private int OffsetFromClientPoint(int clientX, int clientY)
+    {
+        if (_buffer is null) return 0;
+        var snap = _buffer.Current;
+        int lineHeight = _metrics.LineHeightPx;
+        int lnWidth = _showLineNumbers ? MeasureLineNumberWidth(snap.LineCount) : 0;
+
+        int visualRowFromTop = clientY / Math.Max(1, lineHeight);
+        if (visualRowFromTop < 0) visualRowFromTop = 0;
+
+        int maxWidthPx = _wrapColumns > 0 ? _wrapColumns * _metrics.MeasureRun("0") : 0;
+
+        // TopLine の先頭視覚行から visualRowFromTop 個進む(折り返し ON 時は視覚行=セグメント単位)。
+        // 文書末に達した場合(exhausted=true)は文書末尾へクランプする=X による位置決めは行わない。
+        int line = _topLine;
+        int segIdx = 0;
+        int rowsToAdvance = visualRowFromTop;
+        int segCount = SegmentCountAtLine(snap, line, maxWidthPx);
+        bool exhausted = false;
+        while (rowsToAdvance > 0)
+        {
+            if (segIdx + 1 < segCount)
+            {
+                segIdx++;
+            }
+            else
+            {
+                if (line + 1 >= snap.LineCount) { exhausted = true; break; }
+                line++;
+                segIdx = 0;
+                segCount = SegmentCountAtLine(snap, line, maxWidthPx);
+            }
+            rowsToAdvance--;
+        }
+
+        // 最終視覚行より下 → 文書末尾にクランプ
+        if (exhausted) return snap.CharLength;
+
+        // 対象視覚セグメントを取り出し、X → local offset へ
+        int lineStart = snap.GetLineStart(line);
+        int lineEnd = snap.GetLineEnd(line, includeBreak: false);
+        string lineText = lineEnd == lineStart ? string.Empty : snap.GetText(lineStart, lineEnd - lineStart);
+        var segs = LineLayout.Wrap(lineText, maxWidthPx, _metrics);
+        // WalkVisualRows と同様に防御的にクランプ(通常は segIdx < segs.Count が保たれる)
+        int useSeg = Math.Min(segIdx, segs.Count - 1);
+        var seg = segs[useSeg];
+
+        // X からセグメント内オフセットを求める。行番号マージンを引き、_scrollX(折り返し OFF 時の
+        // 水平シフト)を加算して「セグメント先頭を x=0 とする局所座標」に戻す。
+        int xInBody = clientX - lnWidth + _scrollX;
+        if (xInBody < 0) xInBody = 0;
+        var segSpan = lineText.AsSpan(seg.OffsetInLine, seg.Length);
+        int localOffset = PixelMapper.PxToOffset(segSpan, xInBody, _metrics);
+
+        return lineStart + seg.OffsetInLine + localOffset;
+    }
+
+    /// <summary>指定論理行の視覚セグメント数(=折り返し個数)。<see cref="OffsetFromClientPoint"/> のヘルパ。</summary>
+    private int SegmentCountAtLine(TextSnapshot snap, int line, int maxWidthPx)
+    {
+        int ls = snap.GetLineStart(line);
+        int le = snap.GetLineEnd(line, includeBreak: false);
+        string t = le == ls ? string.Empty : snap.GetText(ls, le - ls);
+        return LineLayout.Wrap(t, maxWidthPx, _metrics).Count;
+    }
+
+    /// <summary>
+    /// target 位置を含む単語の先頭を返す(<see cref="OnMouseDoubleClick"/> のヘルパ)。
+    /// - target &lt;= 0: 0
+    /// - target &gt;= CharLength: そのまま <see cref="WordBoundary.PrevWordStart"/> に委譲
+    /// - それ以外: <see cref="WordBoundary.PrevWordStart"/>(target+1) を呼ぶことで
+    ///   「target 自身を含む単語 class の連続の左端」を得る
+    /// </summary>
+    /// <remarks>
+    /// <see cref="WordBoundary.PrevWordStart"/> は「caret から 1 code-point 左に移動 → 空白後方スキップ
+    /// → 同 class 後方スキップ」の設計。従って PrevWordStart(target+1) は「target 自身」が起点になり、
+    /// target 位置の文字を含む単語の頭を返す。境界(target=CharLength)では target+1 は不正なので、
+    /// 素直に PrevWordStart(target) にフォールバックする(CharLength での挙動は 0 側に単語を求める形)。
+    /// </remarks>
+    private static int PrevWordBoundary(TextSnapshot snap, int target)
+    {
+        if (target <= 0) return 0;
+        if (target >= snap.CharLength) return WordBoundary.PrevWordStart(snap, target);
+        return WordBoundary.PrevWordStart(snap, target + 1);
+    }
+
+    /// <summary>
+    /// target 位置を含む単語の終端(=右隣の空白/改行の直前)を返す(<see cref="OnMouseDoubleClick"/>
+    /// のヘルパ)。
+    /// - target &gt;= CharLength: CharLength
+    /// - それ以外: <see cref="WordBoundary.NextWordStart"/>(target) の返す「次単語の頭」から
+    ///   左方向に空白/改行を戻して「現在単語の終端」を得る
+    /// </summary>
+    /// <remarks>
+    /// <see cref="WordBoundary.NextWordStart"/> は Ctrl+→ 用に「単語末尾+空白列をスキップして次単語の頭」
+    /// を返す。ダブルクリック単語選択では末尾空白を含めたくないため、返り値から左に戻して空白/改行以外の
+    /// 最初の位置を求める(=現単語の末尾+1)。target が空白/改行の場合、NextWordStart は「次単語の頭」を
+    /// 返し、そこから左に戻ると target 直下の空白直前=target 自身まで戻る=空範囲になる(選択なし相当)。
+    /// この振る舞いは意図的で「空白のダブルクリックは選択しない」相当の緩い挙動。
+    /// </remarks>
+    private static int NextWordBoundary(TextSnapshot snap, int target)
+    {
+        if (target >= snap.CharLength) return snap.CharLength;
+        int nextWordStart = WordBoundary.NextWordStart(snap, target);
+        while (nextWordStart > target)
+        {
+            char c = snap.GetChar(nextWordStart - 1);
+            if (c != ' ' && c != '\t' && c != '\r' && c != '\n') break;
+            nextWordStart--;
+        }
+        return nextWordStart;
     }
 
     /// <summary>

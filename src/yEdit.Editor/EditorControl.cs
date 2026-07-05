@@ -3,6 +3,7 @@ using yEdit.Core.Buffers;
 using yEdit.Core.Editing;
 using yEdit.Core.Layout;
 using yEdit.Core.Settings;
+using yEdit.Core.Text;
 // System.Windows.Forms.SelectionRange(MonthCalendar 用)と同名のため別名で解決する。
 using SelectionRange = yEdit.Core.Layout.SelectionRange;
 
@@ -289,8 +290,8 @@ public sealed class EditorControl : Control
     }
 
     /// <summary>
-    /// 上書き入力モード(Overtype)。true のとき文字挿入は直後 1 文字を潰す=Insert キーで App 層が
-    /// トグルする想定(P3 Task 9 で配線予定)。改行(<c>\r</c>/<c>\n</c>)の直前では潰さず単純挿入
+    /// 上書き入力モード(Overtype)。true のとき文字挿入は直後 1 文字を潰す=Insert キー(修飾なし)で
+    /// OnKeyDown が直接トグルする(Task 9)。改行(<c>\r</c>/<c>\n</c>)の直前では潰さず単純挿入
     /// (Scintilla 互換)。サロゲートペアの high 位置にキャレットがあるときは pair 全体(2 code units)を潰す。
     /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -302,6 +303,13 @@ public sealed class EditorControl : Control
     /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool ReadOnly { get; set; }
+
+    /// <summary>
+    /// Enter 押下時に挿入する改行シーケンス。既定は <see cref="LineEnding.Crlf"/>(Windows 標準)。
+    /// App 層 (P6) は開いた文書の実測改行(LineEndingDetector)を反映して設定する想定。
+    /// </summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public LineEnding EolMode { get; set; } = LineEnding.Crlf;
 
     /// <summary>キャレット位置(UTF-16 文字オフセット)。書き込みは <see cref="SetCaretCharOffset"/>。</summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -693,10 +701,11 @@ public sealed class EditorControl : Control
     }
 
     /// <summary>
-    /// 移動系キー(Arrow/Home/End/PageUp/PageDown)を「入力キー」として扱わせ、
+    /// 移動系キー(Arrow/Home/End/PageUp/PageDown)+ Tab を「入力キー」として扱わせ、
     /// フォームレベルのフォーカス遷移やダイアログの既定ボタン発火に持っていかれないようにする。
-    /// Tab キーは Task 8/9(編集系)で <c>\t</c> 挿入とセットで別途対応するため、
-    /// Task 6 では含めない(Tab は現状フォーカス遷移のまま=P6 の App 統合まで許容)。
+    /// Tab は Task 9 で OnKeyDown 側に <c>\t</c> 挿入 case を追加したため、ここに含めないと
+    /// WinForms のフォーカス遷移(次コントロールへの Tab 移動)に持って行かれ、
+    /// <c>OnKeyDown</c> まで届かなくなる(Task 6 申し送り S-2 決着)。
     /// </summary>
     protected override bool IsInputKey(Keys keyData)
     {
@@ -704,7 +713,8 @@ public sealed class EditorControl : Control
         return code switch
         {
             Keys.Left or Keys.Right or Keys.Up or Keys.Down
-                or Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown => true,
+                or Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown
+                or Keys.Tab => true,
             _ => base.IsInputKey(keyData),
         };
     }
@@ -795,6 +805,82 @@ public sealed class EditorControl : Control
                 _buffer.BreakUndoCoalescing();
                 e.Handled = true;
                 return;
+
+            // ===== P3 Task 9: 削除/改行/Tab/Insert =====
+            // AfterEdit は「バッファ変化 → スクロールバー再計算 → キャレット再配置 →
+            // 追従スクロール → Invalidate」の共通後処理。編集経路では _desiredXpx = -1 で
+            // 垂直位置が変わり得ることを表現する(§0-6 一貫性)。
+            // _caret / _anchor の直接代入は編集経路の「バッファ変化と一連の副作用を 1 度にまとめる」
+            // ために許容(setter 経由だと二重 Invalidate/PositionCaret が走る)。
+            case Keys.Back when !ReadOnly:
+            {
+                var (s, en) = GetSelectionCharRange();
+                if (s != en)
+                {
+                    _buffer.Replace(s, en - s, "");
+                    _caret = _anchor = s;
+                }
+                else if (_caret > 0)
+                {
+                    // MoveLeftChar はサロゲートペアを 1 文字として左寄せする(_caret-2 になる)。
+                    int start = NavigationCommands.MoveLeftChar(_buffer.Current, _caret);
+                    _buffer.Delete(start, _caret - start);
+                    _caret = _anchor = start;
+                }
+                _desiredXpx = -1;
+                AfterEdit();
+                e.Handled = true;
+                return;
+            }
+            case Keys.Delete when !ReadOnly:
+            {
+                var (s, en) = GetSelectionCharRange();
+                if (s != en)
+                {
+                    _buffer.Replace(s, en - s, "");
+                    _caret = _anchor = s;
+                }
+                else if (_caret < snap.CharLength)
+                {
+                    // MoveRightChar はサロゲートペアを 1 文字として右寄せする(_caret+2 になる)。
+                    int next = NavigationCommands.MoveRightChar(snap, _caret);
+                    _buffer.Delete(_caret, next - _caret);
+                }
+                _desiredXpx = -1;
+                AfterEdit();
+                e.Handled = true;
+                return;
+            }
+            case Keys.Enter when !ReadOnly:
+            {
+                string eol = EolMode.ToEolString();   // "\r\n" / "\n" / "\r"
+                var (s, en) = GetSelectionCharRange();
+                _buffer.Replace(s, en - s, eol);
+                _caret = _anchor = s + eol.Length;
+                _desiredXpx = -1;
+                AfterEdit();
+                e.Handled = true;
+                return;
+            }
+            case Keys.Tab when !ReadOnly:
+            {
+                // TabsToSpaces / TabWidth 対応は P6 送り(YAGNI・Task 9 は素の \t 挿入のみ)。
+                var (s, en) = GetSelectionCharRange();
+                _buffer.Replace(s, en - s, "\t");
+                _caret = _anchor = s + 1;
+                _desiredXpx = -1;
+                AfterEdit();
+                e.Handled = true;
+                return;
+            }
+            case Keys.Insert:
+                // 修飾なしで Overtype トグル。Ctrl+Insert=Copy / Shift+Insert=Paste は
+                // Task 11(クリップボード)で追加する case が switch 上でこの case より
+                // 「先に」置かれる予定(when 節付きで) — Task 9 単独では素通り扱いとし、
+                // Overtype をトグルしない(修飾なしのときだけトグル)。
+                if (!ctrl && !shift) Overtype = !Overtype;
+                e.Handled = true;
+                return;
         }
 
         if (target is int t2)
@@ -818,8 +904,9 @@ public sealed class EditorControl : Control
     /// - <b>制御文字は無視</b>: WM_CHAR は Ctrl 修飾の 0x01〜0x1F も来る(Ctrl+A=0x01 等)。
     ///   加えて Ctrl+Backspace は Windows のキーボード変換仕様上 wParam=0x7F(ASCII DEL)を
     ///   届けるため、これも除外対象(Task 8 レビュー I-1)。編集操作は全て <c>OnKeyDown</c>
-    ///   経路(Task 6 の Ctrl+A・Task 9 の BackSpace/Enter/Tab)で処理する。
-    ///   BackSpace(0x08)/Enter(0x0D)/Tab(0x09) も Task 9 で <c>OnKeyDown</c> で扱う予定=ここでは素通り。
+    ///   経路(Task 6 の Ctrl+A・Task 9 の BackSpace/Delete/Enter/Tab/Insert)で処理する。
+    ///   BackSpace(0x08)/Enter(0x0D)/Tab(0x09) は Task 9 で OnKeyDown 経由で処理済み=ここでは素通り
+    ///   (Task 8 申し送り S-1 決着=選択肢 (A))。
     /// - <b>選択があれば無条件 Replace</b>: Overtype 影響なし(選択範囲を完全に置換)。
     /// - <b>Overtype で改行スキップ</b>: <c>\r</c>/<c>\n</c> の直前では潰さず単純挿入(Scintilla 互換)。
     /// - <b>サロゲート考慮</b>: <c>_caret</c> が high surrogate 位置なら pair 全体を潰す。

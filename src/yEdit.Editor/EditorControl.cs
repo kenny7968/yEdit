@@ -30,6 +30,10 @@ public sealed class EditorControl : Control
     private int _selStart;
     private int _selEnd;
 
+    // Task 10: システムキャレットのフォーカス状態フラグ。CreateCaret/DestroyCaret はフォーカスを
+    // 持つ間のみ有効なため、SetCaretCharOffset 等から PositionCaret を呼ぶ際にガードに使う。
+    private bool _hasFocus;
+
     // cellHighlight は Task 11(検索ハイライト)で書き込み側実装予定。
     // 現状は読み取り側だけあるので CS0649 を局所抑止(Task 11 で pragma 撤去)。
 #pragma warning disable CS0649 // Task 11 で書き込み側を実装する
@@ -93,6 +97,7 @@ public sealed class EditorControl : Control
             if (clamped == _topLine) return;
             _topLine = clamped;
             if (_vscroll.Value != clamped) _vscroll.Value = clamped;
+            PositionCaret();
             Invalidate();
         }
     }
@@ -151,6 +156,7 @@ public sealed class EditorControl : Control
         _caret = snapped;
         _selStart = snapped;
         _selEnd = snapped;
+        PositionCaret();
         Invalidate();
     }
 
@@ -178,6 +184,7 @@ public sealed class EditorControl : Control
         _selStart = s;
         _selEnd = e;
         _caret = e;
+        PositionCaret();
         Invalidate();
     }
 
@@ -233,6 +240,106 @@ public sealed class EditorControl : Control
     {
         base.OnResize(e);
         UpdateVerticalScrollbar();
+        PositionCaret();
+    }
+
+    /// <summary>
+    /// フォーカスを受けたときにシステムキャレット(幅 2px・高さ LineHeightPx)を作成し、
+    /// 現在の <c>_caret</c> オフセットへ位置決めして表示する。1 ウィンドウにつき Windows は
+    /// 1 個のキャレットしか保持しないため、必ず OnLostFocus で DestroyCaret すること。
+    /// </summary>
+    protected override void OnGotFocus(EventArgs e)
+    {
+        base.OnGotFocus(e);
+        _hasFocus = true;
+        NativeMethods.CreateCaret(Handle, nint.Zero, 2, _metrics.LineHeightPx);
+        PositionCaret();
+        NativeMethods.ShowCaret(Handle);
+    }
+
+    protected override void OnLostFocus(EventArgs e)
+    {
+        base.OnLostFocus(e);
+        _hasFocus = false;
+        NativeMethods.DestroyCaret();
+    }
+
+    /// <summary>
+    /// <c>_caret</c>(UTF-16 char offset)からクライアント座標(px)を算出し、
+    /// システムキャレット位置に反映する。可視外(TopLine 未到達 / 下端超過)は
+    /// 見えない位置 (-1000, -1000) へ退避。フォーカス無し・buffer 未設定時は何もしない。
+    /// </summary>
+    /// <remarks>
+    /// 折り返し ON 時は TopLine ～ キャレット行までの各論理行に対して <c>LineLayout.Wrap</c>
+    /// を呼び直す(1 論理行ずつ GetText + Wrap)。Task 14 のベンチで顕在化するようなら
+    /// Frame の再利用等で最適化する(Task 9 レビュー M-3 の申し送り)。
+    /// </remarks>
+    private void PositionCaret()
+    {
+        if (!_hasFocus || _buffer is null) return;
+        var snap = _buffer.Current;
+        int logicalLine = snap.GetLineIndexOfChar(_caret);
+
+        // TopLine 未到達なら不可視(スクロールでキャレット行が上にはみ出している)
+        if (logicalLine < _topLine)
+        {
+            NativeMethods.SetCaretPos(-1000, -1000);
+            return;
+        }
+
+        int lineStart = snap.GetLineStart(logicalLine);
+        int lineEnd = snap.GetLineEnd(logicalLine, includeBreak: false);
+        int lineLen = lineEnd - lineStart;
+        string lineText = lineLen == 0 ? string.Empty : snap.GetText(lineStart, lineLen);
+        int maxWidthPx = WrapColumns > 0 ? WrapColumns * _metrics.MeasureRun("0") : 0;
+        var segments = LineLayout.Wrap(lineText, maxWidthPx, _metrics);
+
+        int caretInLine = _caret - lineStart;
+
+        // caret がどの視覚セグメントに属するかを決める。
+        // - 通常は「seg.OffsetInLine + seg.Length で終わる直前」まで
+        // - 最終セグメントに限り「末尾ちょうど」も許容(EOL キャレット位置)
+        int segIdx = segments.Count - 1;
+        for (int i = 0; i < segments.Count; i++)
+        {
+            var seg = segments[i];
+            int segEnd = seg.OffsetInLine + seg.Length;
+            if (caretInLine < segEnd || (i == segments.Count - 1 && caretInLine == segEnd))
+            {
+                segIdx = i;
+                break;
+            }
+        }
+        var chosenSeg = segments[segIdx];
+        int localOffset = caretInLine - chosenSeg.OffsetInLine;
+        var segSpan = lineText.AsSpan(chosenSeg.OffsetInLine, chosenSeg.Length);
+        int xInSeg = PixelMapper.OffsetToPx(segSpan, localOffset, _metrics);
+
+        // TopLine の先頭視覚行を Y=0 として、キャレット視覚行までの積み上げ視覚行数を算出。
+        int visualRowsBeforeThisLine = 0;
+        for (int line = _topLine; line < logicalLine; line++)
+        {
+            int lStart = snap.GetLineStart(line);
+            int lEnd = snap.GetLineEnd(line, includeBreak: false);
+            int lLen = lEnd - lStart;
+            string lText = lLen == 0 ? string.Empty : snap.GetText(lStart, lLen);
+            var segs = LineLayout.Wrap(lText, maxWidthPx, _metrics);
+            visualRowsBeforeThisLine += segs.Count;
+        }
+        int totalVisualRow = visualRowsBeforeThisLine + segIdx;
+
+        int lnWidth = ShowLineNumbers ? MeasureLineNumberWidth(snap.LineCount) : 0;
+        int x = lnWidth + xInSeg;
+        int y = totalVisualRow * _metrics.LineHeightPx;
+
+        // 下端超過(クライアント高さ以上)なら不可視位置へ退避
+        if (y >= ClientSize.Height)
+        {
+            NativeMethods.SetCaretPos(-1000, -1000);
+            return;
+        }
+
+        NativeMethods.SetCaretPos(x, y);
     }
 
     protected override void OnMouseWheel(MouseEventArgs e)

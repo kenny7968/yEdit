@@ -60,6 +60,10 @@ internal sealed class TextChunk
 
     /// <summary>範囲先頭から charDelta 文字(UTF-16単位)進んだバイトオフセット(範囲内保証・サロゲート中間は呼び出し側でスナップ済み)。</summary>
     public int CharToByte(int byteStart, int byteLen, int charDelta)
+        => CharToByte(byteStart, byteLen, charDelta, out _);
+
+    /// <summary>同上。actualCharDelta には実際に到達した文字オフセット(中間指定なら charDelta-1)を返す。</summary>
+    public int CharToByte(int byteStart, int byteLen, int charDelta, out int actualCharDelta)
     {
         var s = _bytes.Span;
         var (chA, _) = CumAt(byteStart);
@@ -74,11 +78,30 @@ internal sealed class TextChunk
             byte b = s[pos];
             int step = b < 0x80 ? 1 : b < 0xE0 ? 2 : b < 0xF0 ? 3 : 4;
             int units = step == 4 ? 2 : 1;
-            if (cum + units > target) break;   // サロゲート中間=低い方へスナップ(契約上は到達しない)
+            if (cum + units > target) break;   // サロゲート中間=低い方へスナップ
             cum += units;
             pos += step;
         }
+        actualCharDelta = cum - chA;
         return pos;
+    }
+
+    /// <summary>
+    /// 範囲内の文字区間 [charFrom, charTo) を string 化。両端がサロゲート中間でもよい
+    /// (コード点境界へ広げて切り出し→部分stringスライス)。
+    /// </summary>
+    public string GetSubstring(int byteStart, int byteLen, int charFrom, int charTo)
+    {
+        if (charFrom >= charTo) return string.Empty;
+        int bF = CharToByte(byteStart, byteLen, charFrom, out int cF);   // 中間なら低い方へ
+        int bT = CharToByte(byteStart, byteLen, charTo, out int cT);
+        if (cT < charTo)
+        {   // 終端が中間: そのコード点(必ず4バイト=2単位)を丸ごと含める
+            bT += 4;
+            cT += 2;
+        }
+        string s = GetString(bF, bT - bF);
+        return charFrom == cF && charTo == cT ? s : s.Substring(charFrom - cF, charTo - charFrom);
     }
 
     /// <summary>

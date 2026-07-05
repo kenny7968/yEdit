@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using yEdit.Core.Buffers;
+using yEdit.Core.Editing;
 using yEdit.Core.Layout;
 using yEdit.Core.Settings;
 // System.Windows.Forms.SelectionRange(MonthCalendar 用)と同名のため別名で解決する。
@@ -43,6 +44,12 @@ public sealed class EditorControl : Control
     // Task 10: システムキャレットのフォーカス状態フラグ。CreateCaret/DestroyCaret はフォーカスを
     // 持つ間のみ有効なため、SetCaretCharOffset 等から PositionCaret を呼ぶ際にガードに使う。
     private bool _hasFocus;
+
+    // P3 Task 6: 上下移動(Up/Down/PageUp/PageDown)で保持する desired X(px)。
+    // -1 = 未計算=次回の垂直移動時に現在キャレット位置から新規計算する(慣例値)。
+    // Left/Right/Home/End など水平方向の移動が起きたらリセット=次の垂直移動で再計算される。
+    // Task 8 以降の編集経路(挿入/削除等)でも同様に -1 リセットする(§0-6 の一貫性)。
+    private int _desiredXpx = -1;
 
     // Task 15: システムキャレットの太さ(px)。既定 2・ApplyAppearance で AppSettings.CaretWidth
     // (1〜5)を反映。弱視のキャレット視認性要件(設計原則 yedit-sighted-users-first-class)。
@@ -640,6 +647,133 @@ public sealed class EditorControl : Control
         int delta = -Math.Sign(e.Delta) * scrollLines;  // Delta>0=上方向 → TopLine 減
         TopLine = _topLine + delta;
     }
+
+    /// <summary>
+    /// 移動系キー(Arrow/Home/End/PageUp/PageDown)を「入力キー」として扱わせ、
+    /// フォームレベルのフォーカス遷移やダイアログの既定ボタン発火に持っていかれないようにする。
+    /// Tab キーは Task 8/9(編集系)で <c>\t</c> 挿入とセットで別途対応するため、
+    /// Task 6 では含めない(Tab は現状フォーカス遷移のまま=P6 の App 統合まで許容)。
+    /// </summary>
+    protected override bool IsInputKey(Keys keyData)
+    {
+        Keys code = keyData & Keys.KeyCode;
+        return code switch
+        {
+            Keys.Left or Keys.Right or Keys.Up or Keys.Down
+                or Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown => true,
+            _ => base.IsInputKey(keyData),
+        };
+    }
+
+    /// <summary>
+    /// 移動系キーバインド配線(P3 Task 6)。編集系(BackSpace/Delete/Enter/文字挿入/Cut/Copy/Paste/
+    /// Undo/Redo/Tab)は Task 8〜11 で追加する=ここでは配線しない。
+    /// </summary>
+    /// <remarks>
+    /// 実装方針(統一経路):
+    /// - Shift 押下時は <see cref="MoveCaretWithSelection"/>=アンカー保持でキャレットのみ動かす。
+    /// - Shift 無押下時は <see cref="SetCaretCharOffset"/>=アンカー = キャレット(選択解除)。
+    /// - Ctrl+A のみ <see cref="SetSelectionAnchored(int, int)"/> を直接呼ぶ(anchor=0, caret=CharLength)。
+    /// - Left/Right/Home/End は水平方向の移動なので desiredXpx をリセット(次の Up/Down で再計算)。
+    /// - Up/Down/PageUp/PageDown は <c>VerticalNavigation</c> が返した desiredPx を必ず保存する
+    ///   (新規計算経路=-1 → 有効値、有効値継続経路=同じ値)。
+    /// - 純キャレット移動でも <see cref="TextBuffer.BreakUndoCoalescing"/> を呼び、
+    ///   移動をまたいだ連続タイピングを分割する(Scintilla 版と同挙動)。
+    /// - <c>BringCaretIntoView()</c> / <c>RaiseCaretEnteredEmptyLineIfNeeded()</c> は Task 7/13 で
+    ///   本実装。Task 6 では**呼び出し箇所を確定させる**ためスタブ(no-op)で置く。
+    /// </remarks>
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (_buffer is null) return;
+        var snap = _buffer.Current;
+        bool shift = (e.Modifiers & Keys.Shift) != 0;
+        bool ctrl = (e.Modifiers & Keys.Control) != 0;
+
+        int? target = null;
+        bool resetDesired = false;
+
+        switch (e.KeyCode)
+        {
+            case Keys.Left:
+                target = ctrl ? WordBoundary.PrevWordStart(snap, _caret)
+                              : NavigationCommands.MoveLeftChar(snap, _caret);
+                resetDesired = true;
+                break;
+            case Keys.Right:
+                target = ctrl ? WordBoundary.NextWordStart(snap, _caret)
+                              : NavigationCommands.MoveRightChar(snap, _caret);
+                resetDesired = true;
+                break;
+            case Keys.Home:
+                target = ctrl ? 0 : NavigationCommands.MoveHomeSmart(snap, _caret);
+                resetDesired = true;
+                break;
+            case Keys.End:
+                target = ctrl ? snap.CharLength : NavigationCommands.MoveEnd(snap, _caret);
+                resetDesired = true;
+                break;
+            case Keys.Up:
+            {
+                var (t, d) = VerticalNavigation.MoveUp(snap, _caret, _desiredXpx, _wrapColumns, _metrics);
+                _desiredXpx = d;
+                target = t;
+                break;
+            }
+            case Keys.Down:
+            {
+                var (t, d) = VerticalNavigation.MoveDown(snap, _caret, _desiredXpx, _wrapColumns, _metrics);
+                _desiredXpx = d;
+                target = t;
+                break;
+            }
+            case Keys.PageUp:
+            {
+                int rows = Math.Max(1, ClientSize.Height / Math.Max(1, _metrics.LineHeightPx));
+                var (t, d) = VerticalNavigation.PageUp(snap, _caret, _desiredXpx, _wrapColumns, rows, _metrics);
+                _desiredXpx = d;
+                target = t;
+                break;
+            }
+            case Keys.PageDown:
+            {
+                int rows = Math.Max(1, ClientSize.Height / Math.Max(1, _metrics.LineHeightPx));
+                var (t, d) = VerticalNavigation.PageDown(snap, _caret, _desiredXpx, _wrapColumns, rows, _metrics);
+                _desiredXpx = d;
+                target = t;
+                break;
+            }
+            case Keys.A when ctrl:
+                SetSelectionAnchored(0, snap.CharLength);
+                _buffer.BreakUndoCoalescing();
+                e.Handled = true;
+                return;
+        }
+
+        if (target is int t2)
+        {
+            if (resetDesired) _desiredXpx = -1;
+            if (shift) MoveCaretWithSelection(t2);
+            else SetCaretCharOffset(t2);
+            _buffer.BreakUndoCoalescing();          // 純キャレット移動は coalescing 破断
+            BringCaretIntoView();                    // Task 7 で本実装(現在はスタブ=no-op)
+            RaiseCaretEnteredEmptyLineIfNeeded();    // Task 13 で本実装(現在はスタブ=no-op)
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// キャレットが可視領域外に出たとき TopLine / ScrollX を追従させる(Task 7 で本実装)。
+    /// P3 Task 6 では OnKeyDown の呼び出し箇所を確定させるためのスタブ(no-op)。
+    /// </summary>
+    private void BringCaretIntoView() { }
+
+    /// <summary>
+    /// 純キャレット移動でキャレットが空行に入ったとき、UIA / SR にイベントを上げる
+    /// (Task 13 で本実装。yEdit の空行能動発声要件)。P3 Task 6 では呼び出し箇所を確定させる
+    /// ためのスタブ(no-op)。
+    /// </summary>
+    private void RaiseCaretEnteredEmptyLineIfNeeded() { }
 
     protected override void OnPaint(PaintEventArgs e)
     {

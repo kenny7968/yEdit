@@ -11,8 +11,8 @@ public class ViewportLayoutTests
     public void Wrap_off_multiple_logical_lines_from_topLine_zero()
     {
         // "a\nb\nc"(3 論理行・各 1 文字)を折り返し OFF・height=25(=2.5 行分)で列挙。
-        // 25px は 2.5 行分に見えるが、LineHeightPx=10 の累積 y=20 で 3 個目を積んだ後 y=30 で break。
-        // → 3 個(高さ 25px にすべて収まる)。
+        // 判定は「追加してから y 加算」なので y=20 の時点で 3 個目を積み(下端 5px はみ出す)、
+        // 次の反復で y=30>=25 のため break。→ 3 個(3 行目は下端でクリップされる想定=OnPaint 側で処理)。
         var buf = TextBuffer.FromString("a\nb\nc");
         var rows = ViewportLayout.Build(buf.Current, topLine: 0, heightPx: 25, wrapColumns: 0, M);
 

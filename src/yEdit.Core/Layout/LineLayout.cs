@@ -18,6 +18,11 @@ internal static class LineLayout
     /// - 折り返し境界にタブや半角/全角の混在があっても、1 文字入るなら必ず入れる(空セグメント禁止)
     /// - 空文字列は [ (0, 0) ] を返す(空行も 1 視覚行分の高さを持つ)
     /// </summary>
+    /// <remarks>
+    /// <b>空入力の契約</b>: <paramref name="line"/> が空のとき、必ず 1 個の空セグメント
+    /// <c>[(0, 0)]</c> を返す。ViewportLayout はこの契約に依存して空行/空文書の視覚行を
+    /// 確保するため、この挙動を変更してはならない(変更する場合は ViewportLayout 側も直す)。
+    /// </remarks>
     public static IReadOnlyList<WrapSegment> Wrap(ReadOnlySpan<char> line, int maxWidthPx, ICharMetrics metrics)
     {
         // OFF: 単一セグメント

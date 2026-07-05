@@ -116,6 +116,52 @@ internal static class PieceTree
         return new Node(BuildBalanced(pieces[..mid]), pieces[mid], BuildBalanced(pieces[(mid + 1)..]));
     }
 
+    /// <summary>k番目(1始まり)のbreak終端文字(LFまたは単独CR)の文字オフセット。ルート呼び出しは followedByLf=false。</summary>
+    public static int NthBreakEnd(Node t, int k, bool followedByLf)
+    {
+        // 部分木 S の直後文字が LF のとき、S 末尾の CR は CRLF の一部なので終端は S 内に無い
+        static int EndsIn(PieceStats s, bool nextIsLf) => s.Breaks - (s.LastIsCr && nextIsLf ? 1 : 0);
+
+        bool afterLeftIsLf = t.Piece.CharLen > 0 ? t.Piece.Stats.FirstIsLf
+                           : t.Right is not null ? t.Right.Sum.FirstIsLf : followedByLf;
+        int endsInLeft = t.Left is null ? 0 : EndsIn(t.Left.Sum, afterLeftIsLf);
+        if (k <= endsInLeft) return NthBreakEnd(t.Left!, k, afterLeftIsLf);
+        k -= endsInLeft;
+
+        int pieceStart = t.Left?.Sum.CharLen ?? 0;
+        bool afterPieceIsLf = t.Right is not null ? t.Right.Sum.FirstIsLf : followedByLf;
+        int endsInPiece = EndsIn(t.Piece.Stats, afterPieceIsLf);
+        if (k <= endsInPiece)
+            return pieceStart + t.Piece.Chunk.NthBreakEndChar(t.Piece.ByteStart, t.Piece.ByteLen, k);
+        k -= endsInPiece;
+
+        return pieceStart + t.Piece.CharLen + NthBreakEnd(t.Right!, k, followedByLf);
+    }
+
+    /// <summary>接頭辞 [0, pos) の結合統計(O(log n)+格子1マス走査)。</summary>
+    public static PieceStats PrefixStats(Node? t, int pos)
+    {
+        var acc = PieceStats.Empty;
+        while (t is not null)
+        {
+            int leftChars = SumOf(t.Left).CharLen;
+            if (pos < leftChars) { t = t.Left; continue; }
+            acc = PieceStats.Combine(acc, SumOf(t.Left));
+            pos -= leftChars;
+            if (pos < t.Piece.CharLen)
+            {
+                if (pos == 0) return acc;
+                int byteMid = t.Piece.Chunk.CharToByte(t.Piece.ByteStart, t.Piece.ByteLen, pos);
+                return PieceStats.Combine(acc,
+                    t.Piece.Chunk.StatsOfRange(t.Piece.ByteStart, byteMid - t.Piece.ByteStart));
+            }
+            acc = PieceStats.Combine(acc, t.Piece.Stats);
+            pos -= t.Piece.CharLen;
+            t = t.Right;
+        }
+        return acc;
+    }
+
     /// <summary>in-order列挙(WriteTo/Reader用)。明示スタックで深い木でも再帰なし。</summary>
     public static IEnumerable<Piece> Enumerate(Node? t)
     {

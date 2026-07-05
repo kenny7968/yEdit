@@ -1202,6 +1202,22 @@ protected override void OnKeyPress(KeyPressEventArgs e)
 git commit -am "P3: Task 8 文字挿入(OnKeyPress + Overtype + 選択置換)"
 ```
 
+### Task 8 レビュー申し送り(将来対応)
+
+- **Tab(0x09)の扱いの Plan 逸脱**(S-1・Task 9 で決着): Plan §Task 8 Step 2 は
+  `if (ch < 0x20 && ch != '\t') { return; }` で Tab を OnKeyPress で `\t` 挿入する経路
+  として書いていたが、実装は `ch < 0x20` で Tab も無視。Plan §Task 9 は「Tab は
+  OnKeyPress で処理」と書いていて逸脱状態。Task 9 実装冒頭で以下のいずれかを確定させる:
+  - (A) 現行実装維持(Tab は Task 9 の OnKeyDown で `Keys.Tab` case 追加+`\t` 挿入+
+    `_desiredXpx = -1`+`AfterEdit`)
+  - (B) OnKeyPress の制御文字フィルタから `\t` を除外(Plan 原案どおり)
+  現行実装のまま(A)が Task 6 申し送り「IsInputKey に Tab を追加+OnKeyDown で処理」
+  と整合する。**Task 9 実装者は Keys.Tab の case 追加+IsInputKey 追加をチェックリスト化**。
+
+- **S-3/S-4/S-5 は現状 OK**: AfterEdit の PositionCaret + BringCaretIntoView 重複は
+  冪等・許容。`_caret = _anchor` 直接代入の理由付け xmldoc は Task 9〜11 で補強候補。
+  `_desiredXpx = -1` の呼び出し側個別設定は Task 9 削除系で書き忘れないよう注意。
+
 ---
 
 ### Task 9: 削除・Enter・Tab(BackSpace/Delete/Enter/Tab + EolMode)

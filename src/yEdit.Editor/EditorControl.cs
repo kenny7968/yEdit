@@ -815,8 +815,10 @@ public sealed class EditorControl : Control
     /// </summary>
     /// <remarks>
     /// 実装方針:
-    /// - <b>制御文字は無視</b>: WM_CHAR は Ctrl 修飾の 0x01〜0x1F も来る(Ctrl+A=0x01 等)。編集操作は
-    ///   全て <c>OnKeyDown</c> 経路(Task 6 の Ctrl+A・Task 9 の BackSpace/Enter/Tab)で処理する。
+    /// - <b>制御文字は無視</b>: WM_CHAR は Ctrl 修飾の 0x01〜0x1F も来る(Ctrl+A=0x01 等)。
+    ///   加えて Ctrl+Backspace は Windows のキーボード変換仕様上 wParam=0x7F(ASCII DEL)を
+    ///   届けるため、これも除外対象(Task 8 レビュー I-1)。編集操作は全て <c>OnKeyDown</c>
+    ///   経路(Task 6 の Ctrl+A・Task 9 の BackSpace/Enter/Tab)で処理する。
     ///   BackSpace(0x08)/Enter(0x0D)/Tab(0x09) も Task 9 で <c>OnKeyDown</c> で扱う予定=ここでは素通り。
     /// - <b>選択があれば無条件 Replace</b>: Overtype 影響なし(選択範囲を完全に置換)。
     /// - <b>Overtype で改行スキップ</b>: <c>\r</c>/<c>\n</c> の直前では潰さず単純挿入(Scintilla 互換)。
@@ -833,9 +835,10 @@ public sealed class EditorControl : Control
         if (_buffer is null || ReadOnly) return;
         char ch = e.KeyChar;
 
-        // 制御文字(BackSpace/Enter/Tab/Ctrl+X 系 0x01〜0x1F)は無視。
-        // 編集用途はすべて OnKeyDown 経路で処理する(Task 9 で BackSpace/Enter/Tab 配線予定)。
-        if (ch < 0x20) return;
+        // 制御文字(BackSpace 0x08 / Enter 0x0D / Tab 0x09 含む 0x00〜0x1F および
+        // Ctrl+Backspace の 0x7F=ASCII DEL)は無視。編集用途はすべて OnKeyDown 経路で
+        // 処理する(Task 9 で BackSpace/Enter/Tab 配線予定)。
+        if (ch < 0x20 || ch == 0x7F) return;
 
         var (s, en) = GetSelectionCharRange();
         string ins = ch.ToString();

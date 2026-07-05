@@ -215,4 +215,39 @@ public class TextInsertionTests
             Assert.Equal((1, 4), c.GetSelectionCharRange());
         }
     });
+
+    // ===== Ctrl+Backspace の 0x7F (Task 8 レビュー I-1) =====
+
+    [Fact]
+    public void KeyPress_Ctrl_Backspace_0x7F_Ignored() => Sta.Run(() =>
+    {
+        // Windows の Ctrl+Backspace は WM_CHAR で 0x7F(DEL)を送ってくる=無視すべき。
+        // 現行の ch < 0x20 だけだと 0x7F を通してしまいバッファに DEL 制御文字が入るバグ。
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            c.SetCaretCharOffset(2);
+            SendKeyPress(c, '\u007F');
+            Assert.Equal("abc", c.GetText());
+            Assert.Equal(2, c.CaretCharOffset);
+        }
+    });
+
+    // ===== Overtype + Selection の組み合わせ(Task 8 レビュー S-2) =====
+
+    [Fact]
+    public void KeyPress_OvertypeWithSelection_ReplacesSelection() => Sta.Run(() =>
+    {
+        // 選択あり時は Overtype 分岐に入らず、選択部だけを置換する(現行実装の s != en 早期分岐)。
+        var (f, c) = MakeControl("abcdef");
+        using (f) using (c)
+        {
+            c.Overtype = true;
+            c.SetSelectionCharRange(1, 4);
+            SendKeyPress(c, 'X');
+            Assert.Equal("aXef", c.GetText());  // 選択部のみ置換・5文字目 'e' は残る
+            Assert.Equal(2, c.CaretCharOffset);
+            Assert.Equal(2, c.SelectionAnchor);   // 選択解除
+        }
+    });
 }

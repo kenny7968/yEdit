@@ -627,6 +627,89 @@ public sealed class EditorControl : Control
     /// </summary>
     public void EmptyUndoBuffer() => _buffer?.ClearUndo();
 
+    /// <summary>
+    /// 選択範囲のテキストをクリップボード(<see cref="TextDataFormat.UnicodeText"/> 固定・設計書 §0-10)へ書き込む。
+    /// 選択なしのときは no-op(=クリップボード内容は保持)。本文不変=<see cref="ReadOnly"/> でも動く
+    /// (Notepad と同挙動)。SetSource 前は no-op。
+    /// </summary>
+    /// <remarks>
+    /// P6 の <c>ScintillaHost.Copy</c> と同名(App 層メニュー配線=<c>_docs.Active?.Editor.Copy()</c>
+    /// と機械的置換用)。<see cref="Clipboard.SetText(string, TextDataFormat)"/> は STA 必須=
+    /// 本コントロールが WinForms UI スレッド専用契約のため常に満たされる。
+    /// 「行末改行がない選択のときは 1 行選択と見なして EOL を付ける」等の Scintilla 独自仕様は
+    /// v1 では真似ず、素直に選択文字列だけを扱う(設計書 Task 11)。
+    /// </remarks>
+    public void Copy()
+    {
+        if (_buffer is null) return;
+        var (s, en) = GetSelectionCharRange();
+        if (s == en) return;
+        string text = _buffer.Current.GetText(s, en - s);
+        Clipboard.SetText(text, TextDataFormat.UnicodeText);
+    }
+
+    /// <summary>
+    /// 選択範囲のテキストをクリップボードへ書き込み、その範囲を削除する。
+    /// <see cref="ReadOnly"/> / 選択なし / SetSource 前は no-op(現行 Scintilla と一致)。
+    /// キャレットは削除位置(=元の選択開始オフセット)へ移動し、選択は解除される。
+    /// </summary>
+    /// <remarks>
+    /// P6 の <c>ScintillaHost.Cut</c> と同名。<see cref="Copy"/> → <see cref="TextBuffer.Replace"/>
+    /// で「クリップボード書き込み → 本文削除」の順に実行する(Copy 失敗時に本文だけ消える事故を
+    /// 防ぐ=<see cref="Clipboard.SetText(string, TextDataFormat)"/> が例外を投げると本メソッドも
+    /// 上に throw して <see cref="AfterEdit"/> へ到達しない)。
+    /// </remarks>
+    public void Cut()
+    {
+        if (_buffer is null || ReadOnly) return;
+        var (s, en) = GetSelectionCharRange();
+        if (s == en) return;
+        Copy();
+        _buffer.Replace(s, en - s, "");
+        _caret = _anchor = s;
+        _desiredXpx = -1;
+        AfterEdit();
+    }
+
+    /// <summary>
+    /// クリップボードの <see cref="TextDataFormat.UnicodeText"/> をキャレット位置に挿入する。
+    /// 選択があるときは置換。挿入後のキャレットは挿入末尾に位置し、選択は解除される。
+    /// <see cref="ReadOnly"/> / UnicodeText が無い or 空 / SetSource 前は no-op。
+    /// </summary>
+    /// <remarks>
+    /// P6 の <c>ScintillaHost.Paste</c> と同名。<see cref="Clipboard.ContainsText(TextDataFormat)"/>
+    /// で先にチェックしても実装差で空文字列を返すケースが理論上残り得るため、防御的に
+    /// <c>string.IsNullOrEmpty</c> でも早期 return する(空文字列 Replace は本文不変だが履歴に
+    /// 積む副作用があるため避けたい)。
+    /// </remarks>
+    public void Paste()
+    {
+        if (_buffer is null || ReadOnly) return;
+        if (!Clipboard.ContainsText(TextDataFormat.UnicodeText)) return;
+        string text = Clipboard.GetText(TextDataFormat.UnicodeText);
+        if (string.IsNullOrEmpty(text)) return;
+        var (s, en) = GetSelectionCharRange();
+        _buffer.Replace(s, en - s, text);
+        _caret = _anchor = s + text.Length;
+        _desiredXpx = -1;
+        AfterEdit();
+    }
+
+    /// <summary>
+    /// 文書全体を選択する(<see cref="SelectionAnchor"/>=0・<see cref="CaretCharOffset"/>=CharLength)。
+    /// SetSource 前は no-op(CharLength=0 で空選択=<see cref="SetSelectionAnchored"/> が
+    /// _buffer null で早期 return)。
+    /// </summary>
+    /// <remarks>
+    /// P6 の <c>ScintillaHost.SelectAll</c> と同名。<see cref="Control.SelectAll"/> は
+    /// <see cref="TextBoxBase"/> 以下でのみ導入されるため、Control 直接派生の本クラスでは
+    /// 隠すべき同名メソッドが無く <c>new</c> キーワード不要。OnKeyDown の Ctrl+A case
+    /// (Task 6)は <see cref="SetSelectionAnchored(int, int)"/> を直接呼んでいるため
+    /// 本メソッド経由ではないが、App 層メニュー "すべて選択" などから直接呼ばれることを想定。
+    /// </remarks>
+    public void SelectAll()
+        => SetSelectionAnchored(0, _buffer?.Current.CharLength ?? 0);
+
     /// <summary>診断用(テストで文書全体を取得)。SetSource 前は空文字列。</summary>
     internal string GetText() => _buffer?.Current.GetText(0, _buffer.Current.CharLength) ?? string.Empty;
 
@@ -882,6 +965,43 @@ public sealed class EditorControl : Control
                 // これを忘れると次の Up/Down が「Ctrl+A 前の古い列」を目指す(Task 6 レビュー S-1)。
                 _desiredXpx = -1;
                 _buffer.BreakUndoCoalescing();
+                e.Handled = true;
+                return;
+
+            // ===== P3 Task 11: Cut/Copy/Paste + レガシーキー(Ctrl+Insert/Shift+Insert/Shift+Delete) =====
+            // Ctrl+C は ReadOnly でも動く(本文不変・Notepad と同挙動)。
+            // Cut / Paste は ReadOnly で no-op=case ガードから `!ReadOnly` を落として本体側の
+            // 早期 return に任せる案もあるが、case ガードで先に弾いた方が
+            // 「switch がキーを消費しない=既定処理へ委譲」の可読性が高い(Undo/Redo と同じ流儀)。
+            case Keys.X when ctrl && !ReadOnly:
+                Cut();
+                e.Handled = true;
+                return;
+            case Keys.C when ctrl:
+                Copy();
+                e.Handled = true;
+                return;
+            case Keys.V when ctrl && !ReadOnly:
+                Paste();
+                e.Handled = true;
+                return;
+
+            // レガシーキー(Windows 3.x 以来の伝統的なクリップボードショートカット)。
+            // switch は上から順に評価されるため、Task 9 の case Keys.Insert / Keys.Delete
+            // より上に置くことで自動的にそちらを横取りする(=先に return する)。
+            // - Ctrl+Insert: Copy(ReadOnly でも動く=Notepad と同挙動)
+            // - Shift+Insert: Paste(ReadOnly で no-op)
+            // - Shift+Delete: Cut(ReadOnly で no-op)
+            case Keys.Insert when ctrl:
+                Copy();
+                e.Handled = true;
+                return;
+            case Keys.Insert when shift && !ReadOnly:
+                Paste();
+                e.Handled = true;
+                return;
+            case Keys.Delete when shift && !ReadOnly:
+                Cut();
                 e.Handled = true;
                 return;
 

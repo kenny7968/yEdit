@@ -73,6 +73,17 @@ public sealed class TextSnapshot
         return breaks;
     }
 
+    /// <summary>全文を供給する TextReader(全文string非実体化・Markdig/regex行適用向け)。</summary>
+    public TextReader CreateReader() => new SnapshotReader(_root);
+
+    /// <summary>UTF-8チャンクをストリームへ直書き(変換ゼロ・全文string化しない)。</summary>
+    public void WriteTo(Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        foreach (var p in PieceTree.Enumerate(_root))
+            stream.Write(p.Chunk.Span.Slice(p.ByteStart, p.ByteLen));
+    }
+
     /// <summary>ノードの文字区間 [from, to) を sb へ追記。ピース全域は直接デコード、端はスナップ切り出し。</summary>
     private static void AppendRange(PieceTree.Node? t, int from, int to, StringBuilder sb)
     {

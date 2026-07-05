@@ -41,6 +41,10 @@ jobs:
           -p:DebugType=embedded
           -o publish
 
+      - name: 説明書を同梱
+        shell: pwsh
+        run: Copy-Item -Recurse 説明書 publish\説明書
+
       - name: zip 圧縮
         shell: pwsh
         run: Compress-Archive -Path publish\* -DestinationPath $env:ZIP

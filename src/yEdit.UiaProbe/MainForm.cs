@@ -30,6 +30,7 @@ public sealed class MainForm : Form
 
         _editor = new UiaTextControl { Dock = DockStyle.Fill };
         _editor.Log = AppendLog;
+        _editor.UiaTrace = TraceAppend; // プロバイダ呼び出しトレース（RPC スレッド）をログファイルへ
         _editor.SetInitialText(string.Join("\n", new[]
         {
             "これは UIA テキストプロバイダの実験です。",
@@ -157,6 +158,12 @@ public sealed class MainForm : Form
     {
         SetStatus(line);
         WriteLogLine($"{DateTime.Now:HH:mm:ss.fff}  EVT  {line}");
+    }
+
+    // UIA プロバイダ（RPC スレッド）からのトレース。UI に触れず、ファイルのみへ。
+    private void TraceAppend(string line)
+    {
+        WriteLogLine($"{DateTime.Now:HH:mm:ss.fff}  UIA  {line}");
     }
 
     private void WriteLogLine(string text)

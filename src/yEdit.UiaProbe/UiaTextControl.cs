@@ -23,7 +23,7 @@ public sealed class UiaTextControl : Control, IUiaTextHost
     private nint _hwnd;
     private int _lineHeight;
 
-    private TextControlProvider? _provider;
+    private IRawElementProviderSimple? _provider;
 
     private readonly object _boundsSync = new();
     private WpfRect _bounds;
@@ -41,6 +41,13 @@ public sealed class UiaTextControl : Control, IUiaTextHost
     /// <summary>状態ログ出力（UI スレッドから呼ばれる）。</summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public Action<string>? Log { get; set; }
+
+    /// <summary>
+    /// UIA プロバイダ呼び出しトレース（RPC スレッドから呼ばれる。スレッド安全なこと）。
+    /// ハンドル生成前に設定すると TracingRootProvider 経由で全呼び出しが記録される。
+    /// </summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Action<string>? UiaTrace { get; set; }
 
     public UiaTextControl()
     {
@@ -107,7 +114,7 @@ public sealed class UiaTextControl : Control, IUiaTextHost
     {
         if (m.Msg == NativeMethods.WM_GETOBJECT && m.LParam.ToInt64() == NativeMethods.UiaRootObjectId)
         {
-            _provider ??= new TextControlProvider(this);
+            _provider ??= CreateProvider();
             m.Result = AutomationInteropProvider.ReturnRawElementProvider(Handle, m.WParam, m.LParam, _provider);
             return;
         }
@@ -118,8 +125,14 @@ public sealed class UiaTextControl : Control, IUiaTextHost
     {
         base.OnHandleCreated(e);
         _hwnd = Handle;
-        _provider ??= new TextControlProvider(this);
+        _provider ??= CreateProvider();
         UpdateBoundsCache();
+    }
+
+    private IRawElementProviderSimple CreateProvider()
+    {
+        var real = new TextControlProvider(this);
+        return UiaTrace is { } trace ? new TracingRootProvider(real, trace) : real;
     }
 
     // ==================== フォーカス ====================

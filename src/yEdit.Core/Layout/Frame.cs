@@ -50,5 +50,20 @@ public sealed record ViewportStyle(
     PaintColor HighlightOutline,
     PaintColor WhitespaceGlyph);
 
-/// <summary>選択/セルハイライトの char 範囲。End は排他。<c>Start &lt;= End</c> を前提とする。</summary>
-public readonly record struct SelectionRange(int Start, int End);
+/// <summary>
+/// 選択/セルハイライトの char 範囲。End は排他。<c>Start &lt;= End</c> を invariant として構築時に検証する
+/// (上流バグの silent no-op 化を防ぐ)。
+/// </summary>
+public readonly record struct SelectionRange
+{
+    public SelectionRange(int start, int end)
+    {
+        if (start > end)
+            throw new ArgumentException($"Start ({start}) must be <= End ({end}).", nameof(start));
+        Start = start;
+        End = end;
+    }
+
+    public int Start { get; }
+    public int End { get; }
+}

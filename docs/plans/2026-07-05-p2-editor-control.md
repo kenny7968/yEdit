@@ -717,6 +717,18 @@ Expected: 0 警告。
 
 `MonoCharMetrics`(固定幅)で決定的・EXIT 0/1 判定。**GDI 実測との乖離**は smoke 側で補足する。
 
+**Task 5 レビューからの観測項目**(ベンチで実測し、閾値を超えていたら最適化・順不同):
+
+- **I1**: `FrameBuilder.Build` 内で 1 視覚行あたり `snapshot.GetText` を最大 5 回(本文/空白/選択矩形 × 2/セルハイライト矩形 × 2)呼んでいる。50 可視行で ~250 alloc/frame。対処案=行内容を 1 度取得して `ReadOnlySpan<char>` で回す構造(Task 5 レビュー I1)
+- **I2**: `FrameBuilder.EmitWhitespaceGlyphs` が空白位置ごとに `PixelMapper.OffsetToPx(span, i, ...)` を 0 から再計算=最悪 O(N²)。累積 px を持ちながら 1 パス走査で O(N) 化可能(Task 5 レビュー I2)
+- **M1**: セルハイライトの背景(z-order 4)と枠(z-order 8)で `TryComputeRowRangeRect` を同 range で 2 回呼ぶ=`OffsetToPx` の重複計算。1 パス化余地(Task 5 レビュー M1)
+- **M5**: `Frame.Ops` は `IReadOnlyList<PaintOp>` 型だが実体は `List<PaintOp>`。プーリング検討時に `ImmutableArray<PaintOp>` or `ReadOnlyCollection<PaintOp>` ラッピング判断(Task 5 レビュー M5)
+- **M7**: `Ordering_background_before_current_line_before_selection_before_body` テストが本文までしか順序確認していない。1 フレームで z-order 5 → 6 → 7 → 8(本文 → 空白 → 行番号 → セルハイライト枠)を検証するテスト 1 件追加を検討(Task 5 レビュー M7)
+
+**設計判断の申し送り**(Task 15 レビュー時に判断):
+
+- **M2**: セルハイライト半透明色は現状 `HighlightOutline.Rgb + Alpha=60` から派生。P6 の外観要求次第で `ViewportStyle.HighlightBack` を独立フィールド化して派生を廃す方針を検討可(Task 5 レビュー M2)
+
 **Step 2: smoke 起動器(手動確認+GDI 実測)**
 
 ```csharp

@@ -435,4 +435,19 @@ public class FrameBuilderTests
         for (int i = 0; i < ops.Count; i++) if (predicate(ops[i])) return i;
         return -1;
     }
+
+    // ---------- 追加: SelectionRange invariant ----------
+    [Fact]
+    public void SelectionRange_throws_when_start_greater_than_end()
+    {
+        Assert.Throws<ArgumentException>(() => new SelectionRange(5, 3));
+    }
+
+    [Fact]
+    public void SelectionRange_allows_equal_start_end_for_empty_range()
+    {
+        var s = new SelectionRange(3, 3);
+        Assert.Equal(3, s.Start);
+        Assert.Equal(3, s.End);
+    }
 }

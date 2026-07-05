@@ -21,12 +21,18 @@ public sealed class EditorControl : Control
     private TextBuffer? _buffer;
     private int _topLine;
     private bool _showLineNumbers;
+    private bool _highlightCurrentLine;
 
-    // 内部状態(Task 9/11 で本実装・現状は既定値のまま OnPaint に渡す)
-#pragma warning disable CS0649 // Task 9/11 で書き込み側を実装する
+    // キャレット/選択の内部状態(Task 9 で SetCaretCharOffset/SetSelectionCharRange 経由で更新)
+    // Invariant: _selStart <= _selEnd は API 側(SetSelectionCharRange)で保証・OnPaint も念のため
+    // Min/Max で正規化してから SelectionRange を組み立てる。SetCaret は選択も同 offset に潰す。
     private int _caret;
     private int _selStart;
     private int _selEnd;
+
+    // cellHighlight は Task 11(検索ハイライト)で書き込み側実装予定。
+    // 現状は読み取り側だけあるので CS0649 を局所抑止(Task 11 で pragma 撤去)。
+#pragma warning disable CS0649 // Task 11 で書き込み側を実装する
     private SelectionRange? _cellHighlight;
 #pragma warning restore CS0649
 
@@ -110,8 +116,84 @@ public sealed class EditorControl : Control
     }
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool ShowWhitespace { get; set; }       // Task 11 で本実装
+
+    /// <summary>
+    /// キャレット論理行の背景を <see cref="ViewportStyle.CurrentLineBack"/> で塗るか。
+    /// <b>選択がある間(_selStart != _selEnd)は塗らない</b>=OnPaint で FrameBuilder への
+    /// currentLineLogical に -1 を渡す(選択矩形との視覚的競合を避けるため)。
+    /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public bool HighlightCurrentLine { get; set; } // Task 9 で本実装
+    public bool HighlightCurrentLine
+    {
+        get => _highlightCurrentLine;
+        set
+        {
+            if (_highlightCurrentLine == value) return;
+            _highlightCurrentLine = value;
+            Invalidate();
+        }
+    }
+
+    /// <summary>キャレット位置(UTF-16 文字オフセット)。書き込みは <see cref="SetCaretCharOffset"/>。</summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int CaretCharOffset => _caret;
+
+    /// <summary>
+    /// キャレット位置を UTF-16 文字オフセットで設定する(選択はクリアされる=_selStart=_selEnd=offset)。
+    /// サロゲートペア中間位置(low)は前方(high)にスナップ。範囲外は [0, CharLength] にクランプ。
+    /// SetSource 前の呼び出しは no-op(_buffer が null のため)。
+    /// </summary>
+    public void SetCaretCharOffset(int offset)
+    {
+        if (_buffer is null) return;
+        int snapped = SnapAndClamp(offset);
+        if (_caret == snapped && _selStart == snapped && _selEnd == snapped) return;
+        _caret = snapped;
+        _selStart = snapped;
+        _selEnd = snapped;
+        Invalidate();
+    }
+
+    /// <summary>現在の選択範囲(UTF-16 文字オフセット・Start &lt;= End で返す)。</summary>
+    public (int Start, int End) GetSelectionCharRange()
+        => (Math.Min(_selStart, _selEnd), Math.Max(_selStart, _selEnd));
+
+    /// <summary>
+    /// 選択範囲を設定する。<paramref name="start"/> &gt; <paramref name="end"/> の場合は
+    /// 内部で正規化(Start &lt;= End)。両端はサロゲートペア中間位置なら前方スナップ・
+    /// 範囲外はクランプ。キャレットは選択の末尾(正規化後の End)に置く。
+    /// SetSource 前の呼び出しは no-op。
+    /// </summary>
+    public void SetSelectionCharRange(int start, int end)
+    {
+        if (_buffer is null) return;
+        int s = SnapAndClamp(Math.Min(start, end));
+        int e = SnapAndClamp(Math.Max(start, end));
+        if (_selStart == s && _selEnd == e && _caret == e) return;
+        _selStart = s;
+        _selEnd = e;
+        _caret = e;
+        Invalidate();
+    }
+
+    /// <summary>
+    /// [0, CharLength] にクランプし、UTF-16 low サロゲート位置なら 1 前方(high 側)へスナップ。
+    /// CharLength 位置(=EOF)はキャレットが立てる境界なのでクランプ後もそのまま許可。
+    /// </summary>
+    private int SnapAndClamp(int offset)
+    {
+        if (_buffer is null) return 0;
+        var snap = _buffer.Current;
+        if (offset <= 0) return 0;
+        if (offset >= snap.CharLength) return snap.CharLength;
+        char c = snap.GetChar(offset);
+        if (char.IsLowSurrogate(c) && offset > 0)
+        {
+            char prev = snap.GetChar(offset - 1);
+            if (char.IsHighSurrogate(prev)) return offset - 1;
+        }
+        return offset;
+    }
 
     private int ClampTopLine(int value)
     {
@@ -169,13 +251,22 @@ public sealed class EditorControl : Control
             int paintHeight = ClientSize.Height;
             var rows = ViewportLayout.Build(snap, _topLine, paintHeight, WrapColumns, _metrics);
             int lnWidth = ShowLineNumbers ? MeasureLineNumberWidth(snap.LineCount) : 0;
+
+            // 選択がある間は現在行強調 FillRect を抑止する(選択矩形と重ねると
+            // ハイライトが二重になり視覚的に読みにくいため=EditorControl 層の責務)。
+            bool hasSelection = _selStart != _selEnd;
+            int currentLineLogical = (_highlightCurrentLine && !hasSelection)
+                ? snap.GetLineIndexOfChar(_caret)
+                : -1;
+            SelectionRange? selection = hasSelection
+                ? new SelectionRange(Math.Min(_selStart, _selEnd), Math.Max(_selStart, _selEnd))
+                : null;
+
             var frame = FrameBuilder.Build(
                 snap, rows, paintWidth, paintHeight,
                 lnWidth,
-                HighlightCurrentLine ? snap.GetLineIndexOfChar(_caret) : -1,
-                _selStart != _selEnd
-                    ? new SelectionRange(Math.Min(_selStart, _selEnd), Math.Max(_selStart, _selEnd))
-                    : null,
+                currentLineLogical,
+                selection,
                 _cellHighlight, ShowWhitespace, _style, _metrics);
             RenderFrame(g, frame);
         }

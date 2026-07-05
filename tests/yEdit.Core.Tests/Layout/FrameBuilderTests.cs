@@ -481,6 +481,33 @@ public class FrameBuilderTests
         Assert.All(otherLineNumbers, op => Assert.Equal(style.LineNumberFore, op.Fore));
     }
 
+    // ---------- 追加(Task 9): FrameBuilder の契約 = 選択と現在行の両方が渡されれば両方描く ----------
+    // 「選択中は現在行を出さない」判断は EditorControl 層の責務であり、FrameBuilder は
+    // 与えられた引数どおりに両方を発行する。この契約が崩れると EditorControl 側の
+    // "選択がある間は currentLineLogical=-1 を渡す" 分岐が意味を失うため固定する。
+    [Fact]
+    public void When_selection_and_current_line_both_active_both_fillrects_are_emitted()
+    {
+        var buf = TextBuffer.FromString("abcd");
+        var rows = BuildRows(buf.Current);
+        var style = TestStyle();
+
+        var frame = FrameBuilder.Build(
+            buf.Current, rows,
+            clientWidth: 100, clientHeight: 30,
+            lineNumberMarginPx: 0,
+            currentLineLogical: 0,
+            selection: new SelectionRange(1, 3),
+            cellHighlight: null,
+            showWhitespace: false,
+            style, M);
+
+        Assert.Contains(frame.Ops, op =>
+            op.Kind == PaintOpKind.FillRect && op.Back == style.CurrentLineBack);
+        Assert.Contains(frame.Ops, op =>
+            op.Kind == PaintOpKind.FillRect && op.Back == style.SelectionBack);
+    }
+
     // ---------- 追加: 折り返し 2 段目以降は行番号を出さない(Task 8 で仕様維持) ----------
     [Fact]
     public void Wrap_row_second_segment_has_no_line_number()

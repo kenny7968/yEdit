@@ -7,6 +7,13 @@ namespace yEdit.Core.Editing;
 /// EditorControl から呼ばれる。範囲外指定時のスナップは呼び出し側の責務で、
 /// この関数群は caret ∈ [0, snap.CharLength] かつ code-point 境界を前提とする。
 /// </summary>
+/// <remarks>
+/// 前提違反時(caret が [0, CharLength] を外れる/サロゲート中間)は、
+/// TextSnapshot 側(GetChar / GetLineIndexOfChar 等)から
+/// <see cref="ArgumentOutOfRangeException"/> が透過的に伝播する。
+/// EditorControl 側は Task 6 の SnapAndClamp で必ずスナップしてから呼ぶこと
+/// (呼び忘れると即例外でキー入力が消えるため)。
+/// </remarks>
 public static class NavigationCommands
 {
     /// <summary>左に1文字移動。サロゲートペアは1文字として扱う。先頭では動かない。</summary>

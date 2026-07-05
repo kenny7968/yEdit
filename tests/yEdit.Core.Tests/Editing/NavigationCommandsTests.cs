@@ -96,4 +96,39 @@ public class NavigationCommandsTests
         Assert.Equal(3, NavigationCommands.MoveHomeSmart(s, 0));   // lineStart(0) → firstNonWs(3)
         Assert.Equal(0, NavigationCommands.MoveHomeSmart(s, 3));   // firstNonWs(3) → lineStart(0)
     }
+
+    [Fact]
+    public void MoveHome_AtCharLength_ReturnsLastLineStart()
+    {
+        // EOF キャレット(caret == CharLength)で throw しない契約
+        var s = Snap("abc\r\ndef");
+        Assert.Equal(5, NavigationCommands.MoveHome(s, s.CharLength));  // 最終行の先頭
+    }
+
+    [Fact]
+    public void MoveHome_AfterTrailingCrLf_ReturnsEmptyLastLineStart()
+    {
+        // "abc\r\n"(末尾改行あり)の caret=5(空の最終行)は 5 を返す
+        // GetLineIndexOfChar の CRLF 分岐(prefix.LastIsCr の使い方)への回帰保険
+        var s = Snap("abc\r\n");
+        Assert.Equal(5, NavigationCommands.MoveHome(s, 5));
+    }
+
+    [Fact]
+    public void MoveHomeSmart_OnEmptyBuffer_ReturnsZero()
+    {
+        // 空文書での不変性(暗黙成立を明文化)
+        var s = Snap("");
+        Assert.Equal(0, NavigationCommands.MoveHomeSmart(s, 0));
+    }
+
+    [Fact]
+    public void MoveRightChar_OrphanHighSurrogateAtEof_DoesNotThrow()
+    {
+        // "a\uD83D"(孤立ハイサロゲート・末尾)で MoveRightChar(1) が CharLength を返し throw しない
+        // 契約「code-point 境界前提だが arbitrary UTF-16 でも throw しない」の明文化
+        var s = Snap("a\uD83D");
+        Assert.Equal(2, s.CharLength);
+        Assert.Equal(2, NavigationCommands.MoveRightChar(s, 1));
+    }
 }

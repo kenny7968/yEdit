@@ -20,6 +20,7 @@ public sealed class EditorControl : Control
     private readonly VScrollBar _vscroll;
     private TextBuffer? _buffer;
     private int _topLine;
+    private bool _showLineNumbers;
 
     // 内部状態(Task 9/11 で本実装・現状は既定値のまま OnPaint に渡す)
 #pragma warning disable CS0649 // Task 9/11 で書き込み側を実装する
@@ -91,8 +92,22 @@ public sealed class EditorControl : Control
     }
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public int WrapColumns { get; set; }           // Task 12 で本実装
+    /// <summary>
+    /// 行番号マージンを表示するか。true にすると <see cref="MeasureLineNumberWidth"/> 幅のマージンを確保し、
+    /// FrameBuilder が右寄せで行番号を発行する(現在行のみ <see cref="ViewportStyle.Foreground"/> で強調)。
+    /// 変化時のみ Invalidate。
+    /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public bool ShowLineNumbers { get; set; }      // Task 8 で本実装
+    public bool ShowLineNumbers
+    {
+        get => _showLineNumbers;
+        set
+        {
+            if (_showLineNumbers == value) return;
+            _showLineNumbers = value;
+            Invalidate();
+        }
+    }
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool ShowWhitespace { get; set; }       // Task 11 で本実装
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]

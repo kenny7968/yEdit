@@ -450,4 +450,58 @@ public class FrameBuilderTests
         Assert.Equal(3, s.Start);
         Assert.Equal(3, s.End);
     }
+
+    // ---------- 追加: 現在行の行番号は Foreground 色(Task 8) ----------
+    [Fact]
+    public void Current_line_number_uses_foreground_color()
+    {
+        var buf = TextBuffer.FromString("a\nb\nc");
+        var rows = BuildRows(buf.Current);
+        var style = TestStyle();
+
+        var frame = FrameBuilder.Build(
+            buf.Current, rows,
+            clientWidth: 200, clientHeight: 100,
+            lineNumberMarginPx: 30,
+            currentLineLogical: 1,  // 2番目の行(0始まり)を現在行に
+            selection: null, cellHighlight: null,
+            showWhitespace: false,
+            style, M);
+
+        // 現在行の行番号 "2" は Foreground 色(マージン内=X<30)
+        var currentLineNumber = frame.Ops.FirstOrDefault(op =>
+            op.Kind == PaintOpKind.DrawText && op.Text == "2" && op.X < 30);
+        Assert.NotEqual(default(PaintOp), currentLineNumber);
+        Assert.Equal(style.Foreground, currentLineNumber.Fore);
+
+        // 他行の行番号 "1"/"3" は LineNumberFore
+        var otherLineNumbers = frame.Ops.Where(op =>
+            op.Kind == PaintOpKind.DrawText && (op.Text == "1" || op.Text == "3") && op.X < 30).ToList();
+        Assert.Equal(2, otherLineNumbers.Count);
+        Assert.All(otherLineNumbers, op => Assert.Equal(style.LineNumberFore, op.Fore));
+    }
+
+    // ---------- 追加: 折り返し 2 段目以降は行番号を出さない(Task 8 で仕様維持) ----------
+    [Fact]
+    public void Wrap_row_second_segment_has_no_line_number()
+    {
+        // 折り返し ON: 論理行 "abcdef" を wrap=3 → 2 視覚行(seg0="abc"/seg1="def")
+        var buf = TextBuffer.FromString("abcdef");
+        var rows = ViewportLayout.Build(buf.Current, topLine: 0, heightPx: 1000, wrapColumns: 3, M);
+        var style = TestStyle();
+
+        var frame = FrameBuilder.Build(
+            buf.Current, rows,
+            clientWidth: 200, clientHeight: 100,
+            lineNumberMarginPx: 30,
+            currentLineLogical: -1,
+            selection: null, cellHighlight: null,
+            showWhitespace: false,
+            style, M);
+
+        // 行番号 "1" は seg0 のみ(1 個)
+        var lineNumbers = frame.Ops.Where(op =>
+            op.Kind == PaintOpKind.DrawText && op.Text == "1" && op.X < 30).ToList();
+        Assert.Single(lineNumbers);
+    }
 }

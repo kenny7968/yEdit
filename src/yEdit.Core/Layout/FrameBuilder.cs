@@ -14,7 +14,8 @@ namespace yEdit.Core.Layout;
 ///   4) セルハイライト半透明背景(<see cref="ViewportStyle.HighlightOutline"/> + Alpha=<see cref="HighlightBackAlpha"/>)
 ///   5) 本文 DrawText(行番号ぶんオフセット済み)
 ///   6) 空白可視化グリフ(showWhitespace=true・本文と別 op で重ね塗り)
-///   7) 行番号(<see cref="ViewportStyle.LineNumberFore"/>・SegmentIndex=0 の視覚行のみ・右寄せ)
+///   7) 行番号(SegmentIndex=0 の視覚行のみ・右寄せ・現在行のみ <see cref="ViewportStyle.Foreground"/>・
+///      他は <see cref="ViewportStyle.LineNumberFore"/>)
 ///   8) セルハイライト枠 DrawLine ×4(<see cref="ViewportStyle.HighlightOutline"/>)
 /// </remarks>
 internal static class FrameBuilder
@@ -136,6 +137,7 @@ internal static class FrameBuilder
         }
 
         // 7) 行番号(SegmentIndex==0 の視覚行のみ・右寄せ)
+        // 現在行の行番号は Foreground 色で強調、それ以外は LineNumberFore。
         if (lineNumberMarginPx > 0)
         {
             for (int i = 0; i < rows.Count; i++)
@@ -146,9 +148,12 @@ internal static class FrameBuilder
                 int textWidth = metrics.MeasureRun(numText);
                 int x = lineNumberMarginPx - textWidth - LineNumberPadding;
                 if (x < 0) x = 0;   // マージン幅が狭すぎる場合の安全網(左端貼り付き)
+                PaintColor lnFore = (currentLineLogical >= 0 && row.LogicalLine == currentLineLogical)
+                    ? style.Foreground
+                    : style.LineNumberFore;
                 ops.Add(new PaintOp(
                     PaintOpKind.DrawText, x, row.YPx, textWidth, lineHeight,
-                    Text: numText, Fore: style.LineNumberFore));
+                    Text: numText, Fore: lnFore));
             }
         }
 

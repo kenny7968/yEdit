@@ -53,18 +53,19 @@ public class EmptyLineNavigationTests
     });
 
     [Fact]
-    public void CaretEnteredEmptyLine_DoesNotFire_OnSameLine() => Sta.Run(() =>
+    public void CaretEnteredEmptyLine_DoesNotFire_WhenLeavingEmptyLineToNonEmptyLine() => Sta.Run(() =>
     {
-        // 同じ行内の Left/Right では発火しない
+        // 空行 line1 から Left で行を跨いで非空行(line0)に着地=着地先が非空なので発火しない。
+        // 追加ガード: I-1 対応後は SetCaretCharOffset(4) で _lastCaretLine が同期される
+        // (line1)ため、Left で line0 に移った瞬間の RaiseCaretEnteredEmptyLineIfNeeded は
+        // 「_lastCaretLine=1 != 現在 line=0 かつ line0 は非空」で発火しない二重防御になる。
         var (f, c) = MakeControl("abc\n\nxyz");
         using (f) using (c)
         {
             c.SetCaretCharOffset(4);   // 行1(空行)
             int fired = 0;
             c.CaretEnteredEmptyLine += (_, _) => fired++;
-            // 空行の Left/Right は行を跨がないので発火しない(=1回目の "空行に着地" は
-            // SetCaretCharOffset(4) 時点で _lastCaretLine が更新されているため)
-            SendKey(c, Keys.Left);   // 行0 の末尾(3)へ → 空行から離れる=発火なし
+            SendKey(c, Keys.Left);   // 行0 の末尾(3)へ = 非空行に着地=発火なし
             Assert.Equal(0, fired);
         }
     });
@@ -166,6 +167,54 @@ public class EmptyLineNavigationTests
             Assert.Equal(2, fired);
             SendKey(c, Keys.Down);   // 行2→行3("xyz")=非空
             Assert.Equal(2, fired);
+        }
+    });
+
+    // ===== I-1 回帰保護: 公開キャレット setter での _lastCaretLine 同期 =====
+
+    [Fact]
+    public void CaretEnteredEmptyLine_DoesNotFire_AfterProgrammaticJumpToEmptyLine_ThenSameLineKeyNoOp() => Sta.Run(() =>
+    {
+        // I-1 回帰保護: App 層が programmatic に空行へジャンプ → ユーザーが同位置に留まるキー押下
+        // → _lastCaretLine 同期のおかげで spurious fire しない。
+        var (f, c) = MakeControl("abc\n\n");   // line0="abc" (0-3), line1=空 (4-4), line2=空 (5-5)
+        using (f) using (c)
+        {
+            int fired = 0;
+            c.CaretEnteredEmptyLine += (_, _) => fired++;
+
+            // programmatic ジャンプ(検索ジャンプ・GoTo・CsvFocusSink 相当):line2 空行へ。
+            // §0-7 により programmatic 移動自体は CaretEnteredEmptyLine を発火しない。
+            c.SetCaretCharOffset(5);
+            Assert.Equal(0, fired);
+
+            // 同位置に留まる Home 押下 → MoveHomeSmart(snap, 5)=5(空行なので同位置)
+            // → OnKeyDown 末尾の RaiseCaretEnteredEmptyLineIfNeeded は
+            //   「line=2 == _lastCaretLine=2(setter で同期済み)」で早期 return=発火なし。
+            SendKey(c, Keys.Home);
+            Assert.Equal(0, fired);
+        }
+    });
+
+    [Fact]
+    public void CaretEnteredEmptyLine_FiresOnLeavingProgrammaticJumpAndReturningToEmpty() => Sta.Run(() =>
+    {
+        // I-1 対応後: programmatic ジャンプで line1(空行)へ → Left で line0 に離脱 → 再度 Right
+        // で line1 に戻る。戻ったときは正しく発火する(=stale で発火抑制されない)。
+        var (f, c) = MakeControl("abc\n\nxyz");
+        using (f) using (c)
+        {
+            int fired = 0;
+            c.CaretEnteredEmptyLine += (_, _) => fired++;
+
+            c.SetCaretCharOffset(4);   // line1 空行(programmatic・§0-7 で発火しない)
+            Assert.Equal(0, fired);
+
+            SendKey(c, Keys.Left);   // line0 末尾へ(非空行)
+            Assert.Equal(0, fired);
+
+            SendKey(c, Keys.Right);   // line1 空行へ復帰(発火)
+            Assert.Equal(1, fired);
         }
     });
 

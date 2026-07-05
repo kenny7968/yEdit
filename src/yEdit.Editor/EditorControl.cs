@@ -54,10 +54,17 @@ public sealed class EditorControl : Control
 
     // P3 Task 13: 前回のキャレット論理行(SetSource で 0 リセット)。
     // <see cref="RaiseCaretEnteredEmptyLineIfNeeded"/> が「行が変わった」判定に使う。
-    // 純キャレット移動経路(OnKeyDown 移動系末尾 / OnMouseDown)でのみ更新する
-    // =編集経路(OnKeyPress / BackSpace/Delete/Enter/Tab/Undo/Redo/Cut/Paste)からは
-    // 呼ばないため、編集直後は stale になり得る(=編集経路後の初回の純キャレット移動で
-    // 空行に着地したときは fire する=意図した挙動・SR は編集経路とは別途通知される)。
+    // 更新経路:
+    // - <see cref="RaiseCaretEnteredEmptyLineIfNeeded"/> 内(行遷移検出時)
+    // - 公開キャレット/選択 setter(<see cref="SetCaretCharOffset"/> /
+    //   <see cref="MoveCaretWithSelection"/> / <see cref="SetSelectionAnchored"/> /
+    //   <see cref="SetSelectionCharRange"/>)=App 層 programmatic ジャンプ(検索ジャンプ・
+    //   GoTo・CsvFocusSink 等)で空行に飛んだあと、ユーザーが同位置に留まるキーを押しても
+    //   spurious fire しないよう強制同期(Task 13 レビュー I-1)。
+    // - <see cref="SetSource"/>=0 初期化
+    // 編集経路(OnKeyPress / BackSpace/Delete/Enter/Tab/Undo/Redo/Cut/Paste)からは
+    // 呼ばないため、編集直後は stale になり得るが、直後の純キャレット移動で新しい行が
+    // 空行に着地したときの発火は「新しい行が空か」だけで決まるため stale は害無し。
     private int _lastCaretLine;
 
     // Task 15: システムキャレットの太さ(px)。既定 2・ApplyAppearance で AppSettings.CaretWidth
@@ -396,6 +403,11 @@ public sealed class EditorControl : Control
         if (_caret == snapped && _anchor == snapped) return;
         _caret = snapped;
         _anchor = snapped;   // 単純キャレット移動は選択解除
+        // Task 13 レビュー I-1: _lastCaretLine を同期(App 層 programmatic ジャンプで
+        // 空行に飛んだ場合に、後続のユーザー入力で行が変わらないケース=
+        // OnKeyDown 移動系末尾の RaiseCaretEnteredEmptyLineIfNeeded が spurious fire
+        // するのを防ぐ)。
+        _lastCaretLine = _buffer.Current.GetLineIndexOfChar(_caret);
         PositionCaret();
         Invalidate();
     }
@@ -426,6 +438,8 @@ public sealed class EditorControl : Control
         if (_anchor == s && _caret == e) return;
         _anchor = s;
         _caret = e;
+        // Task 13 レビュー I-1: _lastCaretLine 同期(SetCaretCharOffset と同旨)。
+        _lastCaretLine = _buffer.Current.GetLineIndexOfChar(_caret);
         PositionCaret();
         Invalidate();
     }
@@ -443,6 +457,8 @@ public sealed class EditorControl : Control
         if (_caret == snapped) return;
         _caret = snapped;
         // _anchor は保持
+        // Task 13 レビュー I-1: _lastCaretLine 同期(SetCaretCharOffset と同旨)。
+        _lastCaretLine = _buffer.Current.GetLineIndexOfChar(_caret);
         PositionCaret();
         Invalidate();
     }
@@ -461,6 +477,8 @@ public sealed class EditorControl : Control
         if (_anchor == a && _caret == c) return;
         _anchor = a;
         _caret = c;
+        // Task 13 レビュー I-1: _lastCaretLine 同期(SetCaretCharOffset と同旨)。
+        _lastCaretLine = _buffer.Current.GetLineIndexOfChar(_caret);
         PositionCaret();
         Invalidate();
     }
@@ -955,6 +973,9 @@ public sealed class EditorControl : Control
         base.OnMouseDown(e);
         if (_buffer is null || e.Button != MouseButtons.Left) return;
         Focus();
+        // Task 13 レビュー I-1: setter で _lastCaretLine が同期されるため、「前の行」を setter
+        // 呼び出し前に捕獲して Raise に渡す(OnKeyDown 移動系末尾と同旨)。
+        int fromLine = _buffer.Current.GetLineIndexOfChar(_caret);
         int target = OffsetFromClientPoint(e.X, e.Y);
         bool shift = (ModifierKeys & Keys.Shift) != 0;
         if (shift)
@@ -965,7 +986,7 @@ public sealed class EditorControl : Control
         _desiredXpx = -1;
         _buffer.BreakUndoCoalescing();
         BringCaretIntoView();
-        RaiseCaretEnteredEmptyLineIfNeeded();
+        RaiseCaretEnteredEmptyLineIfNeeded(fromLine);
     }
 
     /// <summary>
@@ -1410,12 +1431,16 @@ public sealed class EditorControl : Control
 
         if (target is int t2)
         {
+            // Task 13 レビュー I-1: setter は _lastCaretLine を同期する(App 層 programmatic
+            // ジャンプ由来の spurious fire 抑止のため)ため、Raise が比較する「前の行」を
+            // setter 呼び出し前に捕獲しておく必要がある(setter 呼び出し後だと常に一致してしまう)。
+            int fromLine = snap.GetLineIndexOfChar(_caret);
             if (resetDesired) _desiredXpx = -1;
             if (shift) MoveCaretWithSelection(t2);
             else SetCaretCharOffset(t2);
             _buffer.BreakUndoCoalescing();          // 純キャレット移動は coalescing 破断
-            BringCaretIntoView();                    // Task 7 で本実装(現在はスタブ=no-op)
-            RaiseCaretEnteredEmptyLineIfNeeded();    // Task 13 で本実装(現在はスタブ=no-op)
+            BringCaretIntoView();
+            RaiseCaretEnteredEmptyLineIfNeeded(fromLine);
             e.Handled = true;
         }
     }
@@ -1606,11 +1631,16 @@ public sealed class EditorControl : Control
     }
 
     /// <summary>
-    /// 純キャレット移動後に呼ばれる(P3 Task 13)。行が前回から変わっていて、着地行が空行
-    /// (len=0)のとき <see cref="CaretEnteredEmptyLine"/> を発火する。
-    /// 編集経路(OnKeyPress / BackSpace/Delete/Enter/Tab/Undo/Redo/Cut/Paste)からは<b>呼ばない</b>
-    /// (=SR は編集経路とは別の通知経路で内容変化を読み上げる=§0-7 の純キャレット移動時のみ発火)。
+    /// 純キャレット移動後に呼ばれる(P3 Task 13)。<paramref name="fromLine"/> と現在の
+    /// キャレット論理行が異なり、着地行が空行(len=0)のとき <see cref="CaretEnteredEmptyLine"/>
+    /// を発火する。編集経路(OnKeyPress / BackSpace/Delete/Enter/Tab/Undo/Redo/Cut/Paste)からは
+    /// <b>呼ばない</b>(=SR は編集経路とは別の通知経路で内容変化を読み上げる=§0-7 の純キャレット
+    /// 移動時のみ発火)。
     /// </summary>
+    /// <param name="fromLine">移動 <b>前</b> のキャレット論理行(呼び出し側が setter 呼び出し前に
+    /// 捕獲する)。setter が <see cref="_lastCaretLine"/> を同期する(Task 13 レビュー I-1)ため、
+    /// このフィールドを比較対象に使うと OnKeyDown → SetCaretCharOffset の直後で常に一致してしまい
+    /// 発火しない。呼び出し側で「前の行」を明示的に渡すことでこの結合を切る。</param>
     /// <remarks>
     /// 呼び出し箇所は 2 つ:
     /// <list type="bullet">
@@ -1623,14 +1653,14 @@ public sealed class EditorControl : Control
     /// </list>
     /// SetSource 前は <c>_buffer is null</c> で早期 return=フォーカスや UI 初期化順序に依存しない。
     /// </remarks>
-    private void RaiseCaretEnteredEmptyLineIfNeeded()
+    private void RaiseCaretEnteredEmptyLineIfNeeded(int fromLine)
     {
         if (_buffer is null) return;
         var snap = _buffer.Current;
-        int line = snap.GetLineIndexOfChar(_caret);
-        if (line == _lastCaretLine) return;
-        _lastCaretLine = line;
-        int lineLen = snap.GetLineEnd(line, includeBreak: false) - snap.GetLineStart(line);
+        int toLine = snap.GetLineIndexOfChar(_caret);
+        if (toLine == fromLine) return;
+        _lastCaretLine = toLine;
+        int lineLen = snap.GetLineEnd(toLine, includeBreak: false) - snap.GetLineStart(toLine);
         if (lineLen == 0)
             CaretEnteredEmptyLine?.Invoke(this, EventArgs.Empty);
     }

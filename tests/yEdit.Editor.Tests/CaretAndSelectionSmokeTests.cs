@@ -17,7 +17,8 @@ public class CaretAndSelectionSmokeTests
         _ = f.Handle;                      // ハンドル生成(SetSource 内のキャレット生成経路が
                                            // 走ることは無い=OnGotFocus 未経由なので _hasFocus=false)
         c.SetSource(TextBuffer.FromString("abc"));
-        c.SetCaretCharOffset(-5);
+        c.SetCaretCharOffset(2);           // 前提: いったん非ゼロ位置に置き、-5→0 の「遷移」を検証
+        c.SetCaretCharOffset(-5);          // (0→0 の早期 return とクランプ→0 を区別する)
         Assert.Equal(0, c.CaretCharOffset);
     });
 

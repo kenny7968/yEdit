@@ -16,4 +16,9 @@
     <ProjectReference Include="..\yEdit.Core\yEdit.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- P2 Task 14 で追加予定の smoke 起動器から EditorControl の internal メンバに触れられるように -->
+    <InternalsVisibleTo Include="yEdit.Editor.Smoke" />
+  </ItemGroup>
+
 </Project>

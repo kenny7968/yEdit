@@ -14,6 +14,9 @@
   <ItemGroup>
     <InternalsVisibleTo Include="yEdit.Core.Tests" />
     <InternalsVisibleTo Include="yEdit.Core.Bench" />
+    <!-- ViewportLayout/FrameBuilder は internal のまま。EditorControl(yEdit.Editor)は
+         これを直接消費するため本アセンブリの internal を可視化する。 -->
+    <InternalsVisibleTo Include="yEdit.Editor" />
   </ItemGroup>
 
 </Project>

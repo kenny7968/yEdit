@@ -869,6 +869,8 @@ public sealed class EditorControl : Control
     ///   (レジストリ未設定 / 「1 ページ」設定=-1 では既定 3 にフォールバック)。
     /// - Delta&gt;0=上方向スクロール=<see cref="TopLine"/> 減。TopLine setter がクランプするため
     ///   上限/下限を跨ぐ蓄積は自然に上端/下端で頭打ちになる。
+    /// - 末尾で <see cref="HandledMouseEventArgs.Handled"/> を立てて親コンテナへのバブリングを止める
+    ///   (P6 で SplitContainer / ScrollableControl 内に置いた場合の二重スクロール防止)。
     /// </summary>
     protected override void OnMouseWheel(MouseEventArgs e)
     {
@@ -889,6 +891,10 @@ public sealed class EditorControl : Control
             TopLine = _topLine + wheelLines;
             _wheelAccum += 120;
         }
+        // WM_MOUSEWHEEL は親コンテナへ再ディスパッチされる仕様のため、Handled=true で
+        // 明示的にバブリングを止める(HandledMouseEventArgs は WinForms が MouseWheel 経路で
+        // 実際に渡す派生型・is パターンで安全に判定)。
+        if (e is HandledMouseEventArgs hme) hme.Handled = true;
     }
 
     /// <summary>
@@ -970,6 +976,8 @@ public sealed class EditorControl : Control
     /// WinForms は「Down → Up → Click → Down → Up → DoubleClick」の順に発火するため、
     /// OnMouseDown 側で単発キャレット移動が既に走っている。DoubleClick で選択範囲を上書きする形で
     /// 単語選択を確定させる(Notepad と同挙動)。
+    /// 空白位置のダブルクリック時の挙動は <see cref="NextWordBoundary"/> の remarks 参照
+    /// (Notepad 近似=前単語+空白 run の一部を選択する非対称仕様・実機評価は Task 14 smoke / P7 送り)。
     /// </remarks>
     protected override void OnMouseDoubleClick(MouseEventArgs e)
     {
@@ -1066,7 +1074,8 @@ public sealed class EditorControl : Control
     /// <summary>
     /// target 位置を含む単語の先頭を返す(<see cref="OnMouseDoubleClick"/> のヘルパ)。
     /// - target &lt;= 0: 0
-    /// - target &gt;= CharLength: そのまま <see cref="WordBoundary.PrevWordStart"/> に委譲
+    /// - target &gt;= CharLength(EOF): <see cref="WordBoundary.PrevWordStart"/>(CharLength) に委譲=
+    ///   末尾が空白なら空白を左スキップして直前の単語まで戻る=末尾に近い単語の頭を返す
     /// - それ以外: <see cref="WordBoundary.PrevWordStart"/>(target+1) を呼ぶことで
     ///   「target 自身を含む単語 class の連続の左端」を得る
     /// </summary>
@@ -1074,7 +1083,7 @@ public sealed class EditorControl : Control
     /// <see cref="WordBoundary.PrevWordStart"/> は「caret から 1 code-point 左に移動 → 空白後方スキップ
     /// → 同 class 後方スキップ」の設計。従って PrevWordStart(target+1) は「target 自身」が起点になり、
     /// target 位置の文字を含む単語の頭を返す。境界(target=CharLength)では target+1 は不正なので、
-    /// 素直に PrevWordStart(target) にフォールバックする(CharLength での挙動は 0 側に単語を求める形)。
+    /// 素直に PrevWordStart(target) にフォールバックする(=末尾に近い単語頭に着地する)。
     /// </remarks>
     private static int PrevWordBoundary(TextSnapshot snap, int target)
     {
@@ -1084,18 +1093,26 @@ public sealed class EditorControl : Control
     }
 
     /// <summary>
-    /// target 位置を含む単語の終端(=右隣の空白/改行の直前)を返す(<see cref="OnMouseDoubleClick"/>
-    /// のヘルパ)。
-    /// - target &gt;= CharLength: CharLength
-    /// - それ以外: <see cref="WordBoundary.NextWordStart"/>(target) の返す「次単語の頭」から
-    ///   左方向に空白/改行を戻して「現在単語の終端」を得る
+    /// target 位置の word run の終端を返す(<see cref="OnMouseDoubleClick"/> のヘルパ)。
+    /// target が空白/改行/EOF の場合の挙動は下記 remarks 参照。
     /// </summary>
     /// <remarks>
     /// <see cref="WordBoundary.NextWordStart"/> は Ctrl+→ 用に「単語末尾+空白列をスキップして次単語の頭」
-    /// を返す。ダブルクリック単語選択では末尾空白を含めたくないため、返り値から左に戻して空白/改行以外の
-    /// 最初の位置を求める(=現単語の末尾+1)。target が空白/改行の場合、NextWordStart は「次単語の頭」を
-    /// 返し、そこから左に戻ると target 直下の空白直前=target 自身まで戻る=空範囲になる(選択なし相当)。
-    /// この振る舞いは意図的で「空白のダブルクリックは選択しない」相当の緩い挙動。
+    /// を返す設計。ダブルクリック単語選択では末尾空白を含めたくないため、返り値から左に戻して空白/改行
+    /// 以外の最初の位置を求める。ただし後方スキャンは <c>nextWordStart &gt; target</c> でガードするため、
+    /// target 自身より左には決して戻らない。以下ケース別の挙動:
+    /// <list type="bullet">
+    /// <item><description>単語内位置: 単語末尾(空白直前)を返す。<see cref="PrevWordBoundary"/> と
+    /// 組み合わせると単語の [start, end) が選択される(最も直感的なケース)。</description></item>
+    /// <item><description>空白/改行位置: NextWordStart(target) が次単語の頭を返し、そこから左戻しは
+    /// target で止まる(=target 自身)。<see cref="PrevWordBoundary"/> と組み合わせると
+    /// <c>[前単語頭, target)</c>=「前の単語+target 位置までの空白 run の一部」が選択される。
+    /// 空白 run のどこをクリックするかで含まれる空白数が変わる非対称仕様(Notepad の空白
+    /// ダブルクリック挙動に近い)。VS Code は空白 run 全体を単独選択する挙動で、これへの
+    /// 変更要否は Task 14 smoke / P7 実機検証で最終判断する(申し送り: 計画書 Task 12
+    /// レビュー節)。</description></item>
+    /// <item><description>CharLength(EOF)位置: CharLength をそのまま返す。</description></item>
+    /// </list>
     /// </remarks>
     private static int NextWordBoundary(TextSnapshot snap, int target)
     {

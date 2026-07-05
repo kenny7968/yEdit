@@ -22,7 +22,7 @@ public class MouseInputTests
         var f = new Form { Size = new System.Drawing.Size(width, height) };
         var c = new EditorControl { Dock = DockStyle.Fill };
         f.Controls.Add(c);
-        _ = f.Handle;
+        _ = f.Handle;   // WinForms ハンドル強制生成でネイティブキャレット/描画経路を有効化
         c.SetSource(TextBuffer.FromString(text));
         return (f, c);
     }
@@ -183,6 +183,40 @@ public class MouseInputTests
             var (s, en) = c.GetSelectionCharRange();
             Assert.Equal(0, s);
             Assert.Equal(5, en);
+        }
+    });
+
+    [Fact]
+    public void DoubleClick_OnWhitespace_SelectsPrevWordPlusWhitespaceRun() => Sta.Run(() =>
+    {
+        // 現状仕様(Task 12 レビュー I-1 で明文化・NextWordBoundary の xmldoc 参照):
+        // 空白位置ダブルクリックは「前単語頭 + target 位置までの空白 run の一部」を選択する
+        // 非対称仕様(Notepad 近似・VS Code の空白 run 単独選択への変更要否は
+        // Task 14 smoke / P7 実機検証で判断)。
+        //
+        // font 依存性を吸くため PointFromCharOffset で pixel 位置を割り出し、
+        // 空白 run の中間位置を DoubleClick する。
+        // 注意: PxToOffset は「px が code-point 内に入る → その直後の offset」を返す
+        // (「入れば含める」の直観)。1-space の "hello world" で space 中央を叩くと
+        // target=6('w' の頭)=world 選択に転ぶため、テストは 4-space run
+        // "hello    world" で行う=positions 5..8 が空白・6/7 中間を叩けば
+        // 確実に target が空白 run 内(=6 or 7)になり、意図する仕様を検証できる。
+        var (f, c) = MakeControl("hello    world");   // 4 spaces
+        using (f) using (c)
+        {
+            var pt6 = c.PointFromCharOffset(6);
+            var pt7 = c.PointFromCharOffset(7);
+            Assert.NotEqual(System.Drawing.Point.Empty, pt6);
+            Assert.NotEqual(System.Drawing.Point.Empty, pt7);
+            int midX = (pt6.X + pt7.X) / 2;
+
+            SendMouseDoubleClick(c, x: midX, y: pt6.Y + 2);
+            var (s, en) = c.GetSelectionCharRange();
+            // 期待: 選択開始は前単語頭(0)、終了は空白 run の内側(5 超え・world=9 未満)。
+            // 具体: midX の PxToOffset → 7 → PrevWordBoundary(7)=0 / NextWordBoundary(7)=7 →
+            //       selection [0, 7) = "hello  "(2 spaces 含む)。
+            Assert.Equal(0, s);
+            Assert.InRange(en, 6, 8);   // world 頭(=9)未満・"hello"末(=5)より右
         }
     });
 

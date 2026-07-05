@@ -1602,6 +1602,27 @@ protected override void OnMouseWheel(MouseEventArgs e)
 git commit -am "P3: Task 12 マウス配線(Down/Move/Up/DoubleClick/Wheel精度)+ PxToOffset"
 ```
 
+### Task 12 レビュー申し送り(将来対応)
+
+- **極端 Wheel Delta の while ループ最適化**(S-3・Task 14 ベンチ観測):
+  `delta=24000` で while ループ 200 回、TopLine setter の早期 return で境界後は
+  Invalidate/PositionCaret が抑止されるが、境界到達までの反復(例: TopLine=100→0
+  で 34 回)は 1 WM_MOUSEWHEEL 内で走る。Task 14 のベンチで顕在化するか要観測。
+  緩和策: 境界クランプ後に while 早期 break(残余捨てる)を追加。ただし direction
+  reversal 時の即応性が落ちるトレードオフ。
+
+- **ドラッグ選択末端の空行イベント**(S-4・Task 13 実装時に判断):
+  現行は `OnMouseDown` でのみ `RaiseCaretEnteredEmptyLineIfNeeded` を呼び、ドラッグで
+  空行に着地しても Task 13 のイベントは発火しない。Task 13 で純キャレット移動時の
+  仕様が確定した後、ドラッグ選択末端(=マウス経路)での SR 通知要否を再検討。
+
+- **空白ダブルクリック挙動の実機評価**(I-1・Task 14 smoke / P7):
+  現状は「前単語頭+target 位置までの空白 run」を選択(Notepad 近似・非対称仕様=
+  空白 run のどこをクリックするかで選択長が変わる)。実装は `NextWordBoundary` の
+  xmldoc に明文化・現状仕様回帰保護テストは `MouseInputTests.DoubleClick_OnWhitespace_
+  SelectsPrevWordPlusWhitespaceRun`。Task 14 smoke で実機体感を確認し、VS Code 挙動
+  (空白 run 単独選択)への変更要否を P7 実機検証で最終判断。
+
 ---
 
 ### Task 13: CaretEnteredEmptyLine + RaiseUiaSelectionEvents(受け口のみ)

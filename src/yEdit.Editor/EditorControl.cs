@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using yEdit.Core.Buffers;
 using yEdit.Core.Layout;
+using yEdit.Core.Settings;
 // System.Windows.Forms.SelectionRange(MonthCalendar 用)と同名のため別名で解決する。
 using SelectionRange = yEdit.Core.Layout.SelectionRange;
 
@@ -14,9 +15,11 @@ namespace yEdit.Editor;
 /// </summary>
 public sealed class EditorControl : Control
 {
-    private readonly Font _font;
-    private readonly ICharMetrics _metrics;
-    private readonly ViewportStyle _style;
+    // Task 13 で ApplyAppearance によりフォント差し替え/GdiCharMetrics 再構築/ViewportStyle 差し替えを
+    // 行うため readonly を外した(Font 差し替え時は明示的に古い Font.Dispose を呼ぶ責務)。
+    private Font _font;
+    private ICharMetrics _metrics;
+    private ViewportStyle _style;
     private readonly VScrollBar _vscroll;
     private readonly HScrollBar _hscroll;
     private TextBuffer? _buffer;
@@ -660,6 +663,94 @@ public sealed class EditorControl : Control
         LineNumberFore:   new PaintColor(0x777777),
         HighlightOutline: new PaintColor(0xD77800),
         WhitespaceGlyph:  new PaintColor(0xCCCCCC));
+
+    /// <summary>
+    /// <see cref="AppSettings"/> からフォント/テーマ/表示設定を反映する。App 層の
+    /// <c>EditorAppearance.Apply</c>(Scintilla ホスト向け)の自作コントロール版で、
+    /// P6 で App 層から呼ばれることを想定している(P2 時点では未接続=Task 14 の smoke で目視確認)。
+    ///
+    /// 挙動:
+    /// - フォント: 既存 Font を Dispose して新 Font に差し替え、<see cref="GdiCharMetrics"/> も再構築する
+    ///   (LineHeightPx が変わるため後段の VScroll/HScroll 再計算とキャレット再配置が必須)。
+    /// - テーマ: <see cref="AppearanceThemes.ById"/> で解決し、<see cref="ViewportStyle"/> を算出。
+    ///   現在行/行番号/空白グリフの色は fore/back のブレンドで導出(現行 App 層 Blend の移植)。
+    ///   BackColor は <see cref="Graphics.Clear"/> 用に Background と一致させる(<see cref="RenderFrame"/>
+    ///   の一様シフト時に右側の隙間が同色で埋まる不変を維持)。
+    /// - 表示設定: <see cref="ShowLineNumbers"/>/<see cref="ShowWhitespace"/>/<see cref="HighlightCurrentLine"/>
+    ///   /<see cref="WrapColumns"/> をフィールドへ直接反映(setter の Invalidate/HScroll 再計算に頼らず、
+    ///   末尾でまとめて Update*Scrollbar/PositionCaret/Invalidate を 1 回ずつ呼ぶ)。
+    ///   <see cref="ScrollX"/> は 0 にリセット(折り返し設定が変わっても不整合を残さないため)。
+    /// - Task 13 では <c>TabWidth</c>/<c>TabsToSpaces</c> は反映しない(P3=編集入力タスクの担当・YAGNI)。
+    /// </summary>
+    public void ApplyAppearance(AppSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        // フォント差し替え + GdiCharMetrics 再構築(古い Font は明示的に Dispose して GDI HFONT リーク回避)
+        var newFont = new Font(
+            string.IsNullOrEmpty(settings.FontName) ? "ＭＳ ゴシック" : settings.FontName,
+            settings.FontSize > 0 ? settings.FontSize : 12f);
+        _font.Dispose();
+        _font = newFont;
+        _metrics = new GdiCharMetrics(_font);
+
+        // テーマから ViewportStyle 算出 + Graphics.Clear 用 BackColor 同期
+        var theme = AppearanceThemes.ById(settings.Theme);
+        _style = BuildStyle(theme, settings.HighlightCurrentLine);
+        BackColor = FromRgb(theme.BackRgb);
+
+        // 表示設定はフィールドへ直接反映(末尾でまとめて Invalidate/Update するため setter を経由しない)
+        _showLineNumbers = settings.ShowLineNumbers;
+        _showWhitespace = settings.ShowWhitespace;
+        _highlightCurrentLine = settings.HighlightCurrentLine;
+        _wrapColumns = Math.Max(0, settings.WrapColumnEnabled ? settings.WrapColumn : 0);
+        _scrollX = 0;
+
+        // LineHeightPx / 折り返し設定が変わった可能性があるので両スクロールバーを再計算 →
+        // キャレット再配置(新 LineHeightPx でのシステムキャレット再作成は次回 OnGotFocus 時)。
+        UpdateVerticalScrollbar();
+        UpdateHorizontalScrollbar();
+        PositionCaret();
+        Invalidate();
+    }
+
+    /// <summary>
+    /// <see cref="AppearanceTheme"/> の Fore/Back RGB から派生色を算出して <see cref="ViewportStyle"/> を組む。
+    /// 現在行背景/行番号色/空白グリフ色は Back に Fore をブレンドして導出(App 層 <c>EditorAppearance</c> の
+    /// <c>Blend</c> 移植)。強調 OFF 時の CurrentLineBack は Alpha=0 で「未使用」を明示。
+    /// 選択背景と枠色は現行 App 層と同じ固定値(P6 でテーマ拡張が入るなら再検討)。
+    /// </summary>
+    private static ViewportStyle BuildStyle(AppearanceTheme theme, bool highlightCurrentLine)
+    {
+        var currentLineBack = highlightCurrentLine
+            ? new PaintColor(BlendRgb(theme.BackRgb, theme.ForeRgb, 0.12))
+            : new PaintColor(0, 0);
+        return new ViewportStyle(
+            Foreground:       new PaintColor(theme.ForeRgb),
+            Background:       new PaintColor(theme.BackRgb),
+            CurrentLineBack:  currentLineBack,
+            SelectionBack:    new PaintColor(0xADD8E6),
+            LineNumberFore:   new PaintColor(BlendRgb(theme.BackRgb, theme.ForeRgb, 0.5)),
+            HighlightOutline: new PaintColor(0xD77800),
+            WhitespaceGlyph:  new PaintColor(BlendRgb(theme.BackRgb, theme.ForeRgb, 0.3)));
+    }
+
+    /// <summary>
+    /// 0xRRGGBB 形式の 2 色を各チャネルで線形補間する(ratio=0 で baseRgb・1 で accentRgb)。
+    /// App 層 <c>EditorAppearance.Blend</c> のロジック移植(あちらは Color 型・こちらは int 型)。
+    /// </summary>
+    private static int BlendRgb(int baseRgb, int accentRgb, double ratio)
+    {
+        int r = BlendChannel((baseRgb >> 16) & 0xFF, (accentRgb >> 16) & 0xFF, ratio);
+        int g = BlendChannel((baseRgb >> 8) & 0xFF, (accentRgb >> 8) & 0xFF, ratio);
+        int b = BlendChannel(baseRgb & 0xFF, accentRgb & 0xFF, ratio);
+        return (r << 16) | (g << 8) | b;
+        static int BlendChannel(int a, int c, double r) => (int)Math.Round(a + (c - a) * r);
+    }
+
+    /// <summary>0xRRGGBB の int から Alpha=255 の <see cref="Color"/> を組む(BackColor 設定用)。</summary>
+    private static Color FromRgb(int rgb)
+        => Color.FromArgb(255, (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
 
     /// <summary>
     /// GDI ハンドル(Font)を解放する。P6 でタブ毎にインスタンス生成/破棄する運用のため、

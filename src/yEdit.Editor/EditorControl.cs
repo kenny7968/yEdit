@@ -52,6 +52,14 @@ public sealed class EditorControl : Control
     // Task 8 以降の編集経路(挿入/削除等)でも同様に -1 リセットする(§0-6 の一貫性)。
     private int _desiredXpx = -1;
 
+    // P3 Task 13: 前回のキャレット論理行(SetSource で 0 リセット)。
+    // <see cref="RaiseCaretEnteredEmptyLineIfNeeded"/> が「行が変わった」判定に使う。
+    // 純キャレット移動経路(OnKeyDown 移動系末尾 / OnMouseDown)でのみ更新する
+    // =編集経路(OnKeyPress / BackSpace/Delete/Enter/Tab/Undo/Redo/Cut/Paste)からは
+    // 呼ばないため、編集直後は stale になり得る(=編集経路後の初回の純キャレット移動で
+    // 空行に着地したときは fire する=意図した挙動・SR は編集経路とは別途通知される)。
+    private int _lastCaretLine;
+
     // Task 15: システムキャレットの太さ(px)。既定 2・ApplyAppearance で AppSettings.CaretWidth
     // (1〜5)を反映。弱視のキャレット視認性要件(設計原則 yedit-sighted-users-first-class)。
     private int _caretWidthPx = 2;
@@ -118,6 +126,8 @@ public sealed class EditorControl : Control
             throw new InvalidOperationException("SetSource は 1 度だけ");
         _buffer = buffer;
         _topLine = 0;
+        // Task 13: 空行遷移検知の内部状態を初期化(SetSource 直後は _caret=0=行0 なので同期)。
+        _lastCaretLine = 0;
         UpdateVerticalScrollbar();
         UpdateHorizontalScrollbar();
         if (_hasFocus)
@@ -321,6 +331,29 @@ public sealed class EditorControl : Control
     public LineEnding EolMode { get; set; } = LineEnding.Crlf;
 
     /// <summary>
+    /// 純キャレット移動(本文変更なし)で行が変わり、着地行が空行(len=0)のとき発火する。
+    /// App 層(P6)がこのイベントを購読して SR 能動発声「空行」を行う予定。
+    /// 継承 SR 対策§2-5-3(HANDOFF §4.1)。
+    /// </summary>
+    /// <remarks>
+    /// 発火条件は「純キャレット移動」経路のみ=OnKeyDown の移動系(Left/Right/Up/Down/Home/End/
+    /// PageUp/PageDown・shift 併用の選択拡張も含む)と OnMouseDown。
+    /// 編集経路(OnKeyPress の文字挿入・BackSpace/Delete/Enter/Tab/Undo/Redo/Cut/Paste)からは
+    /// 発火しない=SR は編集経路とは別の通知経路(TextChanged / UIA TextChangedEvent 等)で
+    /// 内容変化を読み上げるため、空行能動発声は移動時に限定する設計。
+    /// マウスドラッグ末端(OnMouseMove)からも発火しない(Task 12 の申し送り=P7 実機検証で最終判断)。
+    /// </remarks>
+    public event EventHandler? CaretEnteredEmptyLine;
+
+    /// <summary>
+    /// キャレット/選択移動時の UIA TextSelectionChangedEvent を発火するか。
+    /// <b>P3 では受け口のみ</b>(値は読み書きできるが挙動は無し)=P5 の UIA 接続で本挙動化する。
+    /// P6 の CSV モードでは false にしてシンクへ移る遷移の一瞬に PC-Talker が行を読むのを防ぐ。
+    /// </summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool RaiseUiaSelectionEvents { get; set; } = true;
+
+    /// <summary>
     /// SavePoint(<see cref="SetSavePoint"/>)以後にバッファが変更されたか。SetSource 前 / 現ルート ==
     /// 保存時ルート の間は false。P6 の <c>ScintillaHost.Modified</c> と同名(移植先での機械的置換用)。
     /// </summary>
@@ -472,11 +505,17 @@ public sealed class EditorControl : Control
         if (_buffer is null) return;
         var snap = _buffer.Current;
         int maxLine = Math.Max(0, snap.LineCount - 1);
+        // 編集経路(Undo/Delete)で buffer が縮んだ結果 _topLine が新 maxLine を超えて
+        // 残っているケースを防御的にクランプする。TopLine セッター経由の変更はここへ入る
+        // 前にクランプ済みだが、AfterEdit→UpdateVerticalScrollbar の順で来ると
+        // 直前の buffer 縮小分が _topLine に反映されていないためここで補正する必要がある
+        // (Task 13 EmptyLineNavigationTests の Enter→Undo 経路で顕在化した既存潜在バグ)。
+        if (_topLine > maxLine) _topLine = maxLine;
         int visibleLines = Math.Max(1, ClientSize.Height / Math.Max(1, _metrics.LineHeightPx));
         _vscroll.Maximum = maxLine + Math.Max(0, visibleLines - 1);
         _vscroll.LargeChange = visibleLines;
         _vscroll.SmallChange = 1;
-        _vscroll.Value = _topLine;  // _topLine は常に [0, maxLine] にクランプ済み → Value 範囲内
+        _vscroll.Value = _topLine;
         _vscroll.Enabled = maxLine > 0;
     }
 
@@ -1567,11 +1606,34 @@ public sealed class EditorControl : Control
     }
 
     /// <summary>
-    /// 純キャレット移動でキャレットが空行に入ったとき、UIA / SR にイベントを上げる
-    /// (Task 13 で本実装。yEdit の空行能動発声要件)。P3 Task 6 では呼び出し箇所を確定させる
-    /// ためのスタブ(no-op)。
+    /// 純キャレット移動後に呼ばれる(P3 Task 13)。行が前回から変わっていて、着地行が空行
+    /// (len=0)のとき <see cref="CaretEnteredEmptyLine"/> を発火する。
+    /// 編集経路(OnKeyPress / BackSpace/Delete/Enter/Tab/Undo/Redo/Cut/Paste)からは<b>呼ばない</b>
+    /// (=SR は編集経路とは別の通知経路で内容変化を読み上げる=§0-7 の純キャレット移動時のみ発火)。
     /// </summary>
-    private void RaiseCaretEnteredEmptyLineIfNeeded() { }
+    /// <remarks>
+    /// 呼び出し箇所は 2 つ:
+    /// <list type="bullet">
+    /// <item><description><see cref="OnKeyDown"/> の移動系末尾(target==int の後)。shift 併用の
+    /// 選択拡張経路からも呼ぶ=「選択拡張中に空行に到達した」ケースでも SR に通知する
+    /// (設計原則: 呼び出し側で発火可否を決めない=無/有選択に関わらず「行遷移して空行に着地」
+    /// なら発火。実運用で選択拡張中の発声が煩わしければ P7 実機検証で条件追加を検討)。</description></item>
+    /// <item><description><see cref="OnMouseDown"/> の末尾。左クリックで別行の空行に着地したときも
+    /// 発火する。ドラッグ末端(<see cref="OnMouseMove"/>)からは呼ばない(申し送り=P7 実機評価)。</description></item>
+    /// </list>
+    /// SetSource 前は <c>_buffer is null</c> で早期 return=フォーカスや UI 初期化順序に依存しない。
+    /// </remarks>
+    private void RaiseCaretEnteredEmptyLineIfNeeded()
+    {
+        if (_buffer is null) return;
+        var snap = _buffer.Current;
+        int line = snap.GetLineIndexOfChar(_caret);
+        if (line == _lastCaretLine) return;
+        _lastCaretLine = line;
+        int lineLen = snap.GetLineEnd(line, includeBreak: false) - snap.GetLineStart(line);
+        if (lineLen == 0)
+            CaretEnteredEmptyLine?.Invoke(this, EventArgs.Empty);
+    }
 
     protected override void OnPaint(PaintEventArgs e)
     {

@@ -357,7 +357,7 @@ public sealed class UiaTextControl : Control, IUiaTextHost
         if (!_hasFocus || !UseSystemCaret) return;
         var p = CaretPixel(_caret);
         bool ok = NativeMethods.SetCaretPos(p.X, p.Y);
-        UiaDiag.Log($"[sysCaret] offset={_caret} px=({p.X},{p.Y}) setOk={ok} tid={Environment.CurrentManagedThreadId}");
+        Log?.Invoke($"[sysCaret] offset={_caret} px=({p.X},{p.Y}) setOk={ok} tid={Environment.CurrentManagedThreadId}");
     }
 
     // ==================== 描画 ====================
@@ -469,6 +469,12 @@ public sealed class UiaTextControl : Control, IUiaTextHost
     bool IUiaTextHost.HasFocus => _hasFocus;
 
     int IUiaTextHost.ControlTypeId => _controlTypeId;
+
+    // SR がフォーカス時に読む名前。プローブであることが分かる固定文言。
+    string IUiaTextHost.Name => "プローブ本文";
+
+    // 検証スクリプト(tools/verify-uia.ps1, walk-test.ps1)が FindFirst で使う識別子。変更禁止。
+    string IUiaTextHost.AutomationId => "uiaProbeDocument";
 
     void IUiaTextHost.SetFocus()
     {

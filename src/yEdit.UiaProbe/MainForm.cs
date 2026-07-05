@@ -27,7 +27,6 @@ public sealed class MainForm : Form
 
         _logPath = Path.Combine(Path.GetTempPath(), "yedit-uia-probe.log");
         try { File.WriteAllText(_logPath, $"=== yEdit UIA Probe log {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===\r\n"); } catch { }
-        UiaDiag.Sink = TraceAppend; // UIA プロバイダ呼び出しをログへ（RPC スレッド）
 
         _editor = new UiaTextControl { Dock = DockStyle.Fill };
         _editor.Log = AppendLog;
@@ -145,12 +144,6 @@ public sealed class MainForm : Form
     {
         SetStatus(line);
         WriteLogLine($"{DateTime.Now:HH:mm:ss.fff}  EVT  {line}");
-    }
-
-    // UIA プロバイダ（RPC スレッド）からのトレース。UI に触れず、ファイルのみへ。
-    private void TraceAppend(string line)
-    {
-        WriteLogLine($"{DateTime.Now:HH:mm:ss.fff}  UIA  {line}");
     }
 
     private void WriteLogLine(string text)

@@ -745,6 +745,9 @@ public sealed class EditorControl : Control
             }
             case Keys.A when ctrl:
                 SetSelectionAnchored(0, snap.CharLength);
+                // 全選択=文書頭〜末尾のジャンプ相当なので、水平移動と同様に desired X をリセット。
+                // これを忘れると次の Up/Down が「Ctrl+A 前の古い列」を目指す(Task 6 レビュー S-1)。
+                _desiredXpx = -1;
                 _buffer.BreakUndoCoalescing();
                 e.Handled = true;
                 return;

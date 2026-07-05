@@ -199,6 +199,36 @@ public class KeyboardNavigationTests
     });
 
     [Fact]
+    public void CtrlA_ResetsDesiredX() => Sta.Run(() =>
+    {
+        // レビュー S-1: Ctrl+A は文書頭〜末尾のジャンプ相当なので、水平移動と同様に
+        // _desiredXpx をリセットする必要がある。リセットされていないと、Ctrl+A 直後に
+        // SetCaretCharOffset(手動配置) → Up/Down したときに「Ctrl+A 前の古い列」を目指す
+        // (ここでは caret=15=col=1 のはずが、古い px_of_col5 が流れ 12 に着地するバグ)。
+        //
+        // レイアウト: "abcdef\nabcdef\nabcdef" は CharLength=20。
+        //   行0="abcdef"[0-5], \n@6・行1="abcdef"[7-12], \n@13・行2="abcdef"[14-19]
+        // 手計算:
+        //   1. SetCaretCharOffset(5) → caret=5(行0 col=5)
+        //   2. Down → 行1 col=5 = 12。_desiredXpx = px_of_col5
+        //   3. Ctrl+A → 選択(0,20)。修正後: _desiredXpx = -1 にリセット
+        //   4. SetCaretCharOffset(15) → caret=15(行2 col=1)。_desiredXpx は不変
+        //   5. Up → _desiredXpx=-1 で新規計算=px_of_col1・行1 col=1 = 7+1 = 8
+        // バグ想定(リセット無し): 手順 5 で古い px_of_col5 が流れ、target = 7+5 = 12
+        var (f, c) = MakeControl("abcdef\nabcdef\nabcdef");
+        using (f) using (c)
+        {
+            c.SetCaretCharOffset(5);              // 行0 col=5
+            SendKey(c, Keys.Down);                // 行1 col=5 位置=12。_desiredXpx = px_of_col5
+            Assert.Equal(12, c.CaretCharOffset);
+            SendKey(c, Keys.A | Keys.Control);    // 全選択。_desiredXpx リセット期待
+            c.SetCaretCharOffset(15);             // 行2 col=1 位置(選択解除+手動配置)
+            SendKey(c, Keys.Up);                  // 行1 col=1 位置=8(新規計算=px_of_col1)
+            Assert.Equal(8, c.CaretCharOffset);   // バグなら 12 になる
+        }
+    });
+
+    [Fact]
     public void LeftArrow_ResetsDesiredX() => Sta.Run(() =>
     {
         // 上下移動 → Left でリセットされて desiredX が再計算されることを間接検証。

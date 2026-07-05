@@ -965,6 +965,20 @@ private void RaiseCaretEnteredEmptyLineIfNeeded() { }
 git commit -am "P3: Task 6 キーバインド配線(移動系 + Ctrl+A + shift 拡張)"
 ```
 
+### Task 6 レビュー申し送り(将来対応)
+
+- **Ctrl+A 後の可視化(I-1・Task 7 で要判断)**: Ctrl+A は `_caret = CharLength` にジャンプ
+  させるが、現行は `BringCaretIntoView` を呼ばない(選択があるので
+  `RaiseCaretEnteredEmptyLineIfNeeded` は意図的にスキップ)。100万行文書でキャレットが
+  遥か下端に行くケースで可視化が追従しない。Task 7 の `BringCaretIntoView` 本実装時に、
+  Ctrl+A 分岐でも呼ぶかどうかを DoD レビューで判断。多くのエディタ(Notepad/VSCode)は
+  Ctrl+A 後スクロールしない慣習。
+
+- **Tab キーの IsInputKey 追加(S-2・Task 8/9 送り)**: Task 6 の `IsInputKey` は
+  移動系 8 キーのみ。Task 8/9 で Tab を `\t` 挿入として配線するとき、`IsInputKey` にも
+  Tab を追加すること(追加しないとフォーカス移動に持って行かれて `OnKeyPress` で
+  `\t` が来ない)。
+
 ---
 
 ### Task 7: キャレット追従スクロール(BringCaretIntoView + EnsureVisibleCharRange)

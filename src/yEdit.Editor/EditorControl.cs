@@ -22,6 +22,7 @@ public sealed class EditorControl : Control
     private int _topLine;
     private bool _showLineNumbers;
     private bool _highlightCurrentLine;
+    private bool _showWhitespace;
 
     // キャレット/選択の内部状態(Task 9 で SetCaretCharOffset/SetSelectionCharRange 経由で更新)
     // Invariant: _selStart <= _selEnd は API 側(SetSelectionCharRange)で保証・OnPaint も念のため
@@ -34,11 +35,9 @@ public sealed class EditorControl : Control
     // 持つ間のみ有効なため、SetCaretCharOffset 等から PositionCaret を呼ぶ際にガードに使う。
     private bool _hasFocus;
 
-    // cellHighlight は Task 11(検索ハイライト)で書き込み側実装予定。
-    // 現状は読み取り側だけあるので CS0649 を局所抑止(Task 11 で pragma 撤去)。
-#pragma warning disable CS0649 // Task 11 で書き込み側を実装する
+    // セルハイライト状態(HighlightCharRange で設定・ClearHighlight で null)。
+    // テキスト選択(_selStart/_selEnd)とは独立した装飾で、単一アクティブ。
     private SelectionRange? _cellHighlight;
-#pragma warning restore CS0649
 
     public EditorControl()
     {
@@ -119,8 +118,55 @@ public sealed class EditorControl : Control
             Invalidate();
         }
     }
+    /// <summary>
+    /// 空白/タブ/EOL の可視化グリフ(中点/矢印)を <see cref="ViewportStyle.WhitespaceGlyph"/> 色で
+    /// 本文の上から重ね塗りするか。FrameBuilder は本文とは別 op として個別 DrawText を発行し、
+    /// GdiCharMetrics が同 Font を使うため座標のズレなく重なる。変化時のみ Invalidate。
+    /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public bool ShowWhitespace { get; set; }       // Task 11 で本実装
+    public bool ShowWhitespace
+    {
+        get => _showWhitespace;
+        set
+        {
+            if (_showWhitespace == value) return;
+            _showWhitespace = value;
+            Invalidate();
+        }
+    }
+
+    /// <summary>
+    /// 文字オフセット範囲(UTF-16)を「セル」枠 + 半透明背景で強調する(P0 の Scintilla セル装飾を継承)。
+    /// テキスト選択とは独立した装飾で、単一アクティブ(次の <see cref="HighlightCharRange"/> で
+    /// 置き換え・<see cref="ClearHighlight"/> で消える)。両端は [0, CharLength] にクランプ・
+    /// UTF-16 low サロゲート中間位置は前方(high)にスナップ。<paramref name="length"/> が負値のときは
+    /// 0 として扱う(空範囲=装飾なし相当)。SetSource 前の呼び出しは no-op。
+    /// </summary>
+    /// <param name="start">開始 UTF-16 文字オフセット。</param>
+    /// <param name="length">長さ(UTF-16 コード単位)。負値は 0 として扱う。</param>
+    public void HighlightCharRange(int start, int length)
+    {
+        if (_buffer is null) return;
+        int s = SnapAndClamp(start);
+        int e = SnapAndClamp(start + Math.Max(0, length));
+        // SnapAndClamp は単純クランプ + サロゲート前方スナップで、単調非減少。
+        // Math.Max(0, length) で length を非負に矯正しているため s <= e が数学的に保証される
+        // (SelectionRange invariant Start <= End にも合致)。
+        var range = new SelectionRange(s, e);
+        if (_cellHighlight == range) return;
+        _cellHighlight = range;
+        Invalidate();
+    }
+
+    /// <summary>
+    /// セルハイライトを消す。現状 null のときは no-op。
+    /// </summary>
+    public void ClearHighlight()
+    {
+        if (_cellHighlight is null) return;
+        _cellHighlight = null;
+        Invalidate();
+    }
 
     /// <summary>
     /// キャレット論理行の背景を <see cref="ViewportStyle.CurrentLineBack"/> で塗るか。

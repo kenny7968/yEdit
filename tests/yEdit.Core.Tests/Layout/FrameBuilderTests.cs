@@ -266,6 +266,31 @@ public class FrameBuilderTests
         Assert.NotEqual(spaceGlyph.Text, tabGlyph.Text); // スペース/タブは違うグリフ
     }
 
+    // ---------- 仕様 7 対偶: 空白可視化 OFF ----------
+    // Task 11 の受け口(EditorControl.ShowWhitespace)が false のとき FrameBuilder が
+    // グリフ DrawText を発行しないことを固定する。回帰時、仕様 7 と対で意図が明確になる。
+    [Fact]
+    public void Show_whitespace_false_emits_no_glyph_drawtext()
+    {
+        var buf = TextBuffer.FromString("a b\tc");
+        var rows = BuildRows(buf.Current);
+        var style = TestStyle();
+
+        var frame = FrameBuilder.Build(
+            buf.Current, rows,
+            clientWidth: 100, clientHeight: 20,
+            lineNumberMarginPx: 0,
+            currentLineLogical: -1,
+            selection: null, cellHighlight: null,
+            showWhitespace: false,
+            style, M);
+
+        var glyphs = frame.Ops
+            .Where(op => op.Kind == PaintOpKind.DrawText && op.Fore == style.WhitespaceGlyph)
+            .ToList();
+        Assert.Empty(glyphs);
+    }
+
     // ---------- 仕様 8: 空フレーム ----------
     [Fact]
     public void Empty_document_yields_background_and_at_least_one_empty_body_text()

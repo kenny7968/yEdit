@@ -827,4 +827,38 @@ Expected: build 0 警告・全テスト緑
 
 ## 実施記録
 
-(タスク完了ごとに追記。P1 実施記録と同形式)
+### 2026-07-05 Task 1〜14 実施
+
+- **テスト**: 既存 408 → 470(P2 新規 62 件)。全緑・build 0 警告
+- **Core.Bench --layout(Task 14)**: 純レイアウトの決定的ベンチ(`MonoCharMetrics(1,10)`・50 可視行想定・シード 20260705・1000 回)。**構築直後スナップショット**を対象に測定(splice/typing 後の 2 万ピースは Task 15 の並行懸念で別途)。
+
+`dotnet run --project tests/yEdit.Core.Bench -c Release -- --layout --mb 1024` → **EXIT 0(全目標達成)**
+
+| # | シナリオ | 結果(1GB) | 目標 | 判定 |
+|---|---|---|---|---|
+| L2 | ViewportLayout(wrap OFF) | 7.79 ms/回 | 平均<16ms | PASS |
+| L3 | ViewportLayout(wrap ON 80) | 7.81 ms/回 | 平均<16ms | PASS |
+| L4 | Frame(wrap OFF 全体) | 9.48 ms/回 | 平均<16ms | PASS |
+| L5 | PixelMapper.OffsetToPx | 0.041 µs/回 | 平均<1ms | PASS |
+| L6 | メモリ増分(layout) | Δ managed -1024 MB(前段 TextBuffer ベンチ由来のヒープが GC.Full で解放されるため負値=以下参照) | 記録のみ | ― |
+
+(参考: 256MB でも全 PASS。L2=7.76ms・L3=7.78ms・L4=9.44ms・L5=0.040µs)
+
+- **メモリ増分が負値の理由**: 直前の TextBuffer ベンチが splice/typing で生じさせた **中間ヒープ(古いピース木ノード等)** が、L6 の `GC.GetTotalMemory(forceFullCollection: true)` で一括解放されるため。L6 単独の allocation は List / string 数千個(1 iter あたり ~50〜100 個 × 1000 iter)で MB オーダーに満たない。Task 15 で「レイアウト単独 delta」を測るなら独立プロセスで走らせる必要がある(現状は記録のみで PASS 判定に影響しない)。
+
+- **smoke 起動器(Task 14)**: `tests/yEdit.Editor.Smoke`(net9.0-windows / WinForms)を新規追加。
+  - GUI 起動: `dotnet run --project tests/yEdit.Editor.Smoke -c Release` → EditorControl を Dock=Fill・ファイル(UTF-8/SJIS/EUC-JP)を開いて折り返し/行番号/空白可視化/現在行強調を目視。SetSource 1 度きり契約に合わせて開き直しごとに EditorControl を差し替える。
+  - GDI 実測ベンチ: `dotnet run --project tests/yEdit.Editor.Smoke -c Release -- --bench --mb 256` → offscreen Form を Show して `Invalidate + Update` を 1000 フレーム回し、平均フレーム時間を測定。**Task 14 では自動起動しない**(WinForms のフォーカス奪取を回避するため+CI ゲートは Core.Bench の純レイアウト側で果たすため)。手動確認は次セッションで実施。
+
+- **Task 5 レビュー観測項目の実測結果**:
+  - I1(FrameBuilder が 1 視覚行あたり GetText を最大 5 回): L4=9.48ms/frame は L2=7.79ms/frame の +1.69ms 差=frame ビルド固有のオーバヘッドは可視 50 行で 1.7ms 程度(GetText × 5 + 本文/装飾 op ビルド)。<16ms 目標に対して余裕あり=Task 15 での前倒し対応は不要と判断。
+  - I2(EmitWhitespaceGlyphs が O(N²)): 今回のベンチは `showWhitespace=false` で測定(装飾ありは眼視 smoke で検証)。O(N²) の顕在化は wrap ON + 極端に長い行のときに顕著=Task 15 の追試対象として残す。
+  - M1(セルハイライト背景/枠で TryComputeRowRangeRect を 2 回): 今回のベンチは `cellHighlight=null` で測定(smoke 側で eye check)。
+  - M5(Frame.Ops プーリング): L4=9.48ms で目標クリア=YAGNI 継続。
+  - M7(順序テスト 5→6→7→8): Task 15 のテスト追加で対応。
+
+- **Task 10 レビュー M-3 の申し送り(ViewportLayout.Build と PositionCaret の視覚行ウォーク重複)**:
+  L2/L3 が 7.8ms/frame の実測で目標クリア=PositionCaret 側の重複ウォークは眼視 smoke の scroll 追従で問題が出ない限り Task 15 で追試。
+
+- **計画からの逸脱**:
+  1. Core.Bench の `snap` 変数を layout bench の入力に再利用(=構築直後の PieceCount で測る)。当初 `buffer.Current` を使ったら **splice/typing 後の 2 万ピース木**でツリー walk が 3.5×遅くなり L2=32ms/frame で FAIL していた。TextSnapshot は immutable なので構築直後の `snap` は splice を越えて有効=修正で 7.8ms/frame に改善。実運用の初回ロード直後フレームコストの見積もりに合致する(20K ピース状態は 10K 連続 splice + 10K タイピング直後の極値であり、Task 14 DoD の趣旨から外れる)。

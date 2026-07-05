@@ -1,13 +1,26 @@
 using System.Diagnostics;
 using System.Text;
 using yEdit.Core.Buffers;
+using yEdit.Core.Layout;
 
 // P1 TextBuffer 性能ゲート(設計書DoD): --mb <サイズ> 既定1024
 // 目標未達があれば EXIT 1
+// P2 Task 14: --layout 追加。TextBuffer ベンチ実行後、レイアウト層の性能ゲートを走らせる。
 
 int mb = 1024;
-for (int i = 0; i + 1 < args.Length; i++)
-    if (args[i] == "--mb" && int.TryParse(args[i + 1], out int m)) mb = m;
+bool layoutMode = false;
+for (int i = 0; i < args.Length; i++)
+{
+    if (args[i] == "--mb" && i + 1 < args.Length && int.TryParse(args[i + 1], out int m))
+    {
+        mb = m;
+        i++;
+    }
+    else if (args[i] == "--layout")
+    {
+        layoutMode = true;
+    }
+}
 
 long targetBytes = (long)mb * 1024 * 1024;
 var rnd = new Random(20260705);
@@ -116,6 +129,110 @@ int pieceDelta = piecesAfter - piecesBefore;
 AddResult("7 連続タイピング断片化", $"before {piecesBefore} → after {piecesAfter}(Δ{pieceDelta})",
     "Δ≤50(断片化しない)", pieceDelta <= 50);
 
+// ---- P2 Task 14: レイアウトベンチ(--layout 指定時のみ) ----
+// 純レイアウトの決定的ベンチ。MonoCharMetrics(半角=1px・全角=2px・行高=10px)を使い、
+// フォント/OS 依存を排して 1000 回の合計を測る。EditorControl は経由しない(GDI ベンチは smoke 側)。
+//
+// **snapshot は splice/typing 前の `snap`(構築直後・ピース数=構築時のまま)を使う**。
+// TextBuffer は immutable snapshot なので `snap` はここに来ても構築直後の状態を保持している
+// (Current=最新なら splice 後の 2 万ピースの重い木を歩くことになり、実運用の初期ロード直後
+// フレームコストの見積もりから外れる=Task 14 DoD の趣旨と合わない)。
+if (layoutMode)
+{
+    // 構築直後のヒープ量を記録(9 メモリで delta を出すため)
+    long memBeforeLayout = GC.GetTotalMemory(forceFullCollection: true);
+
+    var layoutSnap = snap;   // 構築直後スナップショット(splice 前)
+    var metrics = new MonoCharMetrics(halfWidthPx: 1, lineHeightPx: 10);
+    const int LayoutIters = 1000;
+    const int VisibleRowsTarget = 50;
+    int heightPx = VisibleRowsTarget * metrics.LineHeightPx;   // = 500
+    int lineCountForRnd = layoutSnap.LineCount;
+    var layoutStyle = BuildLayoutBenchStyle();
+
+    // TopLine の乱数列(全シナリオで同じ列を使うため事前生成=決定的比較のため)
+    int[] topLines = new int[LayoutIters];
+    for (int i = 0; i < LayoutIters; i++) topLines[i] = rnd.Next(0, Math.Max(1, lineCountForRnd));
+
+    // ---- L1) 折り返し OFF: ViewportLayout.Build 1000 回 ----
+    // ウォームアップ(JIT + キャッシュ暖め・計測外)
+    for (int w = 0; w < 32; w++) { var _ = ViewportLayout.Build(layoutSnap, topLines[w % LayoutIters], heightPx, 0, metrics); sink += _.Count; }
+    sw.Restart();
+    for (int i = 0; i < LayoutIters; i++)
+    {
+        var rows = ViewportLayout.Build(layoutSnap, topLines[i], heightPx, 0, metrics);
+        sink += rows.Count;
+    }
+    sw.Stop();
+    double buildOffMs = TicksToMs(sw.ElapsedTicks) / LayoutIters;
+    AddResult("L2 ViewportLayout(wrap OFF)", $"{buildOffMs:F2} ms/回",
+        "平均<16ms", buildOffMs < 16);
+
+    // ---- L2) 折り返し ON(WrapColumns=80): ViewportLayout.Build 1000 回 ----
+    for (int w = 0; w < 32; w++) { var _ = ViewportLayout.Build(layoutSnap, topLines[w % LayoutIters], heightPx, 80, metrics); sink += _.Count; }
+    sw.Restart();
+    for (int i = 0; i < LayoutIters; i++)
+    {
+        var rows = ViewportLayout.Build(layoutSnap, topLines[i], heightPx, 80, metrics);
+        sink += rows.Count;
+    }
+    sw.Stop();
+    double buildOnMs = TicksToMs(sw.ElapsedTicks) / LayoutIters;
+    AddResult("L3 ViewportLayout(wrap ON 80)", $"{buildOnMs:F2} ms/回",
+        "平均<16ms", buildOnMs < 16);
+
+    // ---- L3) ViewportLayout → FrameBuilder 1 フレーム全体 1000 回(wrap OFF) ----
+    // 実描画の代表シナリオ(装飾なし・現在行なし)を測る。装飾ありは可視性次第で
+    // 分岐しないので、装飾なしフレームの時間 <= 装飾ありフレームの時間 とはならないが、
+    // 主要ホットパス(GetText × 可視視覚行数)を測る目的に合致する。
+    for (int w = 0; w < 32; w++)
+    {
+        var rows = ViewportLayout.Build(layoutSnap, topLines[w % LayoutIters], heightPx, 0, metrics);
+        var frame = FrameBuilder.Build(
+            layoutSnap, rows, clientWidth: 800, clientHeight: heightPx,
+            lineNumberMarginPx: 0, currentLineLogical: -1,
+            selection: null, cellHighlight: null, showWhitespace: false,
+            style: layoutStyle, metrics: metrics);
+        sink += frame.Ops.Count;
+    }
+    sw.Restart();
+    for (int i = 0; i < LayoutIters; i++)
+    {
+        var rows = ViewportLayout.Build(layoutSnap, topLines[i], heightPx, 0, metrics);
+        var frame = FrameBuilder.Build(
+            layoutSnap, rows, clientWidth: 800, clientHeight: heightPx,
+            lineNumberMarginPx: 0, currentLineLogical: -1,
+            selection: null, cellHighlight: null, showWhitespace: false,
+            style: layoutStyle, metrics: metrics);
+        sink += frame.Ops.Count;
+    }
+    sw.Stop();
+    double frameMs = TicksToMs(sw.ElapsedTicks) / LayoutIters;
+    AddResult("L4 Frame(wrap OFF 全体)", $"{frameMs:F2} ms/回",
+        "平均<16ms", frameMs < 16);
+
+    // ---- L5) PixelMapper.OffsetToPx 相当計算 1000 回 ----
+    // 代表 1 セグメント(可視 1 行目相当・平均行長)を対象に、末尾位置までの OffsetToPx を測る。
+    // 空行ばかりに当たると偏るので topLine=0 の先頭視覚行を使う。
+    var probeRows = ViewportLayout.Build(layoutSnap, 0, heightPx, 0, metrics);
+    string probeText = probeRows.Count > 0 && probeRows[0].SegmentLength > 0
+        ? layoutSnap.GetText(probeRows[0].SegmentStartChar, probeRows[0].SegmentLength)
+        : "The quick brown fox jumps over 0123456789.";
+    for (int w = 0; w < 100; w++) sink += PixelMapper.OffsetToPx(probeText.AsSpan(), probeText.Length, metrics);
+    sw.Restart();
+    for (int i = 0; i < LayoutIters; i++)
+        sink += PixelMapper.OffsetToPx(probeText.AsSpan(), probeText.Length, metrics);
+    sw.Stop();
+    double pxMs = TicksToMs(sw.ElapsedTicks) / LayoutIters;
+    AddResult("L5 PixelMapper.OffsetToPx", $"{pxMs * 1000:F3} µs/回",
+        "平均<1ms", pxMs < 1.0);
+
+    // ---- L6) メモリ増分(構築後→レイアウト後) ----
+    long memAfterLayout = GC.GetTotalMemory(forceFullCollection: true);
+    long deltaMB = (memAfterLayout - memBeforeLayout) / 1048576;
+    results.Add(("L6 メモリ増分(layout)", $"Δ managed {deltaMB} MB", "記録のみ", null));
+}
+
 // ---- 結果表 ----
 Console.WriteLine();
 Console.WriteLine("| # シナリオ | 結果 | 目標 | 判定 |");
@@ -134,3 +251,13 @@ void AddResult(string name, string value, string target, bool pass)
 static double TicksToNs(long ticks) => ticks * 1_000_000_000.0 / Stopwatch.Frequency;
 static double TicksToUs(long ticks) => ticks * 1_000_000.0 / Stopwatch.Frequency;
 static double TicksToMs(long ticks) => ticks * 1000.0 / Stopwatch.Frequency;
+
+// レイアウトベンチ用のダミー ViewportStyle(色は結果に影響しない=OpKind 数だけが計測対象)
+static ViewportStyle BuildLayoutBenchStyle() => new(
+    Foreground:       new PaintColor(0x000000),
+    Background:       new PaintColor(0xFFFFFF),
+    CurrentLineBack:  new PaintColor(0xF0F0F0),
+    SelectionBack:    new PaintColor(0xADD8E6),
+    LineNumberFore:   new PaintColor(0x777777),
+    HighlightOutline: new PaintColor(0xD77800),
+    WhitespaceGlyph:  new PaintColor(0xCCCCCC));

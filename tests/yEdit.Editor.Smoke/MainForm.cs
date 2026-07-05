@@ -1,32 +1,42 @@
 using System.Text;
 using yEdit.Core.Buffers;
+using yEdit.Core.Text;
 using yEdit.Editor;
 
 namespace yEdit.Editor.Smoke;
 
 /// <summary>
-/// P2 Task 14 の smoke 起動器メインフォーム。EditorControl を Dock=Fill で置き、
+/// P3 Task 15 の smoke 起動器メインフォーム。EditorControl を Dock=Fill で置き、
 /// メニューから UTF-8 / Shift_JIS / EUC-JP のファイルを開いて eye check する用途。
-/// P2 はビューア相当なのでキーバインドは付けない(スクロールとメニューだけ)。
+/// P3 で編集入力が有効化された(キー入力・マウス操作・クリップボード・Undo/Redo すべて動作)
+/// ため、開いたファイルに対して実際に打鍵/選択/コピペ/元に戻す等の操作を試せる。
+/// 変化する状態(CurrentLine/Modified/Overtype/EolMode)は 200ms Timer で
+/// ステータスバーへポーリング反映(EditorControl は TextChanged 相当を提供しないため)。
 /// SetSource は 1 度限りなので、開き直しごとに EditorControl を差し替える。
 /// </summary>
 public sealed class MainForm : Form
 {
     private EditorControl _editor;
     private readonly StatusStrip _status;
-    private readonly ToolStripStatusLabel _statusLabel;
+    private readonly ToolStripStatusLabel _statusFile;
+    private readonly ToolStripStatusLabel _statusCaret;
+    private readonly System.Windows.Forms.Timer _statusTimer;
     private readonly ToolStripMenuItem _wrapOff;
     private readonly ToolStripMenuItem _wrap40;
     private readonly ToolStripMenuItem _wrap80;
     private readonly ToolStripMenuItem _showLn;
     private readonly ToolStripMenuItem _showWs;
     private readonly ToolStripMenuItem _hlLine;
+    private readonly ToolStripMenuItem _readOnly;
+    private readonly ToolStripMenuItem _overtype;
 
     // 開き直し時に前回の表示設定を復元するための保持
     private int _currentWrap;
     private bool _currentShowLn;
     private bool _currentShowWs;
     private bool _currentHlLine;
+    private bool _currentReadOnly;
+    private bool _currentOvertype;
     private string? _currentPath;
     private string _encodingLabel = "UTF-8";
 
@@ -51,6 +61,27 @@ public sealed class MainForm : Form
         fileMenu.DropDownItems.AddRange(new ToolStripItem[] { openUtf8, openSjis, openEuc, new ToolStripSeparator(), quit });
         menu.Items.Add(fileMenu);
 
+        // ---- 編集メニュー(P3 で編集操作が有効化されたため追加) ----
+        // ショートカット(Ctrl+Z/Y/X/C/V/A)は EditorControl.OnKeyDown 経由でも動くが、
+        // メニューから閲覧しつつ実行できると eye check がラク。ハンドラは EditorControl の
+        // 対応メソッド(Undo/Redo/Cut/Copy/Paste/SelectAll)をそのまま呼ぶだけ。
+        var editMenu = new ToolStripMenuItem("編集(&E)");
+        var undo = new ToolStripMenuItem("元に戻す(&U)", null, (_, _) => _editor.Undo()) { ShortcutKeys = Keys.Control | Keys.Z };
+        var redo = new ToolStripMenuItem("やり直し(&R)", null, (_, _) => _editor.Redo()) { ShortcutKeys = Keys.Control | Keys.Y };
+        var cut = new ToolStripMenuItem("切り取り(&T)", null, (_, _) => _editor.Cut()) { ShortcutKeys = Keys.Control | Keys.X };
+        var copy = new ToolStripMenuItem("コピー(&C)", null, (_, _) => _editor.Copy()) { ShortcutKeys = Keys.Control | Keys.C };
+        var paste = new ToolStripMenuItem("貼り付け(&P)", null, (_, _) => _editor.Paste()) { ShortcutKeys = Keys.Control | Keys.V };
+        var selectAll = new ToolStripMenuItem("すべて選択(&A)", null, (_, _) => _editor.SelectAll()) { ShortcutKeys = Keys.Control | Keys.A };
+        _overtype = new ToolStripMenuItem("上書きモード(&O)") { CheckOnClick = true };
+        _overtype.Click += (_, _) => { _currentOvertype = _overtype.Checked; _editor.Overtype = _currentOvertype; };
+        editMenu.DropDownItems.AddRange(new ToolStripItem[] {
+            undo, redo, new ToolStripSeparator(),
+            cut, copy, paste, new ToolStripSeparator(),
+            selectAll, new ToolStripSeparator(),
+            _overtype
+        });
+        menu.Items.Add(editMenu);
+
         var viewMenu = new ToolStripMenuItem("表示(&V)");
         _wrapOff = new ToolStripMenuItem("折り返し OFF") { Checked = true };
         _wrap40 = new ToolStripMenuItem("折り返し 40 桁");
@@ -58,29 +89,43 @@ public sealed class MainForm : Form
         _showLn = new ToolStripMenuItem("行番号") { CheckOnClick = true };
         _showWs = new ToolStripMenuItem("空白可視化") { CheckOnClick = true };
         _hlLine = new ToolStripMenuItem("現在行強調") { CheckOnClick = true };
+        _readOnly = new ToolStripMenuItem("読み取り専用") { CheckOnClick = true };
         _wrapOff.Click += (_, _) => SetWrap(0);
         _wrap40.Click += (_, _) => SetWrap(40);
         _wrap80.Click += (_, _) => SetWrap(80);
         _showLn.Click += (_, _) => { _currentShowLn = _showLn.Checked; _editor.ShowLineNumbers = _currentShowLn; };
         _showWs.Click += (_, _) => { _currentShowWs = _showWs.Checked; _editor.ShowWhitespace = _currentShowWs; };
         _hlLine.Click += (_, _) => { _currentHlLine = _hlLine.Checked; _editor.HighlightCurrentLine = _currentHlLine; };
+        _readOnly.Click += (_, _) => { _currentReadOnly = _readOnly.Checked; _editor.ReadOnly = _currentReadOnly; };
         viewMenu.DropDownItems.AddRange(new ToolStripItem[] {
-            _wrapOff, _wrap40, _wrap80, new ToolStripSeparator(), _showLn, _showWs, _hlLine
+            _wrapOff, _wrap40, _wrap80, new ToolStripSeparator(), _showLn, _showWs, _hlLine, new ToolStripSeparator(), _readOnly
         });
         menu.Items.Add(viewMenu);
 
         MainMenuStrip = menu;
 
         // ---- ステータス ----
+        // _statusFile = ファイル名 / 行数 / エンコーディング / 行高(開き直し時に更新)
+        // _statusCaret = 現在行 / Modified フラグ / Overtype / EolMode(200ms タイマーで更新)
         _status = new StatusStrip();
-        _statusLabel = new ToolStripStatusLabel("(未読込)") { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
-        _status.Items.Add(_statusLabel);
+        _statusFile = new ToolStripStatusLabel("(未読込)") { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
+        _statusCaret = new ToolStripStatusLabel("") { Spring = false, TextAlign = ContentAlignment.MiddleRight, AutoSize = true };
+        _status.Items.Add(_statusFile);
+        _status.Items.Add(_statusCaret);
 
         // Dock 順: 中央(Fill)= Editor は最後に追加=最も後段=残余を占有
         // MenuStrip(Top)/StatusStrip(Bottom)/Editor(Fill) の順に Controls.Add する。
         Controls.Add(_editor);
         Controls.Add(_status);
         Controls.Add(menu);
+
+        // ---- ステータス反映タイマー(200ms ポーリング) ----
+        // EditorControl は TextChanged / CaretMoved 等のイベントを提供しない(SR 対策で
+        // 意図的に外している)ため、状態変化は Timer で拾う。手打ちで確認する用途としては
+        // 200ms のラグは十分許容範囲。
+        _statusTimer = new System.Windows.Forms.Timer { Interval = 200 };
+        _statusTimer.Tick += (_, _) => UpdateCaretStatus();
+        _statusTimer.Start();
 
         if (initialPath is not null && File.Exists(initialPath))
         {
@@ -133,11 +178,14 @@ public sealed class MainForm : Form
             _editor.ShowLineNumbers = _currentShowLn;
             _editor.ShowWhitespace = _currentShowWs;
             _editor.HighlightCurrentLine = _currentHlLine;
+            _editor.ReadOnly = _currentReadOnly;
+            _editor.Overtype = _currentOvertype;
             _editor.Focus();
 
             _currentPath = path;
             _encodingLabel = label;
-            UpdateStatus(buf.Current.LineCount);
+            UpdateFileStatus(buf.Current.LineCount);
+            UpdateCaretStatus();
         }
         catch (Exception ex)
         {
@@ -145,8 +193,21 @@ public sealed class MainForm : Form
         }
     }
 
-    private void UpdateStatus(int lineCount)
+    private void UpdateFileStatus(int lineCount)
     {
-        _statusLabel.Text = $"{_currentPath ?? "(無題)"}  |  行数: {lineCount:N0}  |  Encoding: {_encodingLabel}  |  行高: {_editor.LineHeightPx}px";
+        _statusFile.Text = $"{_currentPath ?? "(無題)"}  |  行数: {lineCount:N0}  |  Encoding: {_encodingLabel}  |  行高: {_editor.LineHeightPx}px";
+    }
+
+    /// <summary>
+    /// キャレット行/Modified/Overtype/EolMode をステータスバーへ反映する。200ms Timer から呼ばれる。
+    /// CurrentLine は 0 始まりなので表示は +1。EolMode は enum の名前をそのまま出す。
+    /// </summary>
+    private void UpdateCaretStatus()
+    {
+        int line1 = _editor.CurrentLine + 1;
+        string mark = _editor.Modified ? "*" : "";
+        string mode = _editor.Overtype ? "上書き" : "挿入";
+        string eol = _editor.EolMode.ToDisplayString();
+        _statusCaret.Text = $"L{line1}{mark}  |  {mode}  |  {eol}";
     }
 }

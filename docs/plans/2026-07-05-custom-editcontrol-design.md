@@ -212,6 +212,55 @@ SR側の癖に起因するため新コントロールへ移植する:
 - キーボード全操作(現用サブセット)・マウス・クリップボード・Undo/Redo配線・Overtype・EOLモード
 - **DoD**: Scintilla版との操作比較チェックリスト一致・編集後再レイアウトの局所性確認
 
+#### P3 結果(2026-07-06・**DoD全達成**)
+
+- 実装計画=`2026-07-05-p3-editor-input.md`(Task 1〜15・約 1730 行・実施記録あり)。純ロジック追加=`yEdit.Core.Editing` 名前空間(NavigationCommands / VerticalNavigation / WordBoundary の 3 系)。WinForms=EditorControl に OnKeyDown/OnKeyPress/OnMouseDown/Move/Up/DoubleClick/Wheel + 編集/Undo/Redo/クリップボード実装を追加(約 1160 行増)。**ScintillaHost は無変更**
+- **テスト**: P2 470 → **P3 完了時 663 全緑・build 0 警告**(P3 新規 193 件)
+  - 内訳: Core.Tests 470→521(+51 件=Editing 純ロジック 3 系: NavigationCommands 15 / VerticalNavigation 13 / WordBoundary 23)
+  - Editor.Tests 0→142(+142 件=13 テストクラス・WinForms STA 基盤新設)
+- **応答性ベンチ**(Task 14):
+
+| 計測 | 結果 | 目標 | 判定 |
+|---|---|---|---|
+| 連続タイピング(1 文字挿入) | **0.67µs/insert** | <5µs | PASS(7.5× マージン) |
+
+- **公開 API 追加**(Task 1〜14 の総合):
+  - アンカー概念: `SelectionAnchor` / `MoveCaretWithSelection(int)` / `SetSelectionAnchored(int, int)`
+  - 移動系(OnKeyDown): 全キー配線(Arrow / Ctrl-Arrow / Home / End / Ctrl-Home/End / Page / Ctrl+A / Shift 拡張)
+  - キャレット追従: `BringCaretIntoView()` / `EnsureVisibleCharRange(int, int)`
+  - 編集: `Overtype` / `ReadOnly` / `EolMode` / `OnKeyPress`(文字挿入・Overtype) / OnKeyDown(BackSpace / Delete / Enter / Tab / Insert)
+  - Undo/Redo(P6 互換): `Modified` / `CanUndo` / `CanRedo` / `Undo()` / `Redo()` / `SetSavePoint()` / `EmptyUndoBuffer()`
+  - クリップボード(P6 互換): `Cut()` / `Copy()` / `Paste()` / `SelectAll()`
+  - マウス: OnMouseDown / Move / Up / DoubleClick(単語選択)/ Wheel 精度改善
+  - SR 対策受け口: `event CaretEnteredEmptyLine` / `RaiseUiaSelectionEvents`(P5 で本挙動)
+  - P6 互換残: `CurrentLine` / `GetColumn(int)` / `ReplaceCharRange(int, int, string)`
+- **純ロジック 3 系**(`yEdit.Core.Editing/`):
+  - `NavigationCommands`(Left / Right / Home / End / SmartHome・15 テスト)
+  - `VerticalNavigation`(Up / Down / PageUp / PageDown + desired X 保持・13 テスト)
+  - `WordBoundary`(NextWordStart / PrevWordStart・CJK 対応・23 テスト)
+- **設計判断のポイント**:
+  - **アンカー概念導入**(`_anchor` + `_caret` の 2 変数化)で shift+左方向の選択を保持可能に(P2 申し送り解消)
+  - **純ロジック層の分離**で位置移動を xUnit で決定的テスト可(GDI 依存なし)
+  - **`AfterEdit()` ヘルパ**で編集経路の共通後処理(スクロールバー再計算 / PositionCaret / BringCaretIntoView / Invalidate)を統一
+  - **`BringCaretIntoView()` を全経路の共通末尾**に置いてキャレット追従を一本化
+  - **`_lastCaretLine` の setter 同期**(Task 13 レビュー I-1 対応)で App 層 programmatic ジャンプ後の spurious fire を抑止
+  - **P6 互換 API を先出し**(Cut / Copy / Paste / Undo / Redo / Modified / CurrentLine / GetColumn / ReplaceCharRange 等)で App 層は機械的置換で済む
+  - **リフレクション経由 SendKey / SendKeyPress / SendMouse* テストヘルパ**+`Sta.Run` パターンで WinForms 表面をテスト可能に
+  - **テスト直列化**(`[assembly: CollectionBehavior(DisableTestParallelization = true)]`)で Clipboard グローバル資源のフレーク対策
+- **P3+ 申し送り**(将来対応):
+  - **Task 4 申し送り**: 最終行 Down 挙動の実機判定(Notepad 挙動へ変更)/ 超長行 GetText 性能懸念(P7 ベンチ観測 + `GetTextSpan` 案)
+  - **Task 5 申し送り**: NavigationCommands / WordBoundary 命名統一と MoveLeftCp / MoveRightCp 重複解消(将来 refactor)/ CJK 拡張範囲実機検証(P7)
+  - **Task 6 申し送り**: Ctrl+A 後の可視化(Task 7 で呼ばない方針で決着済)
+  - **Task 7 申し送り**: 編集後処理ヘルパ抽出(将来 AfterCaretChange)/ PageUp / Down の rows 計算統一(paintHeight ベース)
+  - **Task 8 申し送り**: Tab の Plan 逸脱(Task 9 で決着済)
+  - **Task 9 申し送り**: CRLF ペア BackSpace 一括削除(P6 検討候補)
+  - **Task 12 申し送り**: 極端 Wheel Delta の while ループ最適化(P7)/ ドラッグ末端の空行イベント(P5 判断)/ 空白ダブルクリック挙動(P7 実機評価)
+  - **Task 13 申し送り**: shift+移動系での空行イベント発火は現行仕様維持(P7 実機評価で選択なし限定に変更するかどうか判断)
+- **P5 送り**:
+  - 単語境界 UIA プロバイダ実装 / RaiseUiaSelectionEvents 本挙動化 / UIA イベント発火(TextSelectionChangedEvent)
+- **P6 送り**:
+  - TabsToSpaces / TabWidth 反映 / SelectionBack / HighlightOutline のテーマ追従(弱視要件)/ App 層 EditorAppearance の書き換え
+
 ### P4: IME
 - WM_IME_*処理・インライン未確定表示・候補ウィンドウ位置・確定/取消
 - **DoD**: ATOK実機(ユーザー)で実用水準。NG→撤退可能(App層無傷)

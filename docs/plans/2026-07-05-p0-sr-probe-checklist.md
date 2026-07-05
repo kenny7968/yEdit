@@ -61,3 +61,17 @@
   2. 単語ナビ(#5): Ctrl+左右で移動先の先頭1文字のみ読む(例: "ABC abc 123" 行頭から Ctrl+右→「a」、再度→「1」)。単語全体を読まない
 - ナレーター: 報告なし(未実施)
 - #5 の SR非依存調査(同日): プロバイダの Word 実装は Expand(Word)/Move(Word,1)スパン保持/GetSelection経由/MoveEndpointByUnit の6パターン全て正しい応答(word-sim 検証)。Expand(Character) の応答が報告症状と一致→ PC-Talker が Word 単位呼び出しをしていない疑い。UIA呼び出しトレースをプローブに追加し第2回で採取予定
+
+### 第2回(2026-07-05・ユーザー実機・UIAトレース採取)
+
+挙動は第1回と同じ(単語ナビ=先頭1文字のみ)。トレースログ(2159行)の分析で**根本原因が確定**:
+
+- **PC-Talker のUIA読みモデル(証拠ベース)**: キャレット移動のたびに
+  `GetSelection → 退化レンジ → Expand(Character) → GetText(1)` = **着地点の1文字を読む**。
+  加えて `Expand(Line)`+`Move(Character,1)`歩きで行内桁位置を算出し、`Expand(Line)+GetText(2048)` で行全体を取得(行移動時は行を読む)
+- **TextUnit.Word の呼び出しはセッション全体で0回** → どのキー操作で移動したか(文字/単語)を PC-Talker は区別せず、プロバイダ側では単語読みにできない(プロバイダの Word 実装は正常=NVDA は正常に読む)
+- **ControlType Document ⇔ Edit で呼び出しパターン完全同一** → ControlType は PC-Talker の読みに無関係
+- **空行着地時**: PC-Talker は `Expand(Character)→'\n'` と `Expand(Line)→''` を正しく受領した上で無音を選択 → プロバイダは必要情報を全て返しており、無音は PC-Talker 側の仕様。本番の App 層能動発声(「空行」)で補う設計の妥当性を裏付け
+- **結論**: #3/#5 とも PC-Talker クライアント側の読み方に起因し、UIA プロバイダでは改善不能。
+  本番では App 層能動発声(空行と同じ仕組み)で単語移動読みを補う(P5 設計入力)。
+  現行 yEdit(Scintilla+UIA経路)も同じプロバイダ実装のため、PC-Talker の単語ナビは同挙動のはず=本件は自作コントロール化による退行ではない

@@ -71,23 +71,26 @@ public sealed class EditorControl : Control
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        base.OnPaint(e);
         var g = e.Graphics;
         g.Clear(BackColor);
-        if (_buffer is null) return;
-
-        var snap = _buffer.Current;
-        var rows = ViewportLayout.Build(snap, TopLine, ClientSize.Height, WrapColumns, _metrics);
-        int lnWidth = ShowLineNumbers ? MeasureLineNumberWidth(snap.LineCount) : 0;
-        var frame = FrameBuilder.Build(
-            snap, rows, ClientSize.Width, ClientSize.Height,
-            lnWidth,
-            HighlightCurrentLine ? snap.GetLineIndexOfChar(_caret) : -1,
-            _selStart != _selEnd
-                ? new SelectionRange(Math.Min(_selStart, _selEnd), Math.Max(_selStart, _selEnd))
-                : null,
-            _cellHighlight, ShowWhitespace, _style, _metrics);
-        RenderFrame(g, frame);
+        if (_buffer is not null)
+        {
+            var snap = _buffer.Current;
+            var rows = ViewportLayout.Build(snap, TopLine, ClientSize.Height, WrapColumns, _metrics);
+            int lnWidth = ShowLineNumbers ? MeasureLineNumberWidth(snap.LineCount) : 0;
+            var frame = FrameBuilder.Build(
+                snap, rows, ClientSize.Width, ClientSize.Height,
+                lnWidth,
+                HighlightCurrentLine ? snap.GetLineIndexOfChar(_caret) : -1,
+                _selStart != _selEnd
+                    ? new SelectionRange(Math.Min(_selStart, _selEnd), Math.Max(_selStart, _selEnd))
+                    : null,
+                _cellHighlight, ShowWhitespace, _style, _metrics);
+            RenderFrame(g, frame);
+        }
+        // 本コントロールの描画を確定させた後に Paint イベント購読者に描かせる
+        // (App 層の overlay 拡張余地を残す)。base.OnPaint は Paint イベントを発火する。
+        base.OnPaint(e);
     }
 
     private void RenderFrame(Graphics g, Frame frame)
@@ -133,4 +136,17 @@ public sealed class EditorControl : Control
         LineNumberFore:   new PaintColor(0x777777),
         HighlightOutline: new PaintColor(0xD77800),
         WhitespaceGlyph:  new PaintColor(0xCCCCCC));
+
+    /// <summary>
+    /// GDI ハンドル(Font)を解放する。P6 でタブ毎にインスタンス生成/破棄する運用のため、
+    /// 生存中に確保した Font が Control 破棄時に必ず解放されるようにする。
+    /// </summary>
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _font.Dispose();
+        }
+        base.Dispose(disposing);
+    }
 }

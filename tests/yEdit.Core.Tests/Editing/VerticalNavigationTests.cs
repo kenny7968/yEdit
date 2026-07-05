@@ -1,0 +1,133 @@
+using yEdit.Core.Buffers;
+using yEdit.Core.Editing;
+using yEdit.Core.Layout;
+
+namespace yEdit.Core.Tests.Editing;
+
+public class VerticalNavigationTests
+{
+    private static TextSnapshot Snap(string s) => TextBuffer.FromString(s).Current;
+    // half=8px, lineHeight=20px。全角は自動的に half*2=16px。
+    // ASCII 1 文字 = 8px なので、行内 col=N の caret の px = N*8。
+    private static readonly ICharMetrics M = new MonoCharMetrics(halfWidthPx: 8, lineHeightPx: 20);
+
+    // ===== MoveDown =====
+    [Fact]
+    public void MoveDown_MovesToSameColumn_WhenNextLineLonger()
+    {
+        // 行0: "abcdef"(6文字), 行1: "xyzuvw"(6文字)。col=3(caret=3)から Down → 行1の col=3=caret=10(改行1文字含む)
+        var s = Snap("abcdef\nxyzuvw");
+        var (t, d) = VerticalNavigation.MoveDown(s, caret: 3, currentDesiredPx: -1, wrapColumns: 0, M);
+        Assert.Equal(10, t);
+        Assert.Equal(24, d); // 3 * 8
+    }
+
+    [Fact]
+    public void MoveDown_ClampsToShorterLineEnd_KeepsDesired()
+    {
+        // 行0: "abcdef"(6), 行1: "xy"(2), 行2: "long line here"(14)
+        var s = Snap("abcdef\nxy\nlong line here");
+        // col=5 の caret=5 から Down 1 回目 → 行1(len=2)で末尾クランプ(=7+2=9)、desired=40(=5*8)
+        var (t1, d1) = VerticalNavigation.MoveDown(s, caret: 5, currentDesiredPx: -1, wrapColumns: 0, M);
+        Assert.Equal(9, t1);
+        Assert.Equal(40, d1);
+        // 2 回目(次の行が長い) → desired=40 を保持したまま col=5、行2 の先頭は 10 → 15
+        var (t2, d2) = VerticalNavigation.MoveDown(s, caret: t1, currentDesiredPx: d1, wrapColumns: 0, M);
+        Assert.Equal(15, t2);
+        Assert.Equal(40, d2);
+    }
+
+    [Fact]
+    public void MoveDown_AtLastLine_ReturnsSameLineOrEol()
+    {
+        var s = Snap("abc");   // 1 論理行のみ
+        var (t, d) = VerticalNavigation.MoveDown(s, caret: 1, currentDesiredPx: -1, wrapColumns: 0, M);
+        // deltaRows=+1 の Clamp で targetLogicalLine=0(変化なし)。desired px=8 → 行0 の col=1 位置=1
+        Assert.Equal(1, t);
+        Assert.Equal(8, d);
+    }
+
+    // ===== MoveUp =====
+    [Fact]
+    public void MoveUp_AtTopLine_NoOp()
+    {
+        var s = Snap("abc\ndef");
+        var (t, _) = VerticalNavigation.MoveUp(s, caret: 1, currentDesiredPx: -1, wrapColumns: 0, M);
+        Assert.Equal(1, t);   // Clamp で targetLogicalLine=0(変化なし)、desired=8 → 行0 の col=1=1
+    }
+
+    [Fact]
+    public void MoveUp_FromSecondLine_MovesToFirstLineSameColumn()
+    {
+        // 行0: "abcdef"(6), 行1: "xyzuvw"(6)。行1 の col=3(caret=10)から Up → 行0 の col=3=caret=3
+        var s = Snap("abcdef\nxyzuvw");
+        var (t, _) = VerticalNavigation.MoveUp(s, caret: 10, currentDesiredPx: -1, wrapColumns: 0, M);
+        Assert.Equal(3, t);
+    }
+
+    // ===== PageDown / PageUp =====
+    [Fact]
+    public void PageDown_MovesByVisibleRows()
+    {
+        // 10 論理行、visibleRows=3 → 3 論理行下へ
+        var s = Snap("l0\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9");
+        var (t, _) = VerticalNavigation.PageDown(s, caret: 0, currentDesiredPx: -1, wrapColumns: 0, visibleRows: 3, M);
+        // 行3 の先頭。"l0\nl1\nl2\n"=9 文字後 → 9
+        Assert.Equal(9, t);
+    }
+
+    [Fact]
+    public void PageUp_MovesByVisibleRows()
+    {
+        var s = Snap("l0\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9");
+        // 行9(caret=27)から PageUp visibleRows=3 → 行6 の先頭=18
+        var (t, _) = VerticalNavigation.PageUp(s, caret: 27, currentDesiredPx: -1, wrapColumns: 0, visibleRows: 3, M);
+        Assert.Equal(18, t);
+    }
+
+    // ===== 折り返し ON =====
+    [Fact]
+    public void MoveDown_WithWrap_StaysInSameLogicalLine_ForNextVisualRow()
+    {
+        // wrapColumns=3 → maxWidthPx=24。1 文字=8px なので視覚行1本に 3 文字。
+        // 行0: "abcdef" → 視覚 [(0,3)="abc", (3,3)="def"]
+        var s = Snap("abcdef");
+        // col=1(caret=1)から Down → 同論理行の次の視覚行 = "def" の col=1 位置。
+        // desired=8, targetSeg=(3,3) → localOffset=1 → caret = 0 + 3 + 1 = 4
+        var (t, d) = VerticalNavigation.MoveDown(s, caret: 1, currentDesiredPx: -1, wrapColumns: 3, M);
+        Assert.Equal(4, t);
+        Assert.Equal(8, d);
+    }
+
+    // ===== 補足エッジケース =====
+    [Fact]
+    public void MoveDown_OnEmptyBuffer_NoOp()
+    {
+        // 空文書。LineCount=1、GetLineStart(0)=0=GetLineEnd(0,false)。
+        // Wrap は [(0,0)]、desired=0、下方向でも Clamp で行 0 のまま、caret=0。
+        var s = Snap("");
+        var (t, d) = VerticalNavigation.MoveDown(s, caret: 0, currentDesiredPx: -1, wrapColumns: 0, M);
+        Assert.Equal(0, t);
+        Assert.Equal(0, d);
+    }
+
+    [Fact]
+    public void MoveUp_OnEmptyBuffer_NoOp()
+    {
+        var s = Snap("");
+        var (t, d) = VerticalNavigation.MoveUp(s, caret: 0, currentDesiredPx: -1, wrapColumns: 0, M);
+        Assert.Equal(0, t);
+        Assert.Equal(0, d);
+    }
+
+    [Fact]
+    public void MoveDown_KeepsCurrentDesiredPx_WhenProvided()
+    {
+        // currentDesiredPx>=0 の場合、現在 caret の X を再計算せずそのまま採用する。
+        // 行0: "abc"(len=3), 行1: "abcdefgh"(len=8)。caret=0 で desired=48 を渡す → 行1 の col=6=caret=4+6=10。
+        var s = Snap("abc\nabcdefgh");
+        var (t, d) = VerticalNavigation.MoveDown(s, caret: 0, currentDesiredPx: 48, wrapColumns: 0, M);
+        Assert.Equal(10, t);
+        Assert.Equal(48, d);
+    }
+}

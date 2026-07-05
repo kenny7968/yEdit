@@ -113,6 +113,20 @@ public class TextBufferEditTests
     }
 
     [Fact]
+    public void Snapshot_containing_shared_append_block_is_unaffected_by_further_typing()
+    {
+        // 同一64KBブロックを共有するピースを含むスナップショットが、
+        // その後の同ブロックへの追記で変化しないこと(公開済み範囲不変の直接検証)
+        var b = TextBuffer.FromString("base:");
+        for (int i = 0; i < 10; i++) b.Insert(b.Current.CharLength, "タイプ" + i);
+        var mid = b.Current;
+        string midText = mid.GetText(0, mid.CharLength);
+        for (int i = 0; i < 200; i++) b.Insert(b.Current.CharLength, "追記" + i + "\r\n");
+        Assert.Equal(midText, mid.GetText(0, mid.CharLength));
+        Assert.NotEqual(midText, b.Current.GetText(0, b.Current.CharLength));
+    }
+
+    [Fact]
     public void Continuous_typing_does_not_fragment_pieces()
     {
         var b = TextBuffer.FromString("seed");

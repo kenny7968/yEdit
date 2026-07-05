@@ -2,19 +2,24 @@ using System.Text;
 
 namespace yEdit.Core.Buffers;
 
-/// <summary>
-/// UTF-8永続ピーステーブルのテキストバッファ。公開オフセットはすべてUTF-16コード単位。
-/// スナップショット(Current)はルート参照コピーで O(1)・以後の編集の影響を受けない。
-/// </summary>
 /// <summary>Undo/Redo後の推奨キャレット位置。</summary>
 public readonly record struct UndoResult(int CaretPos);
 
+/// <summary>
+/// UTF-8永続ピーステーブルのテキストバッファ。公開オフセットはすべてUTF-16コード単位。
+/// スナップショット(Current)はルート参照コピーで O(1)・以後の編集の影響を受けない。
+/// 単一スレッド(UIスレッド)からの編集を前提とする。スナップショットは不変だが、
+/// 他スレッドへ渡す場合は通常の同期的ハンドオフ(lock/Invoke等)で受け渡すこと(§AppendBuffer共有ブロック)。
+/// </summary>
 public sealed class TextBuffer
 {
     private readonly AppendBuffer _append = new();
     private readonly UndoHistory _history = new();
     private TextSnapshot _current;
     private PieceTree.Node? _savedRoot;
+
+    /// <summary>文書上限(§0-1: 既定 int.MaxValue バイト)。テスト注入用。</summary>
+    internal long MaxTotalBytes { get; set; } = int.MaxValue;
 
     internal TextBuffer(PieceTree.Node? root)
     {
@@ -106,6 +111,12 @@ public sealed class TextBuffer
         int removed = PieceTree.SumOf(mid).CharLen;
         if (removed == 0 && insert.Length == 0) return;   // スナップの結果無変化(ルート参照も不変)
 
+        // 文書上限ガード(§0-1)。分割は非破壊なので、ここで throw しても状態は変わらない
+        long newTotalBytes = PieceTree.SumOf(rootBefore).ByteLen - PieceTree.SumOf(mid).ByteLen
+                           + (insert.Length == 0 ? 0 : Encoding.UTF8.GetByteCount(insert));
+        if (newTotalBytes > MaxTotalBytes)
+            throw new InvalidOperationException("文書サイズ上限(int.MaxValueバイト)を超えるため編集できません。");
+
         // 3) 挿入テキストを追記バッファへ
         var newPieces = _append.Append(insert);
 
@@ -123,6 +134,8 @@ public sealed class TextBuffer
             }
             else left = PieceTree.Join(remaining, last, null);
         }
+        // 右側マージ: 現設計では既存ピースが新規追記の直後に位置することはないため通常発火しない
+        // (左右対称性の保険として保持。発火しても正しさはモノイド結合で保証される)
         PieceTree.Node? right = r;
         if (newPieces.Count > 0 && right is not null)
         {

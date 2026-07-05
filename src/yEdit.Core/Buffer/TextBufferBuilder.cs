@@ -10,7 +10,11 @@ public sealed class TextBufferBuilder
 
     private readonly List<Piece> _pieces = [];
     private byte[] _carry = [];
+    private long _totalBytes;
     private bool _built;
+
+    /// <summary>文書上限(§0-1: 既定 int.MaxValue バイト)。テスト注入用。</summary>
+    internal long MaxTotalBytes { get; init; } = int.MaxValue;
 
     /// <summary>不正UTF-8をU+FFFDに置換したか。</summary>
     public bool HadReplacement { get; private set; }
@@ -62,6 +66,10 @@ public sealed class TextBufferBuilder
         if (bytes.IsEmpty) return;
         var (clean, replaced) = Utf8Sanitizer.Sanitize(bytes);
         HadReplacement |= replaced;
+        // 上限は実格納バイトで判定(U+FFFD置換による膨張も含む)
+        _totalBytes += clean.Length;
+        if (_totalBytes > MaxTotalBytes)
+            throw new InvalidOperationException("文書サイズ上限(int.MaxValueバイト)を超えました。");
         var chunk = new TextChunk(clean);
         _pieces.Add(Piece.Of(chunk, 0, chunk.ByteLength));
     }

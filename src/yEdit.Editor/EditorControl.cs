@@ -897,6 +897,10 @@ public sealed class EditorControl : Control
     ///   移動をまたいだ連続タイピングを分割する(Scintilla 版と同挙動)。
     /// - <c>BringCaretIntoView()</c> / <c>RaiseCaretEnteredEmptyLineIfNeeded()</c> は Task 7/13 で
     ///   本実装。Task 6 では**呼び出し箇所を確定させる**ためスタブ(no-op)で置く。
+    /// - <b>case の順序規約</b>: <c>when</c> ガード付き case は同 KeyCode の無修飾 case より
+    ///   <b>switch 上に</b>置くこと。C# switch は上から順評価=無修飾 case を先に置くと、
+    ///   修飾付き case は永遠にヒットしない。Task 11 の Ctrl+Insert / Shift+Insert /
+    ///   Shift+Delete が Task 9 の Keys.Insert / Keys.Delete より上にあるのはこの規約による。
     /// </remarks>
     protected override void OnKeyDown(KeyEventArgs e)
     {

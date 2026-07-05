@@ -155,6 +155,24 @@ public class ClipboardTests
         }
     });
 
+    [Fact]
+    public void Cut_NoSelection_NoOp() => Sta.Run(() =>
+    {
+        // 選択なしでの Cut は本文・キャレット・クリップボードすべて不変
+        // (Copy_NoSelection_NoOp と対で S-2 レビュー対応: 選択なし時の Cut が
+        //  誤って全文/カレント行等を切り取る退行を検知するため)
+        SetClipboardTextAndWait("SENTINEL");
+        var (f, c) = MakeControl("hello");
+        using (f) using (c)
+        {
+            c.SetCaretCharOffset(2);
+            c.Cut();
+            Assert.Equal("SENTINEL", Clipboard.GetText(TextDataFormat.UnicodeText));
+            Assert.Equal("hello", c.GetText());
+            Assert.Equal(2, c.CaretCharOffset);
+        }
+    });
+
     // ===== Paste =====
 
     [Fact]
@@ -316,6 +334,22 @@ public class ClipboardTests
         {
             SendKey(c, Keys.Insert);
             Assert.True(c.Overtype);
+        }
+    });
+
+    [Fact]
+    public void CtrlInsert_DoesNotToggleOvertype() => Sta.Run(() =>
+    {
+        // Ctrl+Insert は Copy が横取り=Overtype はトグルされない(Task 9 の Keys.Insert case は届かない)。
+        // C# switch のフォールスルーは無いため理論的には不要だが、将来 case 順序が入れ替わった際の
+        // 回帰検出のため保険で敷く(S-3 レビュー対応・OnKeyDown xmldoc の case 順序規約と対)。
+        var (f, c) = MakeControl("hello");
+        using (f) using (c)
+        {
+            c.SetSelectionCharRange(0, 5);
+            bool before = c.Overtype;
+            SendKey(c, Keys.Insert | Keys.Control);
+            Assert.Equal(before, c.Overtype);
         }
     });
 }

@@ -523,7 +523,7 @@ Expected: 0 警告。
 
 **Step 1: 挙動仕様(この形で実装)**
 - `TopLine` は論理行インデックス。set 時に [0, LineCount-1] にクランプ、変化時のみ Invalidate と Vertical.Value 更新
-- 縦スクロールバー: `VScrollBar` 子コントロール。Minimum=0・Maximum=`LineCount-1`(SmallChange=1・LargeChange=`可視論理行数`)
+- 縦スクロールバー: `VScrollBar` 子コントロール。Minimum=0・**Maximum=`LineCount-1 + (LargeChange-1)`**(WinForms の到達可能 Value は `Maximum - LargeChange + 1` のため加算が必要)・SmallChange=1・LargeChange=`可視論理行数`
 - ホイール: 1 tick = 3 論理行スクロール(WinForms 既定 SystemInformation.MouseWheelScrollLines を使用してもよいが 3 固定で開始)
 - **折り返し ON 時**: TopLine の先頭視覚行から描画開始(論理行の中間から始めない=§0-3)。Scrollbar の Maximum は LineCount-1 のまま(視覚行数に張り替えない=大容量で計算不要)
 - SetSource 直後: TopLine=0・Vertical.Maximum を LineCount-1 に更新

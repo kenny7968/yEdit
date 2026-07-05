@@ -148,9 +148,14 @@ public sealed class EditorControl : Control
     {
         if (_buffer is null) return;
         int s = SnapAndClamp(start);
-        int e = SnapAndClamp(start + Math.Max(0, length));
-        // SnapAndClamp は単純クランプ + サロゲート前方スナップで、単調非減少。
-        // Math.Max(0, length) で length を非負に矯正しているため s <= e が数学的に保証される
+        // start + length は int 加算だとオーバーフローで負値になり s > e = SelectionRange 例外の
+        // 経路が残る(実運用の CharLength は int.MaxValue 未満だが公開 API の契約防御として長型経由)。
+        long endLong = (long)start + Math.Max(0, length);
+        int endInt = endLong > int.MaxValue ? int.MaxValue : (int)endLong;
+        int e = SnapAndClamp(endInt);
+        // SnapAndClamp は単純クランプ + サロゲート前方スナップで、単調非減少
+        // (証明スケッチ: snap(x) ∈ {x, x-1, 0, CharLength} かつ snap(x) <= x。a <= b の両側で成立)。
+        // Math.Max(0, length) と上記オーバーフロー処理で e >= s が数学的に保証される
         // (SelectionRange invariant Start <= End にも合致)。
         var range = new SelectionRange(s, e);
         if (_cellHighlight == range) return;

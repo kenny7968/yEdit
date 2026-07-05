@@ -252,6 +252,10 @@ public sealed class EditorControl : Control
     {
         base.OnGotFocus(e);
         _hasFocus = true;
+        // SetSource 前は buffer が無く PositionCaret が SetCaretPos を呼ばないため、
+        // ShowCaret のみ走ると未定義位置(実装依存)にキャレットが出る。SetSource 前は
+        // キャレットを生成しない(次に focus を得るときに再セットアップされる)。
+        if (_buffer is null) return;
         NativeMethods.CreateCaret(Handle, nint.Zero, 2, _metrics.LineHeightPx);
         PositionCaret();
         NativeMethods.ShowCaret(Handle);

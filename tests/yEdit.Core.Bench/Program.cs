@@ -6,9 +6,12 @@ using yEdit.Core.Layout;
 // P1 TextBuffer 性能ゲート(設計書DoD): --mb <サイズ> 既定1024
 // 目標未達があれば EXIT 1
 // P2 Task 14: --layout 追加。TextBuffer ベンチ実行後、レイアウト層の性能ゲートを走らせる。
+// P3 Task 14: --typing 追加。1M 文字を 1 文字ずつ Insert する応答性ベンチ(目標 5µs/挿入 以下)。
+//             他モードとは排他=--typing 単独で早期 return(TextBuffer 合成文書構築は走らせない)。
 
 int mb = 1024;
 bool layoutMode = false;
+bool typingMode = false;
 for (int i = 0; i < args.Length; i++)
 {
     if (args[i] == "--mb" && i + 1 < args.Length && int.TryParse(args[i + 1], out int m))
@@ -20,6 +23,33 @@ for (int i = 0; i < args.Length; i++)
     {
         layoutMode = true;
     }
+    else if (args[i] == "--typing")
+    {
+        typingMode = true;
+    }
+}
+
+// ---- P3 Task 14: --typing 応答性ベンチ ----
+// 1M 文字を 1 文字ずつ Insert(splice 経路の連続タイピング=coalescing による断片化抑制の
+// 実測値)。目標 5s 以内(=5µs/insert 以下)。他ベンチとは独立=単独で return する
+// (合成文書構築を挟むと目的の「純粋な入力応答性」が測れない)。
+if (typingMode)
+{
+    Console.WriteLine("--typing: 1M 文字を 1 文字ずつ挿入する応答性ベンチ");
+    var typingBuilder = new TextBufferBuilder();
+    var typingBuf = typingBuilder.Build();
+    // 事前ウォームアップ(JIT + キャッシュ暖め・計測外・10k タイプ)
+    for (int w = 0; w < 10_000; w++) typingBuf.Insert(typingBuf.Current.CharLength, "a");
+    var typingSw = Stopwatch.StartNew();
+    for (int i = 0; i < 1_000_000; i++) typingBuf.Insert(typingBuf.Current.CharLength, "a");
+    typingSw.Stop();
+    double perInsertUs = typingSw.Elapsed.TotalMicroseconds / 1_000_000.0;
+    int piecesAfterTyping = typingBuf.Current.PieceCount;
+    Console.WriteLine($"typing 1M: {typingSw.Elapsed.TotalSeconds:F3}s ({perInsertUs:F2}µs/insert・ピース数 {piecesAfterTyping})");
+    Console.WriteLine("目標: 5s 以内 (=5µs/insert 以下)");
+    bool typingPass = typingSw.Elapsed.TotalSeconds < 5.0;
+    Console.WriteLine(typingPass ? "PASS (EXIT 0)" : "FAIL (EXIT 1)");
+    return typingPass ? 0 : 1;
 }
 
 long targetBytes = (long)mb * 1024 * 1024;

@@ -384,6 +384,68 @@ public sealed class EditorControl : Control
     public int CaretCharOffset => _caret;
 
     /// <summary>
+    /// 現在キャレットの論理行番号(0 始まり)。SetSource 前は 0(P6 の
+    /// <c>ScintillaHost.CurrentLine</c> と同名=App 層互換 API・設計書 §2-8)。
+    /// </summary>
+    /// <remarks>
+    /// 内部フィールド <see cref="_lastCaretLine"/> は「純キャレット移動時の行遷移検知」用で
+    /// 編集経路(BackSpace/Delete/Enter/Undo/Redo/Cut/Paste)からは更新されないため公開値には使えない。
+    /// 常にスナップショットから引き直す(<see cref="TextSnapshot.GetLineIndexOfChar"/> は O(log N))。
+    /// </remarks>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int CurrentLine => _buffer is null ? 0 : _buffer.Current.GetLineIndexOfChar(_caret);
+
+    /// <summary>
+    /// 指定オフセットの論理行内オフセット(0 始まり)。SetSource 前は 0・範囲外は
+    /// [0, CharLength] にクランプ・サロゲート中間位置は前方(high)へスナップ。
+    /// P6 の <c>ScintillaHost.GetColumn</c> と同名(App 層互換 API・設計書 §2-8)。
+    /// </summary>
+    /// <remarks>
+    /// 「行内オフセット」= オフセット - その行の GetLineStart。UTF-16 コード単位で数えるため、
+    /// タブ幅展開・全角=2 換算などは行わない(Scintilla の SCI_GETCOLUMN は幅展開するが、
+    /// 本 API は簡潔さを優先=P6 移植で問題になれば拡張する)。
+    /// </remarks>
+    public int GetColumn(int offset)
+    {
+        if (_buffer is null) return 0;
+        int snapped = SnapAndClamp(offset);
+        var snap = _buffer.Current;
+        int line = snap.GetLineIndexOfChar(snapped);
+        return snapped - snap.GetLineStart(line);
+    }
+
+    /// <summary>
+    /// 指定範囲 <c>[start, start+length)</c> を <paramref name="replacement"/> で置換する
+    /// (P6 App 層互換 API・設計書 §2-8)。両端はサロゲート中間なら前方スナップ・範囲外は
+    /// [0, CharLength] にクランプ。<paramref name="length"/> が負値のときは 0 として扱い挿入となる。
+    /// キャレットは置換末尾(<c>start + replacement.Length</c>=snapped 後の値)に移動し
+    /// 選択は解除される。<see cref="ReadOnly"/> / SetSource 前は no-op。
+    /// </summary>
+    /// <remarks>
+    /// P6 の <c>ScintillaHost.ReplaceCharRange</c> と同名(App 層検索置換・整形機能等からの機械的
+    /// 置換用)。Undo/Redo は <see cref="TextBuffer.Replace"/> 経由で 1 単位として積まれる。
+    /// クランプは <see cref="HighlightCharRange"/>/<see cref="EnsureVisibleCharRange"/> と同じ流儀=
+    /// <c>start + length</c> の int 加算オーバーフローを long 経由で防ぐ。
+    /// _desiredXpx リセット・<see cref="AfterEdit"/> 経由の副作用(スクロールバー再計算・
+    /// キャレット再配置・追従スクロール・再描画)は編集経路(Task 8〜11)と同じ扱い。
+    /// </remarks>
+    public void ReplaceCharRange(int start, int length, string replacement)
+    {
+        if (_buffer is null || ReadOnly) return;
+        ArgumentNullException.ThrowIfNull(replacement);
+        int s = SnapAndClamp(start);
+        // start + length は int 加算だとオーバーフローで負値になり得るため long 経由(EnsureVisibleCharRange
+        // と同じ流儀)。負の length は 0 として扱う=start 位置への純挿入になる。
+        long endLong = (long)start + Math.Max(0, length);
+        int endInt = endLong > int.MaxValue ? int.MaxValue : (int)endLong;
+        int e = SnapAndClamp(endInt);
+        _buffer.Replace(s, e - s, replacement);
+        _caret = _anchor = s + replacement.Length;
+        _desiredXpx = -1;
+        AfterEdit();
+    }
+
+    /// <summary>
     /// 選択アンカー(UTF-16 文字オフセット)。<c>_anchor == _caret</c> のときは選択なし。
     /// 書き込みは <see cref="SetSelectionAnchored(int, int)"/> または <see cref="SetSelectionCharRange(int, int)"/>。
     /// P3 Task 2 で導入(shift+左方向の選択保持=キャレット &lt; アンカーのケース)。

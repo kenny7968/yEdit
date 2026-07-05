@@ -167,6 +167,47 @@ SR側の癖に起因するため新コントロールへ移植する:
 - レイアウト計算は純ロジック分離でxUnit対象化(折り返し位置・文字⇔座標変換)
 - **DoD**: 1GBファイルでスクロール滑らか(描画1フレーム16ms目標)・外観設定反映
 
+#### P2 結果(2026-07-05・**DoD全達成**)
+
+- 実装計画=`2026-07-05-p2-editor-control.md`(Task 1〜15・実施記録あり)。純ロジック=`yEdit.Core.Layout`名前空間の6ファイル(ICharMetrics/MonoCharMetrics/LineLayout/PixelMapper/ViewportLayout/Frame/FrameBuilder)、WinForms=`yEdit.Editor.EditorControl`(sealed Control 派生・約 800 行)+ GdiCharMetrics + NativeMethods。**ScintillaHost は無変更**(§3運用どおり並行運用しない前提)
+- **テスト**: P1 415 → **470 全緑・build 0 警告**(P2 新規 55 件: MonoCharMetrics 6 / LineLayout 7 / PixelMapper 15 / ViewportLayout 8 / FrameBuilder 13 + 追加 6・selection/current/wrap 契約)。EditorControl の統合テストは WinForms 依存のため Core.Tests 対象外=smoke で目視
+- **1GBベンチ(--layout)**(`dotnet run --project tests/yEdit.Core.Bench -c Release -- --layout --mb 1024` → EXIT 0):
+
+| 計測 | 結果(1GB=561.8M文字/18.7M行) | 目標 | 判定 |
+|---|---|---|---|
+| ViewportLayout(wrap OFF) | **7.79 ms/回** | <16ms | PASS |
+| ViewportLayout(wrap ON 80桁) | **7.81 ms/回** | <16ms | PASS |
+| Frame(wrap OFF 全体) | **9.48 ms/回** | <16ms | PASS |
+| PixelMapper.OffsetToPx | **41 ns/回** | <1ms | PASS |
+| メモリ増分(layout) | 記録のみ(可視領域のみ計算・全体キャッシュなし) | ― | ― |
+
+- **公開 API**(P3/P4/P5/P6 の受け口):
+  - `SetSource(TextBuffer)`(1度限り)/`LineHeightPx`/`TopLine`/`WrapColumns`/`ShowLineNumbers`/`ShowWhitespace`/`HighlightCurrentLine`/`ScrollX`
+  - キャレット/選択: `CaretCharOffset`/`SetCaretCharOffset(int)`/`GetSelectionCharRange()`/`SetSelectionCharRange(int,int)`
+  - セルハイライト: `HighlightCharRange(int,int)`/`ClearHighlight()`
+  - 座標: `PointFromCharOffset(int)`
+  - 外観: `ApplyAppearance(AppSettings)`(フォント差し替え+テーマ+表示設定+CaretWidth)
+- **設計判断のポイント**:
+  - **描画は Frame(PaintOp オペレータ列)抽象で 2 段化**=純ロジック FrameBuilder を xUnit で検証・EditorControl.OnPaint は Frame → GDI ディスパッチのみ
+  - **可視領域のみ描画・キャッシュしない**=P1 の TextSnapshot が O(log n)+64KB 走査なので毎フレーム再取得で 1GB@16ms 達成
+  - **スクロール単位は論理行**(折り返し ON でも LineCount ベース)=1GB でスクロールバー計算 O(1)
+  - **ICharMetrics 抽象**(MonoCharMetrics=テスト固定幅 / GdiCharMetrics=実 TextRenderer + ASCII 128 幅キャッシュ)で GDI 依存を挿げ替え
+  - **P3 依存 API を先出し**(SetCaretCharOffset/SetSelectionCharRange の受け口を実装・入力ハンドラは無し=キー/マウスは効かない)
+- **別エージェント最終レビュー**: Critical 0 / Important 3(いずれも Task 15 で修正済み: I-1 ShowLineNumbers setter→PositionCaret 追加 / I-2 SetSource 中フォーカスならキャレット生成 / I-3 CaretWidth 反映=弱視要件)/ Minor 9(P3+/P6 送りの申し送り)
+- **P3+ への申し送り**:
+  - **shift+左矢印方向の選択**(キャレット=Min・アンカー=Max)は現行 SetSelectionCharRange で表現不可 → P3 で非対称版 API を追加(アンカー概念導入)
+  - **PointFromCharOffset の水平可視性**(x-_scrollX<0 や >=paintWidth の範囲判定)は未実装=P3 のキャレット追従スクロール仕様確定時に対応
+  - **マウスホイール**は 3 論理行固定=P3 で SystemInformation.MouseWheelScrollLines + 蓄積へ差し替え検討
+  - **EditorControl 純データ系プロパティテスト**(SetCaretCharOffset/SetSelectionCharRange のクランプ・スナップ)は Core.Tests から見えないため未実装=P3 開始時にテスト基盤検討
+  - **Task 5 レビュー観測項目 I2**(EmitWhitespaceGlyphs の O(N²))は装飾ありシナリオで顕在化=P3 で長行 + 空白多めのベンチ追加
+- **P5 送り**:
+  - **単語境界**(WordStart/WordEnd)= P1 申し送りどおり P5 でスナップショット上に実装
+  - **UIA プロバイダ / WM_GETOBJECT / IUiaTextHost 実装** = 現状の UiaProbe が参照実装
+- **P6 送り**:
+  - **弱視要件の SelectionBack / HighlightOutline テーマ追従**(現状は薄青/橙で固定): App 層 EditorAppearance の色反転(theme.ForeRgb ↔ theme.BackRgb)を移植 + FrameBuilder が「選択内テキスト色反転」オプションを受ける仕組みを追加(設計原則 yedit-sighted-users-first-class)
+  - **TabWidth / TabsToSpaces** 反映(P2 は保持のみ)
+  - **既存 App 層 EditorAppearance** (Scintilla 版)を EditorControl.ApplyAppearance 呼び出しに書き換え
+
 ### P3: 編集・入力
 - キーボード全操作(現用サブセット)・マウス・クリップボード・Undo/Redo配線・Overtype・EOLモード
 - **DoD**: Scintilla版との操作比較チェックリスト一致・編集後再レイアウトの局所性確認

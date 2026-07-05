@@ -41,6 +41,10 @@ public sealed class EditorControl : Control
     // 持つ間のみ有効なため、SetCaretCharOffset 等から PositionCaret を呼ぶ際にガードに使う。
     private bool _hasFocus;
 
+    // Task 15: システムキャレットの太さ(px)。既定 2・ApplyAppearance で AppSettings.CaretWidth
+    // (1〜5)を反映。弱視のキャレット視認性要件(設計原則 yedit-sighted-users-first-class)。
+    private int _caretWidthPx = 2;
+
     // セルハイライト状態(HighlightCharRange で設定・ClearHighlight で null)。
     // テキスト選択(_selStart/_selEnd)とは独立した装飾で、単一アクティブ。
     private SelectionRange? _cellHighlight;
@@ -81,6 +85,12 @@ public sealed class EditorControl : Control
     }
 
     /// <summary>ソースの <see cref="TextBuffer"/> を差し込む(1 度だけ)。</summary>
+    /// <remarks>
+    /// SetSource 前にフォーカスを得ていた場合(OnGotFocus は buffer null で早期 return するため
+    /// キャレット未生成)は、SetSource 末尾でシステムキャレットを生成する。P6 のタブ切替で
+    /// 「Controls.Add → 自動 Focus → 遅延 SetSource」の順で組み立てるパターンでもキャレットが
+    /// 確実に立つ(Task 15 レビュー I-2)。
+    /// </remarks>
     public void SetSource(TextBuffer buffer)
     {
         ArgumentNullException.ThrowIfNull(buffer);
@@ -90,6 +100,12 @@ public sealed class EditorControl : Control
         _topLine = 0;
         UpdateVerticalScrollbar();
         UpdateHorizontalScrollbar();
+        if (_hasFocus)
+        {
+            NativeMethods.CreateCaret(Handle, nint.Zero, _caretWidthPx, _metrics.LineHeightPx);
+            PositionCaret();
+            NativeMethods.ShowCaret(Handle);
+        }
         Invalidate();
     }
 
@@ -182,6 +198,11 @@ public sealed class EditorControl : Control
         {
             if (_showLineNumbers == value) return;
             _showLineNumbers = value;
+            // 行番号マージン幅は本文 X の起点(bodyX)を変えるためシステムキャレット位置と
+            // 水平スクロールの content 幅にも効く。TopLine/WrapColumns setter と同じく
+            // Update → PositionCaret → Invalidate の順で反映する(Task 15 レビュー I-1)。
+            UpdateHorizontalScrollbar();
+            PositionCaret();
             Invalidate();
         }
     }
@@ -445,7 +466,7 @@ public sealed class EditorControl : Control
         // ShowCaret のみ走ると未定義位置(実装依存)にキャレットが出る。SetSource 前は
         // キャレットを生成しない(次に focus を得るときに再セットアップされる)。
         if (_buffer is null) return;
-        NativeMethods.CreateCaret(Handle, nint.Zero, 2, _metrics.LineHeightPx);
+        NativeMethods.CreateCaret(Handle, nint.Zero, _caretWidthPx, _metrics.LineHeightPx);
         PositionCaret();
         NativeMethods.ShowCaret(Handle);
     }
@@ -716,6 +737,8 @@ public sealed class EditorControl : Control
         _showLineNumbers = settings.ShowLineNumbers;
         _showWhitespace = settings.ShowWhitespace;
         _highlightCurrentLine = settings.HighlightCurrentLine;
+        // キャレット太さ(弱視のキャレット視認性・yedit-sighted-users-first-class)
+        _caretWidthPx = Math.Clamp(settings.CaretWidth, 1, 5);
         // WrapColumns の実値が変わったときだけ ScrollX をリセットする(フォント色だけ変更等で
         // 横スクロール位置が不用意にホームへ戻る副作用を避ける)。折り返し ON への遷移では
         // ScrollX=0 が必要=UpdateHorizontalScrollbar 内の HideAndResetHScroll でも 0 にされるが、
@@ -735,7 +758,7 @@ public sealed class EditorControl : Control
         if (_hasFocus)
         {
             NativeMethods.DestroyCaret();
-            NativeMethods.CreateCaret(Handle, nint.Zero, 2, _metrics.LineHeightPx);
+            NativeMethods.CreateCaret(Handle, nint.Zero, _caretWidthPx, _metrics.LineHeightPx);
             NativeMethods.ShowCaret(Handle);
         }
         PositionCaret();

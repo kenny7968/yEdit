@@ -807,13 +807,13 @@ Expected: build 0 警告・全テスト緑
 
 ## DoD(設計書 P2)
 
-- [ ] 全テスト緑(既存 415 + 新規)
-- [ ] `--layout` ベンチで 1GB 文書 1 フレーム <16ms(折り返し ON/OFF 両方)
-- [ ] `--bench` smoke で GDI 実測フレーム <16ms(1GB は環境依存で困難な場合、256MB でも記録)
-- [ ] smoke で手動確認: 折り返し・行番号・現在行・空白可視化・セルハイライト・システムキャレットが目視で動作
-- [ ] build 0 警告
-- [ ] 別エージェントレビューで Critical/Important 0
-- [ ] 設計書へ P2 結果追記済み
+- [x] 全テスト緑(既存 415 + 新規 55 = 470)
+- [x] `--layout` ベンチで 1GB 文書 1 フレーム <16ms(折り返し ON/OFF 両方 = L2=7.79ms・L3=7.81ms・L4=9.48ms・L5=41ns)
+- [ ] `--bench` smoke で GDI 実測フレーム <16ms(1GB は環境依存で困難な場合、256MB でも記録)= **自動化せず・ユーザー実機で確認予定**
+- [ ] smoke で手動確認: 折り返し・行番号・現在行・空白可視化・セルハイライト・システムキャレットが目視で動作 = **ユーザー実機で確認予定**
+- [x] build 0 警告
+- [x] 別エージェントレビューで Critical/Important 0(Task 15 最終レビュー: Critical 0 / Important 3 → 全て Task 15 内で修正済み・再検証で 0)
+- [x] 設計書へ P2 結果追記済み(`docs/plans/2026-07-05-custom-editcontrol-design.md` §P2 結果)
 
 ## P3+ への申し送り(実装中に確定するので予約)
 
@@ -862,3 +862,16 @@ Expected: build 0 警告・全テスト緑
 
 - **計画からの逸脱**:
   1. Core.Bench の `snap` 変数を layout bench の入力に再利用(=構築直後の PieceCount で測る)。当初 `buffer.Current` を使ったら **splice/typing 後の 2 万ピース木**でツリー walk が 3.5×遅くなり L2=32ms/frame で FAIL していた。TextSnapshot は immutable なので構築直後の `snap` は splice を越えて有効=修正で 7.8ms/frame に改善。実運用の初回ロード直後フレームコストの見積もりに合致する(20K ピース状態は 10K 連続 splice + 10K タイピング直後の極値であり、Task 14 DoD の趣旨から外れる)。
+
+### 2026-07-05 Task 15 実施(P2 クローズ)
+
+- **別エージェント最終レビュー**(BASE=eb23dd4・HEAD=Task 14=40987c1): Critical 0 / Important 3 / Minor 9
+  - **I-1**: `ShowLineNumbers` setter が `UpdateHorizontalScrollbar()`+`PositionCaret()` を呼ばず、システムキャレット位置と HScroll extent がマージン切替に追従しない → Task 15 で修正済み(setter に両呼び出しを追加)
+  - **I-2**: SetSource 前にフォーカスを取っていた場合(OnGotFocus が buffer null で早期 return したケース)、SetSource でシステムキャレットが生成されない → SetSource 末尾で `_hasFocus` なら CreateCaret+PositionCaret+ShowCaret を呼ぶ形に修正
+  - **I-3**: `AppSettings.CaretWidth`(弱視のキャレット視認性・設計原則 [[yedit-sighted-users-first-class]])が反映されず、キャレット太さがハードコード 2px 固定 → `_caretWidthPx` フィールド追加・ApplyAppearance で `Math.Clamp(settings.CaretWidth, 1, 5)` 反映・3 箇所の CreateCaret を `_caretWidthPx` 参照に差し替え
+- **Minor 9 の対応**:
+  - Task 15 で xmldoc/コメント修正(該当箇所)
+  - P3/P5/P6 送り(EditorControl テスト基盤・shift+左矢印非対称版 API・PointFromCharOffset 水平可視性・マウスホイール精度・SelectionBack/HighlightOutline テーマ追従など)は P2 結果として親設計書に列挙
+- **最終回帰**: 全 470 テスト緑・build 0 警告(維持)
+- **設計書追記**: 親設計書 `docs/plans/2026-07-05-custom-editcontrol-design.md` §P2 結果を追記(P1 結果と同形式・ベンチ数値表・申し送り・P3+ 引き継ぎ)
+- **⚠ main へのマージは行わない**(P7 合格後に一括。設計書§3 運用)

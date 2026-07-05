@@ -17,7 +17,9 @@ public sealed class EditorControl : Control
     private readonly Font _font;
     private readonly ICharMetrics _metrics;
     private readonly ViewportStyle _style;
+    private readonly VScrollBar _vscroll;
     private TextBuffer? _buffer;
+    private int _topLine;
 
     // 内部状態(Task 9/11 で本実装・現状は既定値のまま OnPaint に渡す)
 #pragma warning disable CS0649 // Task 9/11 で書き込み側を実装する
@@ -40,6 +42,14 @@ public sealed class EditorControl : Control
         _metrics = new GdiCharMetrics(_font);
         _style = DefaultStyle();
         Cursor = Cursors.IBeam;
+
+        // 空文書想定で初期は Enabled=false。SetSource で有効化される。
+        // Scroll イベントは「ユーザー操作(ドラッグ/ホイール/キー)」でのみ発火。
+        // TopLine setter からの `_vscroll.Value = ...` では発火しないため、
+        // TopLine ↔ VScrollBar 間の無限ループは起こらない(セッター側の != チェックは念のため)。
+        _vscroll = new VScrollBar { Dock = DockStyle.Right, SmallChange = 1, Enabled = false };
+        _vscroll.Scroll += (_, e) => TopLine = e.NewValue;
+        Controls.Add(_vscroll);
     }
 
     /// <summary>ソースの <see cref="TextBuffer"/> を差し込む(1 度だけ)。</summary>
@@ -49,6 +59,8 @@ public sealed class EditorControl : Control
         if (_buffer is not null)
             throw new InvalidOperationException("SetSource は 1 度だけ");
         _buffer = buffer;
+        _topLine = 0;
+        UpdateVerticalScrollbar();
         Invalidate();
     }
 
@@ -58,8 +70,25 @@ public sealed class EditorControl : Control
     // 後続タスク受け口(バッキングは auto-property・本実装は該当タスクで)
     // [Browsable(false)] + [DesignerSerializationVisibility(Hidden)] は
     // Control 派生の public プロパティに対する WFO1000 を回避する意図(デザイナ非対応の宣言)。
+
+    /// <summary>
+    /// 可視領域の先頭に置く論理行(0 始まり)。set 時は [0, LineCount-1] にクランプ、
+    /// 変化時のみ VScrollBar.Value を追従させて Invalidate。折り返し ON でも TopLine の
+    /// 先頭視覚行から描画する(§0-3=論理行の途中から始めない)。
+    /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public int TopLine { get; set; }               // Task 7 で本実装
+    public int TopLine
+    {
+        get => _topLine;
+        set
+        {
+            int clamped = ClampTopLine(value);
+            if (clamped == _topLine) return;
+            _topLine = clamped;
+            if (_vscroll.Value != clamped) _vscroll.Value = clamped;
+            Invalidate();
+        }
+    }
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public int WrapColumns { get; set; }           // Task 12 で本実装
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -69,6 +98,49 @@ public sealed class EditorControl : Control
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool HighlightCurrentLine { get; set; } // Task 9 で本実装
 
+    private int ClampTopLine(int value)
+    {
+        int max = _buffer is null ? 0 : Math.Max(0, _buffer.Current.LineCount - 1);
+        if (value < 0) return 0;
+        if (value > max) return max;
+        return value;
+    }
+
+    /// <summary>
+    /// VScrollBar の Maximum / LargeChange を現在の buffer と ClientSize から再計算する。
+    /// WinForms VScrollBar の到達可能な最大 Value は "Maximum - LargeChange + 1" のため、
+    /// TopLine=maxLine を到達させるには Maximum = maxLine + (LargeChange - 1) と置く必要がある。
+    /// 順序: Maximum → LargeChange の順に設定(逆順だと Maximum が小さいときに LargeChange が
+    /// 内部で clip されて意図した値にならないケースがある)。
+    /// </summary>
+    private void UpdateVerticalScrollbar()
+    {
+        if (_buffer is null) return;
+        var snap = _buffer.Current;
+        int maxLine = Math.Max(0, snap.LineCount - 1);
+        int visibleLines = Math.Max(1, ClientSize.Height / Math.Max(1, _metrics.LineHeightPx));
+        _vscroll.Maximum = maxLine + Math.Max(0, visibleLines - 1);
+        _vscroll.LargeChange = visibleLines;
+        _vscroll.SmallChange = 1;
+        _vscroll.Value = _topLine;  // _topLine は常に [0, maxLine] にクランプ済み → Value 範囲内
+        _vscroll.Enabled = maxLine > 0;
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        UpdateVerticalScrollbar();
+    }
+
+    protected override void OnMouseWheel(MouseEventArgs e)
+    {
+        base.OnMouseWheel(e);
+        if (_buffer is null) return;
+        const int scrollLines = 3;  // 1 tick = 3 論理行(WinForms 既定を採らず固定で開始・P3 で調整余地)
+        int delta = -Math.Sign(e.Delta) * scrollLines;  // Delta>0=上方向 → TopLine 減
+        TopLine = _topLine + delta;
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
@@ -76,10 +148,14 @@ public sealed class EditorControl : Control
         if (_buffer is not null)
         {
             var snap = _buffer.Current;
-            var rows = ViewportLayout.Build(snap, TopLine, ClientSize.Height, WrapColumns, _metrics);
+            // Control.ClientSize は docked 子コントロールを引かないため、VScrollBar 幅を明示的に減算。
+            // (ScrollableControl と違って Control は DisplayRectangle でも同じ挙動)
+            int paintWidth = Math.Max(0, ClientSize.Width - _vscroll.Width);
+            int paintHeight = ClientSize.Height;
+            var rows = ViewportLayout.Build(snap, _topLine, paintHeight, WrapColumns, _metrics);
             int lnWidth = ShowLineNumbers ? MeasureLineNumberWidth(snap.LineCount) : 0;
             var frame = FrameBuilder.Build(
-                snap, rows, ClientSize.Width, ClientSize.Height,
+                snap, rows, paintWidth, paintHeight,
                 lnWidth,
                 HighlightCurrentLine ? snap.GetLineIndexOfChar(_caret) : -1,
                 _selStart != _selEnd

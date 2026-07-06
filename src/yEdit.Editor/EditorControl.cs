@@ -1534,24 +1534,38 @@ public sealed class EditorControl : Control
         if (_buffer is null || ReadOnly) return;
         char ch = e.KeyChar;
 
-        // 制御文字(BackSpace 0x08 / Enter 0x0D / Tab 0x09 含む 0x00〜0x1F および
-        // Ctrl+Backspace の 0x7F=ASCII DEL)は無視。編集用途はすべて OnKeyDown 経路で
-        // 処理する(Task 9 で BackSpace/Enter/Tab 配線予定)。
+        // 制御文字(0x00〜0x1F, 0x7F)は無視。編集用途は OnKeyDown 経路で処理する(§0-9 温存)。
         if (ch < 0x20 || ch == 0x7F) return;
 
-        var (s, en) = GetSelectionCharRange();
-        string ins = ch.ToString();
+        InsertConfirmedText(ch.ToString());
+        e.Handled = true;
+    }
 
+    /// <summary>
+    /// 確定文字列を挿入する共通経路(P4)。P3 の <see cref="OnKeyPress"/> と
+    /// P4 の <see cref="WM_IME_COMPOSITION"/> (GCS_RESULTSTR) の両方から呼ばれる。
+    /// 選択があれば削除→挿入。<see cref="Overtype"/> ON では直後 1 文字を潰す
+    /// (改行はスキップ・サロゲートペアは 2 code units を潰す)。
+    /// <see cref="ReadOnly"/> ON では no-op。
+    /// </summary>
+    /// <remarks>
+    /// - <paramref name="text"/> の長さは制限なし(IME 確定は通常 1〜数文字だが仕様上長文もあり)
+    /// - <paramref name="text"/> が空文字なら no-op(ESC 取消時の GCS_RESULTSTR=空を安全化)
+    /// - <c>_desiredXpx</c> は -1 リセット(P3 §0-6)、AfterEdit で追従スクロール
+    /// </remarks>
+    private void InsertConfirmedText(string text)
+    {
+        if (_buffer is null || ReadOnly) return;
+        if (string.IsNullOrEmpty(text)) return;
+
+        var (s, en) = GetSelectionCharRange();
         if (s != en)
         {
-            // 選択があるときは無条件で置換(Overtype 影響なし)。
-            _buffer.Replace(s, en - s, ins);
-            _caret = _anchor = s + ins.Length;
+            _buffer.Replace(s, en - s, text);
+            _caret = _anchor = s + text.Length;
         }
         else if (Overtype)
         {
-            // 上書き: 直後 1 文字を潰す。ただし改行(CR/LF)は潰さない。
-            // 単一 Replace(=Splice) で「削除+挿入」を 1 Undo 単位で表現する。
             var snap = _buffer.Current;
             int overwriteLen = 0;
             if (_caret < snap.CharLength)
@@ -1559,23 +1573,21 @@ public sealed class EditorControl : Control
                 char nc = snap.GetChar(_caret);
                 if (nc != '\r' && nc != '\n')
                 {
-                    // サロゲートペアは 2 code units 分潰す(high + low を pair として扱う)。
                     overwriteLen = (char.IsHighSurrogate(nc) && _caret + 1 < snap.CharLength
                                     && char.IsLowSurrogate(snap.GetChar(_caret + 1))) ? 2 : 1;
                 }
             }
-            _buffer.Replace(_caret, overwriteLen, ins);
-            _caret = _anchor = _caret + ins.Length;
+            _buffer.Replace(_caret, overwriteLen, text);
+            _caret = _anchor = _caret + text.Length;
         }
         else
         {
-            _buffer.Insert(_caret, ins);
-            _caret = _anchor = _caret + ins.Length;
+            _buffer.Insert(_caret, text);
+            _caret = _anchor = _caret + text.Length;
         }
 
         _desiredXpx = -1;
         AfterEdit();
-        e.Handled = true;
     }
 
     /// <summary>

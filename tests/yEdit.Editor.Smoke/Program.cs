@@ -28,6 +28,20 @@ if (args.Length > 0 && args[0] == "--ime")
     return 0;
 }
 
+// P5 Task 13: --uia サブコマンド。SR(NVDA/PC-Talker/ナレーター)と ATOK 実機検証
+// (docs/plans/2026-07-06-p5-uia-checklist.md)用に、UIA プロバイダを配線した状態で起動する。
+// タイトルバーに [UIA] プレフィックスが付き、UiaSmokeAnnouncer が
+// CaretEnteredEmptyLine / WordNavigated を購読して発声補完する。
+// 追加引数(パス)があれば openat 起動する。
+if (args.Length > 0 && args[0] == "--uia")
+{
+    ApplicationConfiguration.Initialize();
+    var initialPath = args.Length > 1 ? args[1] : null;
+    var form = new MainForm(initialPath) { UseUiaAnnouncer = true };
+    Application.Run(form);
+    return 0;
+}
+
 ApplicationConfiguration.Initialize();
 Application.Run(new MainForm(args.FirstOrDefault()));
 return 0;

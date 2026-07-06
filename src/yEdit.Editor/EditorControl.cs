@@ -1840,6 +1840,10 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
 
         int? target = null;
         bool resetDesired = false;
+        // P5 Task 12: Ctrl+←→ 単語ナビの App 層補完受け口(WordNavigatedEvent)発火判定。
+        // 選択拡張中(shift)は発火しない=PC-Talker が「単語スパンで読み上げ」を期待するのは
+        // 純単語移動のみ。判定は case Keys.Left/Right の分岐で行う。
+        bool wordNavCandidate = false;
 
         switch (e.KeyCode)
         {
@@ -1847,11 +1851,13 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
                 target = ctrl ? WordBoundary.PrevWordStart(snap, _caret)
                               : NavigationCommands.MoveLeftChar(snap, _caret);
                 resetDesired = true;
+                if (ctrl && !shift) wordNavCandidate = true;
                 break;
             case Keys.Right:
                 target = ctrl ? WordBoundary.NextWordStart(snap, _caret)
                               : NavigationCommands.MoveRightChar(snap, _caret);
                 resetDesired = true;
+                if (ctrl && !shift) wordNavCandidate = true;
                 break;
             case Keys.Home:
                 target = ctrl ? 0 : NavigationCommands.MoveHomeSmart(snap, _caret);
@@ -2038,15 +2044,37 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
             // ジャンプ由来の spurious fire 抑止のため)ため、Raise が比較する「前の行」を
             // setter 呼び出し前に捕獲しておく必要がある(setter 呼び出し後だと常に一致してしまう)。
             int fromLine = snap.GetLineIndexOfChar(_caret);
+            int beforeCaret = _caret;
             if (resetDesired) _desiredXpx = -1;
             if (shift) MoveCaretWithSelection(t2);
             else SetCaretCharOffset(t2);
             _buffer.BreakUndoCoalescing();          // 純キャレット移動は coalescing 破断
             BringCaretIntoView();
             RaiseCaretEnteredEmptyLineIfNeeded(fromLine);
+            // P5 Task 12: 純単語ナビ(Ctrl+←→ かつ非 shift)で移動が起きたら WordNavigated 発火
+            if (wordNavCandidate && beforeCaret != _caret)
+                RaiseWordNavigated(Math.Min(beforeCaret, _caret), Math.Max(beforeCaret, _caret));
             e.Handled = true;
         }
     }
+
+    /// <summary>
+    /// Ctrl+←→ で単語ナビが発生したとき発火(選択拡張中でない場合のみ)。
+    /// P0 で確定した「PC-Talker Ctrl+←→ 単語ナビの App 層補完受け口」(P5 Task 12)。
+    /// UIA の TextSelectionChanged と同じく <see cref="RaiseUiaSelectionEvents"/>=false で抑止される。
+    /// </summary>
+    public event System.EventHandler<WordNavigatedEventArgs>? WordNavigated;
+
+    private void RaiseWordNavigated(int wordStart, int wordEnd)
+    {
+        if (!RaiseUiaSelectionEvents) return;
+        WordNavigated?.Invoke(this, new WordNavigatedEventArgs(wordStart, wordEnd));
+    }
+
+    // P5 Task 12: OnKeyDown をテストから直接叩くための internal 静的フック
+    // (App 層の入力経路を通さず、Ctrl+←→ 系の分岐だけ検証できる)。
+    internal static void TestHook_SendKey(EditorControl c, Keys keyData)
+        => c.OnKeyDown(new KeyEventArgs(keyData));
 
     /// <summary>
     /// 文字挿入(WM_CHAR)入り口(P3 Task 8 / P4 Task 3 で <see cref="InsertConfirmedText"/> へ委譲)。

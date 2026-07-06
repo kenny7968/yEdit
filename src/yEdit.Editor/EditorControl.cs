@@ -2093,10 +2093,43 @@ public sealed class EditorControl : Control
                 selection,
                 _cellHighlight, ShowWhitespace, _style, _metrics);
             RenderFrame(g, frame);
+
+            // P4 Task 9: 未確定文字列 overlay(本文 → cellHighlight → キャレット行強調 →
+            // ここ → システムキャレット の順序=設計 §3-3)。IsComposing=false(未確定期間外)は
+            // 呼ばない=空描画のコストゼロ。節ハイライト(反転)は Task 10・
+            // IME 内キャレット位置反映は Task 11 で扱う。
+            if (IsComposing) DrawImeOverlay(g);
         }
         // 本コントロールの描画を確定させた後に Paint イベント購読者に描かせる
         // (App 層の overlay 拡張余地を残す)。base.OnPaint は Paint イベントを発火する。
         base.OnPaint(e);
+    }
+
+    /// <summary>
+    /// IME 未確定文字列を本文の上に inline 合成する(P4 Task 9)。
+    /// 下線 + 通常前景色で 1 度に描く=折り返しなし(右端を越えても 1 行に描画=Scintilla 同挙動)。
+    /// 描画位置は <c>_ime.Start</c> のクライアント座標(<see cref="ComputeCaretPoint"/> は
+    /// <c>_scrollX</c> 適用前を返すため、ここで差し引いてから <see cref="TextRenderer.DrawText"/>
+    /// に渡す=<see cref="PositionCaret"/>/<see cref="PointFromCharOffset"/> と同じ規約)。
+    /// 可視外(TopLine 未到達 / 下端超過)は no-op。
+    /// </summary>
+    /// <remarks>
+    /// <see cref="TextRenderer"/> を使う理由: 本文描画(<see cref="RenderFrame"/>)と同じ GDI 経路で
+    /// 描き、ClearType/背景合成のずれを避ける(<see cref="Graphics.DrawString"/> は GDI+ 経路で
+    /// 微妙にレンダリングが異なる)。<see cref="TextFormatFlags.NoPadding"/> と
+    /// <see cref="TextFormatFlags.NoPrefix"/> で本文の <see cref="RenderFrame"/> と同じ寸法規約に合わせる。
+    /// </remarks>
+    private void DrawImeOverlay(Graphics g)
+    {
+        if (_buffer is null) return;
+        var (x, y, visible) = ComputeCaretPoint(_ime.Start);
+        if (!visible) return;   // 可視範囲外は no-op
+
+        using var underlineFont = new Font(_font, _font.Style | FontStyle.Underline);
+        TextRenderer.DrawText(
+            g, _ime.Text, underlineFont,
+            new Point(x - _scrollX, y), ForeColor,
+            TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
     }
 
     /// <summary>

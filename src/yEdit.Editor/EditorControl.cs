@@ -1047,6 +1047,10 @@ public sealed class EditorControl : Control
             AfterEdit();
         }
         _ime = ImeCompositionState.Empty with { Start = _caret };
+        // Task 11 レビュー I-1: SetCaretPos を IME 経路から発火する。ここで PositionCaret を
+        // 呼ばないと、_ime.CursorPos の変更に OS 側キャレットが追従しない=SR が IME 内の
+        // 移動を読めない。Task 12 の NotifyCandidateWindow も同経路に相乗り予定。
+        PositionCaret();
         Invalidate();
     }
 
@@ -1146,6 +1150,9 @@ public sealed class EditorControl : Control
             CursorPos: cursorPos,
             Attrs: attrs,
             Clauses: clauses);
+        // Task 11 レビュー I-1: _ime.CursorPos の反映=IME 内キャレット追従
+        // (Task 12 の NotifyCandidateWindow も同じ配線に相乗り)。
+        PositionCaret();
         Invalidate();
     }
 
@@ -1314,7 +1321,12 @@ public sealed class EditorControl : Control
         if (IsComposing)
         {
             var (x, y, visible) = ComputeCaretPoint(_ime.Start);
-            if (!visible) return;
+            if (!visible)
+            {
+                // 非 IME 経路と対称: 不可視時は画面外に退避してゴースト残留を防ぐ(Task 11 レビュー M-2)。
+                NativeMethods.SetCaretPos(-1000, -1000);
+                return;
+            }
             // _ime.CursorPos は SnapCursorPos で 0..Text.Length にクランプ済(Task 2/6)だが、
             // 悪意/誤動作 IME 対策として範囲外を防御的にクランプ(0 なら prefix="" で幅 0=OK)。
             int cur = Math.Clamp(_ime.CursorPos, 0, _ime.Text.Length);

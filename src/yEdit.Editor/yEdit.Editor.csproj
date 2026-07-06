@@ -7,6 +7,9 @@
     <UseWindowsForms>true</UseWindowsForms>
     <!-- UIA イベント発火・System.Windows.Rect のため UseWPF も有効化 -->
     <UseWPF>true</UseWPF>
+    <!-- P4 Task 12: LOGFONT を Font.ToLogFont で pin できる blittable struct にするため
+         (`fixed char lfFaceName[32]`)。NativeMethods.LOGFONT 以外では unsafe を使わない。 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

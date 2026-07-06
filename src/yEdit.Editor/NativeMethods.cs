@@ -92,9 +92,17 @@ internal static class NativeMethods
         public RECT rcArea;
     }
 
-    // フォント伝達に使う LOGFONT(WinForms Font.ToLogFont に渡す)
+    // フォント伝達に使う LOGFONT(WinForms Font.ToLogFont に渡す)。
+    // 【重要】 Font.ToLogFont(object) は内部で GCHandle.Alloc(Pinned) するため、
+    // 引数の struct は blittable でなければならない(参照型フィールドが 1 つでもあると
+    // 「Object contains references」で ArgumentException になる=Task 12 実装で判明)。
+    // よって lfFaceName は `[MarshalAs(ByValTStr)] string` ではなく `fixed char lfFaceName[32]`
+    // (blittable 固定バッファ)で表現する=struct 自体を unsafe にする(csproj で
+    // AllowUnsafeBlocks を有効化)。バッファは LOGFONTW と同じ 32 wchar = 64 バイト。
+    // 直接読む場面は無く(IME に流すだけ)、Font.ToLogFont が中で GDI GetObjectW 相当の
+    // メモリコピーを行うことでフェイス名も自動で書き込まれる。
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    public struct LOGFONT
+    public unsafe struct LOGFONT
     {
         public int lfHeight;
         public int lfWidth;
@@ -109,8 +117,7 @@ internal static class NativeMethods
         public byte lfClipPrecision;
         public byte lfQuality;
         public byte lfPitchAndFamily;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
-        public string lfFaceName;
+        public fixed char lfFaceName[32];
     }
 
     [DllImport("imm32.dll")]

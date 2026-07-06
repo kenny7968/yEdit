@@ -165,6 +165,8 @@ public sealed class EditorControl : Control
             NativeMethods.ShowCaret(Handle);
         }
         Invalidate();
+        // Task 12: 初期化時に未確定文字列用フォントを IME に通知(候補窓/未確定描画のメトリクス整合)。
+        NotifyCompositionFont();
     }
 
     /// <summary>行の高さ(px)。<see cref="ICharMetrics.LineHeightPx"/> の透過。</summary>
@@ -1049,9 +1051,12 @@ public sealed class EditorControl : Control
         _ime = ImeCompositionState.Empty with { Start = _caret };
         // Task 11 レビュー I-1: SetCaretPos を IME 経路から発火する。ここで PositionCaret を
         // 呼ばないと、_ime.CursorPos の変更に OS 側キャレットが追従しない=SR が IME 内の
-        // 移動を読めない。Task 12 の NotifyCandidateWindow も同経路に相乗り予定。
+        // 移動を読めない。Task 12 で NotifyCandidateWindow がこの経路に相乗り。
         PositionCaret();
         Invalidate();
+        // Task 12: 候補ウィンドウの初期位置を IME に通知(未確定開始時)。PositionCaret 後に呼ぶ
+        // ことで、直近の SetCaretPos で確定した座標と NotifyCandidateWindow の座標算出を揃える。
+        NotifyCandidateWindow();
     }
 
     /// <summary>
@@ -1151,9 +1156,11 @@ public sealed class EditorControl : Control
             Attrs: attrs,
             Clauses: clauses);
         // Task 11 レビュー I-1: _ime.CursorPos の反映=IME 内キャレット追従
-        // (Task 12 の NotifyCandidateWindow も同じ配線に相乗り)。
+        // (Task 12 で NotifyCandidateWindow もこの配線に相乗り)。
         PositionCaret();
         Invalidate();
+        // Task 12: 未確定更新時の候補窓追従(キャレット行が変わる可能性がある=座標再通知)。
+        NotifyCandidateWindow();
     }
 
     // Imm* からの文字列/バイト列読み出しヘルパ(Task 6)。
@@ -1336,12 +1343,75 @@ public sealed class EditorControl : Control
                 new Size(int.MaxValue, int.MaxValue),
                 TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
             NativeMethods.SetCaretPos(x - _scrollX + sz.Width, y);
+            // Task 12: スクロール変更等で IME 行の client 座標が動いた=候補窓も追従させる。
+            // NotifyCandidateWindow は自前で ComputeCaretPoint を呼び直すため、visible 分岐は
+            // ここで先に済んでいるが二重呼びは低コスト(未確定中のみ・GetContext 1 回)。
+            NotifyCandidateWindow();
             return;
         }
 
         var (cx, cy, cvisible) = ComputeCaretPoint(_caret);
         if (cvisible) NativeMethods.SetCaretPos(cx - _scrollX, cy);
         else NativeMethods.SetCaretPos(-1000, -1000);
+    }
+
+    /// <summary>
+    /// P4 Task 12: 未確定文字列のキャレット行下端座標を <c>ImmSetCandidateWindow</c> で IME に
+    /// 通知し、候補ウィンドウの表示位置をキャレット直下に追従させる。呼び出し 3 タイミング:
+    /// <list type="bullet">
+    ///   <item><see cref="OnImeStartComposition"/> 末尾(未確定開始時=初期位置)</item>
+    ///   <item><see cref="ApplyComposition"/> 末尾(未確定更新時=キャレット行が変わる可能性)</item>
+    ///   <item><see cref="PositionCaret"/> IME 分岐末尾(スクロール/文書更新で座標が動いたとき)</item>
+    /// </list>
+    /// 座標は <see cref="ComputeCaretPoint"/>(未確定 Start 位置)の client 座標 -
+    /// <c>_scrollX</c> に <c>_metrics.LineHeightPx</c> を足した点(=キャレット行の直下)。
+    /// <c>_scrollX</c> の減算は <see cref="DrawImeOverlay"/>/<see cref="PositionCaret"/> と対称に。
+    /// 可視外なら no-op(旧位置に置きっぱなしにする=候補窓のゴースト移動を避ける)。
+    /// IME 無効環境(<see cref="NativeMethods.ImmGetContext"/> が NULL を返す)は無害に no-op。
+    /// </summary>
+    private void NotifyCandidateWindow()
+    {
+        if (!IsComposing || _buffer is null || !_hasFocus) return;
+        nint hIMC = NativeMethods.ImmGetContext(Handle);
+        if (hIMC == IntPtr.Zero) return;
+        try
+        {
+            var (x, y, visible) = ComputeCaretPoint(_ime.Start);
+            if (!visible) return;
+            var form = new NativeMethods.CANDIDATEFORM
+            {
+                dwIndex = 0,
+                dwStyle = NativeMethods.CFS_CANDIDATEPOS,
+                ptCurrentPos = new NativeMethods.POINT { x = x - _scrollX, y = y + _metrics.LineHeightPx },
+            };
+            NativeMethods.ImmSetCandidateWindow(hIMC, ref form);
+        }
+        finally { NativeMethods.ImmReleaseContext(Handle, hIMC); }
+    }
+
+    /// <summary>
+    /// P4 Task 12: 未確定文字列に使うフォントを <c>ImmSetCompositionFontW</c> で IME に通知する
+    /// (候補窓の座標整合=本文フォントと候補窓/未確定文字列のメトリクスを揃える)。
+    /// 呼び出し 2 タイミング: <see cref="SetSource"/> 末尾(初期化時)/
+    /// <see cref="ApplyAppearance"/> 末尾(フォント変更後)。
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Font.ToLogFont(object)"/> は引数を boxing 経由でしか変異させないため、
+    /// ローカル struct を直接渡すと参照ではなく boxed コピーだけが書かれてローカルは 0 のまま
+    /// =フォント伝達が壊れる(Task 1 レビュー watchpoint)。明示的に box → 変異 → unbox する。
+    /// </remarks>
+    private void NotifyCompositionFont()
+    {
+        nint hIMC = NativeMethods.ImmGetContext(Handle);
+        if (hIMC == IntPtr.Zero) return;
+        try
+        {
+            object boxed = new NativeMethods.LOGFONT();
+            _font.ToLogFont(boxed);
+            var lf = (NativeMethods.LOGFONT)boxed;
+            NativeMethods.ImmSetCompositionFontW(hIMC, ref lf);
+        }
+        finally { NativeMethods.ImmReleaseContext(Handle, hIMC); }
     }
 
     /// <summary>
@@ -2361,6 +2431,8 @@ public sealed class EditorControl : Control
         }
         PositionCaret();
         Invalidate();
+        // Task 12: フォント変更後に IME へ未確定文字列用フォントを再通知(本文と候補窓のメトリクス整合)。
+        NotifyCompositionFont();
     }
 
     /// <summary>

@@ -302,7 +302,10 @@ SR側の癖に起因するため新コントロールへ移植する:
   - **M-5**: `NotifyCandidateWindow` は `PositionCaret` 経由で `ComputeCaretPoint` を 2 回呼ぶ=低頻度経路のため YAGNI(必要になったら `(x, y)` オーバーロード新設)
   - **M-6**: ATOK チェックリスト §7「戻ってきても残骸なし」の NG 診断にタイトルバー `[IME: ...]` 残存チェックを追記する余地
 
-- **未達成**: **ATOK 実機 7 項目チェックリスト**(`docs/plans/2026-07-06-p4-ime-checklist.md`)= ユーザー実機実施待ち。合格判定で P4 DoD 完成。NG 判定なら `git revert d1793b0..79f0100` で P3 完了状態(`d1793b0`)へ復帰可能(App 層完全無変更・撤退安全性担保)。
+- **暫定 OK として P5 へ進む(2026-07-06 ユーザー承認)**:
+  - ATOK **目視部分**(SR 非依存 = 未確定表示 / 節反転 / 候補窓位置 / 確定 / 取消 / BackSpace / フォーカス移動): smoke launcher 上で動作確認済
+  - **SR 読み上げ検証は不能**: NVDA/PC-Talker のいずれも新 EditorControl を「編集コントロール」と認識せず本文/未確定を読まなかった=**P5(UIA プロバイダ接続=`WM_GETOBJECT`/`UiaRootObjectId`/`IUiaTextHost` v2)完了後に本チェックリストを再実施**する必要あり
+  - この時点では **P4 は暫定 OK**。実 SR 適合の最終判定は P5 完了時の本チェックリスト再実施に委ねる。撤退判断も P5 後に再評価(この段階で NG でも `git revert d1793b0..HEAD` で P3 完了状態へ完全復帰可能=App 層無変更・撤退安全性担保)
 
 ### P5: UIA/SR接続(第2ゲート)
 - `IUiaTextHost` v2リファクタ・EditorControlのホスト実装・WM_GETOBJECT・イベント一式・空行イベント・座標API本実装・ネイティブ表面原則適用

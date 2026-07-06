@@ -2153,6 +2153,7 @@ public sealed class EditorControl : Control
         for (int i = 0; i < _ime.Clauses.Length - 1; i++)
         {
             int s = _ime.Clauses[i], e = _ime.Clauses[i + 1];
+            if (s < 0) continue;                                  // 悪意/誤動作 IME の負値防御(Task 10 レビュー M-2)
             if (e > _ime.Text.Length) e = _ime.Text.Length;
             if (s >= e) continue;
             string clause = _ime.Text[s..e];
@@ -2161,19 +2162,22 @@ public sealed class EditorControl : Control
             byte attr = s < _ime.Attrs.Length ? _ime.Attrs[s] : ImeAttribute.Input;
             bool isTarget = attr == ImeAttribute.TargetConverted;
 
-            Size sz = TextRenderer.MeasureText(g, clause, _underlineFontCache, new Size(int.MaxValue, int.MaxValue),
+            // 描画フォントで測って背景 rect 幅と curX 進み幅を一致させる(Task 10 レビュー I-1)。
+            // Bold のグリフ幅は Underline のみより広くなり得るため、target 節は _targetFontCache で測る。
+            Font drawFont = isTarget ? _targetFontCache : _underlineFontCache;
+            Size sz = TextRenderer.MeasureText(g, clause, drawFont, new Size(int.MaxValue, int.MaxValue),
                 TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
 
             if (isTarget)
             {
                 using var brush = new SolidBrush(ToColor(_style.SelectionBack));
                 g.FillRectangle(brush, curX, y, sz.Width, _metrics.LineHeightPx);
-                TextRenderer.DrawText(g, clause, _targetFontCache, new Point(curX, y), ForeColor,
+                TextRenderer.DrawText(g, clause, drawFont, new Point(curX, y), ForeColor,
                     TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
             }
             else
             {
-                TextRenderer.DrawText(g, clause, _underlineFontCache, new Point(curX, y), ForeColor,
+                TextRenderer.DrawText(g, clause, drawFont, new Point(curX, y), ForeColor,
                     TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
             }
             curX += sz.Width;

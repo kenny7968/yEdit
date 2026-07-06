@@ -302,6 +302,38 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     /// <summary>P6 Task 3: `CaretCharOffset` の別名(App 層互換=Scintilla の `CurrentPosition`)。</summary>
     public int CurrentPosition => _caret;
 
+    /// <summary>
+    /// P6 Task 5: 本文中の改行を <paramref name="eol"/> に一括変換する(App 層互換=保存時の EOL 統一)。
+    /// 既存本文の <c>\r\n</c> / <c>\r</c> / <c>\n</c> を検出→指定 EOL に置換した文字列で
+    /// <see cref="ReplaceSource(TextBuffer)"/> し、<see cref="EolMode"/> も同時に更新する。
+    /// SetSource 前は no-op。
+    /// </summary>
+    /// <remarks>
+    /// <see cref="EolMode"/> は「以後の Enter 押下で挿入する改行」の設定であり、既存本文には
+    /// 効かない。App 層(FileController の保存経路)は保存前に本 API で本文の改行を統一する。
+    /// 実装は「一旦 LF に正規化 → 目的 EOL に置換」の 2 段階=CRLF/CR/LF 混在を安全に扱える。
+    /// no-op fast-path(=すでに目的 EOL で統一されている場合)では ReplaceSource による
+    /// キャレット/選択/スクロールリセット・UIA TextChanged 発火を回避する(EolMode だけ更新)。
+    /// </remarks>
+    public void ConvertEols(LineEnding eol)
+    {
+        if (_buffer is null) return;
+        string src = SnapshotText;
+        string target = eol switch
+        {
+            LineEnding.Crlf => "\r\n",
+            LineEnding.Lf => "\n",
+            LineEnding.Cr => "\r",
+            _ => "\n",
+        };
+        // 一旦 LF に正規化してから target に置換=CRLF/CR/LF 混在を統一処理
+        string normalized = src.Replace("\r\n", "\n").Replace("\r", "\n");
+        string converted = target == "\n" ? normalized : normalized.Replace("\n", target);
+        if (converted == src) { EolMode = eol; return; }   // no-op fast path
+        ReplaceSource(TextBuffer.FromString(converted));
+        EolMode = eol;
+    }
+
     /// <summary>行の高さ(px)。<see cref="ICharMetrics.LineHeightPx"/> の透過。</summary>
     public int LineHeightPx => _metrics.LineHeightPx;
 

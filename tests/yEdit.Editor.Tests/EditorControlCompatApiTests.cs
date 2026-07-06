@@ -41,4 +41,16 @@ public class EditorControlCompatApiTests
             Assert.Equal(5, ctrl.CaretCharOffset);
         });
     }
+
+    [Fact]
+    public void SelectCharRange_NegativeLength_CollapsesToEmpty()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("hello world"));
+            ctrl.SelectCharRange(6, -3);
+            Assert.Equal((6, 6), ctrl.GetSelectionCharRange());
+        });
+    }
 }

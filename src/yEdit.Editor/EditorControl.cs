@@ -265,7 +265,10 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     public void SelectCharRange(int start, int length)
         => SetSelectionCharRange(start, start + Math.Max(0, length));
 
-    /// <summary>P6 Task 2: <see cref="SetCaretCharOffset"/> のエイリアス(App 層互換)。</summary>
+    /// <summary>
+    /// P6 Task 2: <see cref="SetCaretCharOffset"/> のエイリアス(App 層互換)。
+    /// <paramref name="offset"/> はキャレット位置の絶対値(現在位置からの差分ではない)。
+    /// </summary>
     public void MoveCaretCharOffset(int offset) => SetCaretCharOffset(offset);
 
     /// <summary>行の高さ(px)。<see cref="ICharMetrics.LineHeightPx"/> の透過。</summary>

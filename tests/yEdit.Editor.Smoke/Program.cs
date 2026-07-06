@@ -1,3 +1,4 @@
+using yEdit.Core.Buffers;
 using yEdit.Core.Text;
 using yEdit.Editor.Smoke;
 
@@ -12,6 +13,19 @@ EncodingCatalog.EnsureRegistered();
 if (args.Length > 0 && args[0] == "--bench")
 {
     return GdiBench.Run(args);
+}
+
+// P4 Task 14: --ime サブコマンド。ATOK 実機検証(docs/plans/2026-07-06-p4-ime-checklist.md)
+// 用に、未確定色/下線を目視しやすい長文サンプルをメモリ上で生成して開いた状態から起動する。
+if (args.Length > 0 && args[0] == "--ime")
+{
+    ApplicationConfiguration.Initialize();
+    var buf = TextBuffer.FromString(
+        "IME 動作確認用サンプル(P4 Task 14)\n"
+        + "文字入力→確定/変換/取消 の動作をこの EditorControl 上で試してください。\n\n"
+        + string.Concat(Enumerable.Repeat("あいうえおかきくけこさしすせそたちつてと\n", 20)));
+    Application.Run(new MainForm(buf, "(IME サンプル)"));
+    return 0;
 }
 
 ApplicationConfiguration.Initialize();

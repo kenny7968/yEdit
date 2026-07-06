@@ -1222,6 +1222,13 @@ public sealed class EditorControl : Control
     internal bool __TestIsComposing() => IsComposing;
     internal string __TestImeText() => _ime.Text;
 
+    // P4 Task 14: smoke(yEdit.Editor.Smoke)専用アクセサ。__Test* と挙動は同じだが、
+    // 「テストからの検査経路」と「smoke タイトルバー表示用の状態ポーリング経路」を
+    // 名前で分けておくと、将来テスト用 __Test* の意味付けを変えても smoke が壊れない。
+    // Smoke MainForm の 200ms Timer からポーリング(UpdateTitle)で呼ぶ。
+    internal bool __SmokeIsComposing() => IsComposing;
+    internal string __SmokeImeText() => _ime.Text;
+
     // Task 6: 実 IME を介さずに ApplyComposition の状態遷移だけを検証するための受け口。
     // Windows API を経由する経路(WndProc → OnImeComposition → Imm* → ApplyComposition)は
     // Task 14 の smoke で扱う。

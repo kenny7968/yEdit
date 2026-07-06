@@ -124,13 +124,29 @@ public sealed class MainForm : Form
         // 意図的に外している)ため、状態変化は Timer で拾う。手打ちで確認する用途としては
         // 200ms のラグは十分許容範囲。
         _statusTimer = new System.Windows.Forms.Timer { Interval = 200 };
-        _statusTimer.Tick += (_, _) => UpdateCaretStatus();
+        // P4 Task 14: IME 状態(未確定文字列)もタイトルバーに反映する。UpdateCaretStatus と
+        // 同じ Tick に相乗り(200ms ラグは目視の eye check 用途で十分許容範囲)。
+        _statusTimer.Tick += (_, _) => { UpdateCaretStatus(); UpdateTitle(); };
         _statusTimer.Start();
 
         if (initialPath is not null && File.Exists(initialPath))
         {
             OpenFilePath(initialPath, Encoding.UTF8, "UTF-8");
         }
+    }
+
+    /// <summary>
+    /// P4 Task 14: --ime サブコマンド用のコンストラクタ。ファイルを開かずにメモリ上で
+    /// 生成した <see cref="TextBuffer"/> を直接流し込んで起動する(ATOK 実機で未確定色/下線を
+    /// 目視できる状態から eye check を始めるため)。既存の <see cref="MainForm(string?)"/> を
+    /// this(null) で走らせて menu/status/timer を組み立てた後、SetSource だけこちらで行う。
+    /// </summary>
+    public MainForm(TextBuffer buf, string label) : this((string?)null)
+    {
+        _editor.SetSource(buf);
+        _currentPath = label;
+        UpdateFileStatus(buf.Current.LineCount);
+        UpdateCaretStatus();
     }
 
     private void SetWrap(int cols)
@@ -209,5 +225,19 @@ public sealed class MainForm : Form
         string mode = _editor.Overtype ? "上書き" : "挿入";
         string eol = _editor.EolMode.ToDisplayString();
         _statusCaret.Text = $"L{line1}{mark}  |  {mode}  |  {eol}";
+    }
+
+    /// <summary>
+    /// P4 Task 14: IME 未確定期間中はタイトルバーに未確定文字列を表示する。200ms Timer から
+    /// 呼ばれる(UpdateCaretStatus と同じ Tick)。IsComposing=false のときは既定タイトルに戻す。
+    /// ATOK 実機検証で「WM_IME_COMPOSITION が届いているか(=タイトルバーに反映されるか)」の
+    /// 一次切り分けに使う(NG 時の diagnostics=docs/plans/2026-07-06-p4-ime-checklist.md 参照)。
+    /// </summary>
+    private void UpdateTitle()
+    {
+        if (_editor.__SmokeIsComposing())
+            Text = $"yEdit.Editor.Smoke [IME: {_editor.__SmokeImeText()}]";
+        else
+            Text = "yEdit.Editor.Smoke";
     }
 }

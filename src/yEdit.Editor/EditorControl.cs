@@ -42,6 +42,18 @@ public sealed class EditorControl : Control
     private int _caret;
     private int _anchor;
 
+    // P4 Task 5: IME 未確定文字列の状態。WM_IME_STARTCOMPOSITION 受信で Start=現在キャレットに
+    // 初期化し、Task 6 以降の WM_IME_COMPOSITION / WM_IME_ENDCOMPOSITION で Text/Attrs/Clauses を
+    // 更新する。IsActive(=Text.Length > 0)の間は「未確定期間」で、外部から <see cref="IsComposing"/>
+    // で判定できる。純ロジックは <see cref="ImeCompositionState"/>(P4 Task 2)側。
+    private ImeCompositionState _ime = ImeCompositionState.Empty;
+
+    /// <summary>
+    /// IME 未確定期間中か。Task 6 以降の描画/イベント発火の分岐に使う(現状 Task 5 では
+    /// 常に false=Start だけ立てて Text が空の状態から始まる)。
+    /// </summary>
+    private bool IsComposing => _ime.IsActive;
+
     // Task 10: システムキャレットのフォーカス状態フラグ。CreateCaret/DestroyCaret はフォーカスを
     // 持つ間のみ有効なため、SetCaretCharOffset 等から PositionCaret を呼ぶ際にガードに使う。
     private bool _hasFocus;
@@ -887,10 +899,13 @@ public sealed class EditorControl : Control
             case NativeMethods.WM_IME_SETCONTEXT:
                 OnImeSetContext(ref m);
                 return;
-            // 以下は Task 5〜8 で埋める。**各 case は必ず return; で終えること**
+            case NativeMethods.WM_IME_STARTCOMPOSITION:
+                OnImeStartComposition();
+                m.Result = IntPtr.Zero;
+                return;
+            // 以下は Task 6〜8 で埋める。**各 case は必ず return; で終えること**
             // (末尾の base.WndProc(ref m) は unhandled 用=return; を忘れると二重処理となり、
             //  base の既定 IME 挙動が KeyPress を re-post 等して 1 Splice=1 Undo が崩れる)。
-            // case NativeMethods.WM_IME_STARTCOMPOSITION: ...
             // case NativeMethods.WM_IME_COMPOSITION: ...
             // case NativeMethods.WM_IME_ENDCOMPOSITION: ...
         }
@@ -914,10 +929,47 @@ public sealed class EditorControl : Control
         base.WndProc(ref m);
     }
 
+    /// <summary>
+    /// WM_IME_STARTCOMPOSITION: 未確定期間の開始。選択があれば削除して先頭位置をキャレットに寄せ、
+    /// <c>_ime.Start</c> を現在のキャレットで初期化する(P4 Task 5)。
+    /// </summary>
+    /// <remarks>
+    /// - 選択削除は 1 Splice=1 Undo=以後の未確定文字列(Task 6 で overlay 描画)は Undo に積まれない
+    ///   ことを守るため、Start より前の状態でここまでにバッファへ確定させておく。
+    /// - <see cref="ReadOnly"/> / SetSource 前は no-op(WM_IME_COMPOSITION は来ない前提だが、
+    ///   WM_IME_STARTCOMPOSITION は IME 側の都合で先に来ることがあるため防御的にガードする)。
+    /// - <c>_desiredXpx = -1</c> / <see cref="AfterEdit"/> は選択削除が起きたときだけ呼ぶ
+    ///   (本文不変ならスクロールバー/追従スクロールは動かす必要が無い)。
+    /// - <c>ImmSetCandidateWindow</c> の初期位置設定は Task 12 に集約するため、ここでは触らない。
+    /// </remarks>
+    private void OnImeStartComposition()
+    {
+        if (_buffer is null || ReadOnly) return;
+        var (s, en) = GetSelectionCharRange();
+        if (s != en)
+        {
+            // 選択削除(1 Splice=1 Undo・以後の未確定は overlay=Undo に積まれない)
+            _buffer.Replace(s, en - s, "");
+            _caret = _anchor = s;
+            _desiredXpx = -1;
+            AfterEdit();
+        }
+        _ime = ImeCompositionState.Empty with { Start = _caret };
+        Invalidate();
+    }
+
     // テスト用ヘルパ(internal・EditorControlImeTests から呼ぶ)。
     // WndProc は protected のためテストから直接呼べない=WM_IME_SETCONTEXT の lParam
     // マスク挙動を検証するための最小の受け口。
     internal void __TestProcessMessage(ref Message m) => WndProc(ref m);
+
+    // P4 Task 5〜8: IME 未確定状態を検査するためのテスト用アクセサ(internal・
+    // EditorControlImeTests から呼ぶ)。__Test* 規約で命名。
+    internal int __TestImeStart() => _ime.Start;
+    internal bool __TestIsComposing() => IsComposing;
+    internal string __TestImeText() => _ime.Text;
+    internal string __TestSnapshotText()
+        => _buffer is null ? "" : _buffer.Current.GetText(0, _buffer.Current.CharLength);
 
     /// <summary>
     /// 与えられた UTF-16 char offset のクライアント座標(px)と可視性を算出する純ロジック。

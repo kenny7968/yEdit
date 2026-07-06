@@ -5,7 +5,9 @@ namespace yEdit.Editor.Tests;
 /// - WM_IME_SETCONTEXT: lParam の ISC_SHOWUICOMPOSITIONWINDOW ビットを落として base に流す
 ///   (=既定 composition ウィンドウ描画を抑止し、Task 6 以降の自前描画に切り替える下地)。
 /// - WM_IME_STARTCOMPOSITION: 選択削除 + _ime.Start をキャレット位置で初期化(Task 5)。
-/// Task 8 で WM_IME_ENDCOMPOSITION の case をここに追加する。
+/// - WM_IME_COMPOSITION: GCS_COMPSTR(未確定=Task 6) / GCS_RESULTSTR(確定=Task 7)を反映。
+/// - WM_IME_ENDCOMPOSITION: _ime クリア(Task 8)。
+/// - ReadOnly=true / OnLostFocus: 未確定期間中の縁ケース強制取消/確定試行(Task 8・§4-2/4-3)。
 /// </summary>
 public class EditorControlImeTests
 {
@@ -209,5 +211,75 @@ public class EditorControlImeTests
             Assert.Equal(1, c.CaretCharOffset);
             Assert.False(c.CanUndo);   // 履歴に副作用を残さない(Task 7 レビュー M-1)
         }
+    });
+
+    // Task 8: WM_IME_ENDCOMPOSITION 受信時に _ime がクリアされ、IsComposing=false に戻る。
+    // OnImeEndComposition は overlay(_ime)を Empty へリセットして Invalidate を呼ぶだけ
+    // (=本文への副作用は無い。既に GCS_RESULTSTR で確定済みであれば ApplyResult で
+    //  overlay は落ちているが、ENDCOMPOSITION は「未確定期間の終端」を示す独立メッセージで、
+    //  取消経路(空 RESULTSTR + ENDCOMPOSITION)からも呼ばれる=無条件クリアが正しい)。
+    [Fact]
+    public void EndComposition_ClearsIme() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            var m1 = new Message { HWnd = c.Handle, Msg = NativeMethods.WM_IME_STARTCOMPOSITION };
+            c.__TestProcessMessage(ref m1);
+            c.__TestApplyComposition("あ", cursorPos: 1, attrs: [0], clauses: [0, 1]);
+            Assert.True(c.__TestIsComposing());
+
+            var m2 = new Message { HWnd = c.Handle, Msg = NativeMethods.WM_IME_ENDCOMPOSITION };
+            c.__TestProcessMessage(ref m2);
+
+            Assert.False(c.__TestIsComposing());
+        }
+    });
+
+    // Task 8: ReadOnly = true への切り替え時、未確定期間中なら CancelCompositionAndDefault
+    // 経路で _ime を強制クリアする(§4-2)。ImmNotifyIME(CPS_CANCEL) の失敗有無に依らず
+    // overlay は必ずクリアされる(=IME 無効/取得失敗環境でも overlay が浮きっぱなしにならない)。
+    // 既存の ReadOnly=true 使用箇所は未確定期間外なので、CancelCompositionAndDefault の
+    // 早期 return で no-op となり挙動不変(§Task 8 注意書き)。
+    [Fact]
+    public void ReadOnly_True_DuringComposition_ForceCancels() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            var m = new Message { HWnd = c.Handle, Msg = NativeMethods.WM_IME_STARTCOMPOSITION };
+            c.__TestProcessMessage(ref m);
+            c.__TestApplyComposition("あ", cursorPos: 1, attrs: [0], clauses: [0, 1]);
+            Assert.True(c.__TestIsComposing());
+
+            c.ReadOnly = true;
+            Assert.False(c.__TestIsComposing());   // 強制取消で _ime クリア
+        }
+    });
+
+    // Task 8: OnLostFocus 拡張(§4-3)。フォーカスが他コントロールへ移ったとき、
+    // 未確定期間中なら CPS_COMPLETE を試みて overlay を落とす。ImmNotifyIME が
+    // 届かない環境(テスト/一部 IME 無効)でも _ime を Empty にリセットする保険が入っている。
+    // NOTE: Control.Select() は CanFocus=true(=可視+enabled)を要求するため、
+    // 既存の CaretScrollTests の流儀(f.Show() でフォーカスを機能させる)に合わせる。
+    [Fact]
+    public void LostFocus_DuringComposition_ClearsIme() => Sta.Run(() =>
+    {
+        using var f = new Form { Size = new System.Drawing.Size(200, 60) };
+        using var c = new EditorControl();
+        using var other = new Button();
+        f.Controls.Add(c);
+        f.Controls.Add(other);
+        f.Show();               // フォーカス機能を有効化(不可視だと Select() が no-op)
+        c.SetSource(TextBuffer.FromString("abc"));
+        c.Select();
+
+        var m = new Message { HWnd = c.Handle, Msg = NativeMethods.WM_IME_STARTCOMPOSITION };
+        c.__TestProcessMessage(ref m);
+        c.__TestApplyComposition("あ", cursorPos: 1, attrs: [0], clauses: [0, 1]);
+        Assert.True(c.__TestIsComposing());
+
+        other.Select();   // フォーカス移動 → OnLostFocus 経路
+        Assert.False(c.__TestIsComposing());
     });
 }

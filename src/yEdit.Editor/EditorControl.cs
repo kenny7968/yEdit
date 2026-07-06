@@ -340,8 +340,25 @@ public sealed class EditorControl : Control
     /// 読み取り専用モード。true のとき編集経路(OnKeyPress・Task 9〜11 の削除/貼り付け系)を
     /// 全て早期 return する。選択状態やキャレット移動は禁止しない(閲覧用途の想定)。
     /// </summary>
+    /// <remarks>
+    /// P4 Task 8(§4-2): false→true の切り替え時、IME 未確定期間中なら
+    /// <see cref="CancelCompositionAndDefault"/> 経路で ImmNotifyIME(CPS_CANCEL) を通知し、
+    /// overlay(<c>_ime</c>)を強制的にクリアする(=読み取り専用に切り替えた瞬間に浮きっぱなしの
+    /// 未確定文字が残らない)。未確定期間外の呼び出しは早期 return で no-op=既存の全 setter
+    /// 呼び出し(P3 の閲覧テスト群)には副作用が無い。
+    /// </remarks>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public bool ReadOnly { get; set; }
+    public bool ReadOnly
+    {
+        get => _readOnly;
+        set
+        {
+            if (_readOnly == value) return;
+            _readOnly = value;
+            if (value) CancelCompositionAndDefault();
+        }
+    }
+    private bool _readOnly;
 
     /// <summary>
     /// Enter 押下時に挿入する改行シーケンス。既定は <see cref="LineEnding.Crlf"/>(Windows 標準)。
@@ -882,6 +899,27 @@ public sealed class EditorControl : Control
 
     protected override void OnLostFocus(EventArgs e)
     {
+        // P4 Task 8(§4-3): 未確定期間中にフォーカスを失う場合、まず IME 側へ
+        // CPS_COMPLETE を通知して「確定」を試みる(Scintilla 互換=ユーザーの入力途中を
+        // 失わせない)。ImmNotifyIME が届かない環境(IME 無効/取得失敗)でも overlay
+        // (_ime)は必ず落として、base の後続処理(_hasFocus=false / DestroyCaret)より前に
+        // フィールド状態を整えておく=直後の Invalidate/paint で古い overlay が浮かない。
+        if (IsComposing)
+        {
+            nint hIMC = NativeMethods.ImmGetContext(Handle);
+            if (hIMC != IntPtr.Zero)
+            {
+                try
+                {
+                    NativeMethods.ImmNotifyIME(hIMC, NativeMethods.NI_COMPOSITIONSTR,
+                                               NativeMethods.CPS_COMPLETE, 0);
+                }
+                finally { NativeMethods.ImmReleaseContext(Handle, hIMC); }
+            }
+            // ImmNotifyIME が届かない環境の保険=overlay を落とす(Invalidate は
+            // base.OnLostFocus / DestroyCaret 後にどのみち再描画されるため省略)。
+            _ime = ImeCompositionState.Empty;
+        }
         base.OnLostFocus(e);
         _hasFocus = false;
         NativeMethods.DestroyCaret();
@@ -889,9 +927,12 @@ public sealed class EditorControl : Control
 
     /// <summary>
     /// P4 IME 経路。<see cref="OnKeyDown"/>/<see cref="OnKeyPress"/> は書き換えず、WndProc で
-    /// WM_IME_* を横取りする(§0-4)。P4 Task 4/5/6/7 で WM_IME_SETCONTEXT /
-    /// WM_IME_STARTCOMPOSITION / WM_IME_COMPOSITION(GCS_COMPSTR + GCS_RESULTSTR)を処理済。
-    /// Task 8 で WM_IME_ENDCOMPOSITION の case をここへ追加する。
+    /// WM_IME_* を横取りする(§0-4)。P4 Task 4/5/6/7/8 で WM_IME_SETCONTEXT /
+    /// WM_IME_STARTCOMPOSITION / WM_IME_COMPOSITION(GCS_COMPSTR + GCS_RESULTSTR)/
+    /// WM_IME_ENDCOMPOSITION を処理済。各 case は必ず <c>return;</c> で終える
+    /// (末尾の <c>base.WndProc(ref m)</c> は unhandled 用=<c>return;</c> を忘れると
+    /// 二重処理となり、base の既定 IME 挙動が KeyPress を re-post 等して 1 Splice=1 Undo
+    /// が崩れる)。
     /// </summary>
     protected override void WndProc(ref Message m)
     {
@@ -908,12 +949,49 @@ public sealed class EditorControl : Control
                 OnImeComposition(m.LParam.ToInt64());
                 m.Result = IntPtr.Zero;
                 return;
-            // 以下は Task 8 で埋める。**各 case は必ず return; で終えること**
-            // (末尾の base.WndProc(ref m) は unhandled 用=return; を忘れると二重処理となり、
-            //  base の既定 IME 挙動が KeyPress を re-post 等して 1 Splice=1 Undo が崩れる)。
-            // case NativeMethods.WM_IME_ENDCOMPOSITION: ...
+            case NativeMethods.WM_IME_ENDCOMPOSITION:
+                OnImeEndComposition();
+                m.Result = IntPtr.Zero;
+                return;
         }
         base.WndProc(ref m);
+    }
+
+    /// <summary>
+    /// WM_IME_ENDCOMPOSITION: 未確定期間の終端。<c>_ime</c> を Empty へリセットし、overlay を
+    /// 再描画で消す(P4 Task 8)。ApplyResult(=GCS_RESULTSTR)ですでに空へ落ちている場合でも
+    /// 冗長 no-op になるだけで害はない=このメッセージは「未確定期間の終端イベント」であり、
+    /// 取消経路(ESC=空 RESULTSTR + ENDCOMPOSITION)からも呼ばれるため無条件クリアが正しい。
+    /// </summary>
+    private void OnImeEndComposition()
+    {
+        _ime = ImeCompositionState.Empty;
+        Invalidate();
+    }
+
+    /// <summary>
+    /// 未確定期間を強制取消しし、IME 側にも <see cref="NativeMethods.CPS_CANCEL"/> を通知する
+    /// (P4 Task 8・§4-2 縁ケース共通経路)。<see cref="ReadOnly"/> の true 切替が現時点の
+    /// 主な呼び出し元。<see cref="NativeMethods.ImmNotifyIME"/> が失敗する環境(IME 無効/
+    /// 取得失敗)でも overlay(<c>_ime</c>)は必ずクリアする=UI 側で浮きっぱなしの未確定が
+    /// 残らない。<see cref="IsComposing"/> が false ならただちに戻る(=既存の閲覧テストで
+    /// ReadOnly=true に切り替えても副作用が発生しない)。
+    /// </summary>
+    private void CancelCompositionAndDefault()
+    {
+        if (!IsComposing) return;
+        nint hIMC = NativeMethods.ImmGetContext(Handle);
+        if (hIMC != IntPtr.Zero)
+        {
+            try
+            {
+                NativeMethods.ImmNotifyIME(hIMC, NativeMethods.NI_COMPOSITIONSTR,
+                                           NativeMethods.CPS_CANCEL, 0);
+            }
+            finally { NativeMethods.ImmReleaseContext(Handle, hIMC); }
+        }
+        _ime = ImeCompositionState.Empty;
+        Invalidate();
     }
 
     /// <summary>

@@ -524,6 +524,9 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         _lastCaretLine = _buffer.Current.GetLineIndexOfChar(_caret);
         PositionCaret();
         Invalidate();
+        // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
+        if (RaiseUiaSelectionEvents)
+            RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
     }
 
     /// <summary>現在の選択範囲(UTF-16 文字オフセット・Start &lt;= End で返す)。</summary>
@@ -557,6 +560,9 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         _lastCaretLine = _buffer.Current.GetLineIndexOfChar(_caret);
         PositionCaret();
         Invalidate();
+        // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
+        if (RaiseUiaSelectionEvents)
+            RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
     }
 
     /// <summary>
@@ -577,6 +583,9 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         _lastCaretLine = _buffer.Current.GetLineIndexOfChar(_caret);
         PositionCaret();
         Invalidate();
+        // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
+        if (RaiseUiaSelectionEvents)
+            RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
     }
 
     /// <summary>
@@ -598,6 +607,9 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         _lastCaretLine = _buffer.Current.GetLineIndexOfChar(_caret);
         PositionCaret();
         Invalidate();
+        // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
+        if (RaiseUiaSelectionEvents)
+            RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
     }
 
     /// <summary>
@@ -750,6 +762,11 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         Invalidate();
         // P5 Task 5: 編集後に RPC スレッド用スナップショットを更新
         CacheSnapshot();
+        // P5 Task 8: UIA イベント発火(TextChanged は編集経路の唯一の発火点)。
+        // 編集は同時に選択位置も動くため TextSelectionChanged も併せて発火。
+        RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextChangedEvent);
+        if (RaiseUiaSelectionEvents)
+            RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
     }
 
     /// <summary>
@@ -2748,6 +2765,40 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
             return;
         }
         Focus();
+    }
+
+    // ==================== P5 Task 8: UIA イベント発火配線 ====================
+    // TextChangedEvent / TextSelectionChangedEvent / AutomationFocusChangedEvent を
+    // 編集経路(AfterEdit)/移動経路(Set*/MoveCaret*)/フォーカス経路(OnGotFocus・Task 9)
+    // の末尾から発火する。UIA プロバイダが未生成のとき(=SR 未接続)や
+    // AutomationInteropProvider.ClientsAreListening=false の環境では早期 return。
+    // テスト用に強制発火フラグ (TestHook_ForceUiaListen) を持つ。
+
+    private int _uiaTextChangedCount, _uiaSelectionChangedCount, _uiaFocusChangedCount;
+
+    internal static bool TestHook_ForceUiaListen { get; set; }
+    internal static void TestHook_ResetUiaEventCounts(EditorControl c)
+    {
+        c._uiaTextChangedCount = c._uiaSelectionChangedCount = c._uiaFocusChangedCount = 0;
+    }
+    internal static (int textChanged, int selChanged, int focusChanged) TestHook_UiaEventCounts(EditorControl c)
+        => (c._uiaTextChangedCount, c._uiaSelectionChangedCount, c._uiaFocusChangedCount);
+
+    /// <summary>UIA イベントを発火する共通ヘルパ。プロバイダ未生成・SR 未リッスン時はスキップ。</summary>
+    private void RaiseUia(System.Windows.Automation.AutomationEvent ev)
+    {
+        if (_provider is null) return;
+        if (!TestHook_ForceUiaListen &&
+            !System.Windows.Automation.Provider.AutomationInteropProvider.ClientsAreListening) return;
+        try
+        {
+            System.Windows.Automation.Provider.AutomationInteropProvider.RaiseAutomationEvent(
+                ev, _provider, new System.Windows.Automation.AutomationEventArgs(ev));
+            if (ev == System.Windows.Automation.TextPatternIdentifiers.TextChangedEvent) _uiaTextChangedCount++;
+            else if (ev == System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent) _uiaSelectionChangedCount++;
+            else if (ev == System.Windows.Automation.AutomationElementIdentifiers.AutomationFocusChangedEvent) _uiaFocusChangedCount++;
+        }
+        catch { /* UIA サーバ側の失敗は本体に影響させない */ }
     }
 
     /// <summary>

@@ -53,4 +53,39 @@ public class EditorControlCompatApiTests
             Assert.Equal((6, 6), ctrl.GetSelectionCharRange());
         });
     }
+
+    [Fact]
+    public void LineCount_ReturnsBufferLineCount()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("aaa\nbbb\nccc"));
+            Assert.Equal(3, ctrl.LineCount);
+        });
+    }
+
+    [Fact]
+    public void GoToLine_MovesCaretToLineStart()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("aaa\nbbb\nccc"));
+            ctrl.GoToLine(2);   // 0-based=2 → 3行目 "ccc"
+            Assert.Equal(8, ctrl.CaretCharOffset);
+        });
+    }
+
+    [Fact]
+    public void CurrentPosition_MatchesCaret()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("hello"));
+            ctrl.SetCaretCharOffset(3);
+            Assert.Equal(3, ctrl.CurrentPosition);
+        });
+    }
 }

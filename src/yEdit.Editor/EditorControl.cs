@@ -271,6 +271,21 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     /// </summary>
     public void MoveCaretCharOffset(int offset) => SetCaretCharOffset(offset);
 
+    /// <summary>P6 Task 3: 現在のバッファ論理行数(App 層互換=`Lines.Count` 相当)。</summary>
+    public int LineCount => _buffer?.Current.LineCount ?? 0;
+
+    /// <summary>P6 Task 3: 指定 0-based 行の先頭にキャレット移動(App 層互換=`Lines[i].Goto()` 相当)。</summary>
+    public void GoToLine(int line)
+    {
+        if (_buffer is null) return;
+        var snap = _buffer.Current;
+        int clamped = Math.Clamp(line, 0, snap.LineCount - 1);
+        SetCaretCharOffset(snap.GetLineStart(clamped));
+    }
+
+    /// <summary>P6 Task 3: `CaretCharOffset` の別名(App 層互換=Scintilla の `CurrentPosition`)。</summary>
+    public int CurrentPosition => _caret;
+
     /// <summary>行の高さ(px)。<see cref="ICharMetrics.LineHeightPx"/> の透過。</summary>
     public int LineHeightPx => _metrics.LineHeightPx;
 

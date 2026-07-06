@@ -6,7 +6,7 @@ using yEdit.Editor;
 namespace yEdit.App;
 
 /// <summary>
-/// 検索・置換の統括。Core 照合と ScintillaHost の選択/置換を仲介し、結果を
+/// 検索・置換の統括。Core 照合と EditorControl の選択/置換を仲介し、結果を
 /// ダイアログのステータス＋UIA 通知で SR に伝える。対象はアクティブ文書を毎回解決する。
 /// </summary>
 public sealed class SearchController
@@ -29,7 +29,7 @@ public sealed class SearchController
         };
     }
 
-    private ScintillaHost? ActiveEditor => _docs.Active?.Editor;
+    private EditorControl? ActiveEditor => _docs.Active?.Editor;
 
     // CSVモード中は本文が読取専用で置換が無反映になるため、置換系を抑止して誤成功通知を防ぐ。
     private bool IsCsvModeActive => _docs.Active?.State.CsvMode == true;

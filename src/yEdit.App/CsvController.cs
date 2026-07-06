@@ -5,7 +5,7 @@ using yEdit.Editor;
 namespace yEdit.App;
 
 /// <summary>
-/// 新CSVモード（グリッド型ナビゲーション）の配線。CSVモード中は ScintillaHost.ReadOnly=true で
+/// 新CSVモード（グリッド型ナビゲーション）の配線。CSVモード中は EditorControl.ReadOnly=true で
 /// 本文を編集不可にし、素キーのコマンドでセル移動・読み上げを行う。現在セルは
 /// DocumentState.CsvRow/CsvCol を真実源にする。
 /// 目的: NVDA はネイティブ Scintilla 統合（クラス名 "Scintilla"・UIA 非依存）で、OS の
@@ -200,7 +200,7 @@ public sealed class CsvController
     /// <summary>パースして現在 (row,col) を得る。CSVでない/解析不可/データ無しは読み上げて false。
     /// (row,col) は DocumentState を真実源とし、パース結果の行列数へクランプする（本文編集で
     /// 行/列が減っても範囲外を指さないように補正）。</summary>
-    private bool TryContext(out ScintillaHost ed, out CsvDocument csv, out int row, out int col)
+    private bool TryContext(out EditorControl ed, out CsvDocument csv, out int row, out int col)
     {
         ed = null!; csv = null!; row = 0; col = 0;
         if (_editor.IsEditing) return false;   // F2 編集中はメニュー経由のナビ/読み上げを抑止（マウス経路の保護）
@@ -226,7 +226,7 @@ public sealed class CsvController
         return c < 0 ? 0 : (c >= w ? w - 1 : c);
     }
 
-    private void ApplyTarget(ScintillaHost ed, CsvDocument csv, (int row, int col)? t)
+    private void ApplyTarget(EditorControl ed, CsvDocument csv, (int row, int col)? t)
     {
         if (t is null) { _announcer.Say(CsvAnnounceFormatter.CannotMove); return; }
         ApplyCell(ed, csv, t.Value.row, t.Value.col, announce: true);
@@ -235,7 +235,7 @@ public sealed class CsvController
     /// <summary>(row,col) のセルへ ハイライト＋可視域スクロール＋DocumentState 更新＋必要なら読み上げ。
     /// システムキャレットは動かさない（SR の自動読み上げ発火を避け、Announcer 一本に集約する）。
     /// フォーカスはフォーカスシンクに退避したまま維持する（FocusTarget 経由）。</summary>
-    private void ApplyCell(ScintillaHost ed, CsvDocument csv, int row, int col, bool announce)
+    private void ApplyCell(EditorControl ed, CsvDocument csv, int row, int col, bool announce)
     {
         var f = csv.GetField(row, col);
         if (f is null) { _announcer.Say(CsvAnnounceFormatter.CannotMove); return; }

@@ -2,6 +2,10 @@ namespace yEdit.App;
 
 /// <summary>
 /// CSVモード中にキーボードフォーカスを預かる 1×1px のフォーカスシンク。
+/// （P6 猶予: 本体は Task 15 で SrContext.UseNativeReading を false 固定＝ネイティブ読み経路を
+/// 廃止するまでの経過措置。EditorControl へ移行した現時点では NVDA も UIA v2 経路で読むため、
+/// 下記のネイティブ Scintilla 統合を前提とした説明は Task 15 完了後に不要になる。
+/// class 本体・振る舞い・AccessibleName/Role は無変更で維持する。）
 /// NVDA はネイティブ Scintilla 統合により、OS イベント（フォーカス獲得・システムキャレット
 /// 移動・選択変更）に反応してフォーカスのあるエディタの生バッファを読み上げる。これは
 /// アプリ側の UIA イベント抑止では止められないため、CSVモード中はフォーカス自体を本

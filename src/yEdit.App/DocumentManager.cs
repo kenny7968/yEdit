@@ -4,7 +4,7 @@ using yEdit.Editor;
 namespace yEdit.App;
 
 /// <summary>
-/// タブ（TabControl）と複数 Document の管理。各 Document は独立した ScintillaHost を持つ。
+/// タブ（TabControl）と複数 Document の管理。各 Document は独立した EditorControl を持つ。
 /// アクティブ由来のイベントのみ上位（MainForm）へ転送し、どのタブでも変更状態は
 /// そのタブのラベルへ反映する。
 /// </summary>
@@ -12,9 +12,9 @@ public sealed class DocumentManager
 {
     private readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
     private readonly List<Document> _docs = new();
-    private readonly Func<ScintillaHost> _editorFactory;
+    private readonly Func<EditorControl> _editorFactory;
 
-    public DocumentManager(Func<ScintillaHost> editorFactory)
+    public DocumentManager(Func<EditorControl> editorFactory)
     {
         _editorFactory = editorFactory;
         _tabs.Selected += (_, _) => OnSelectedTabChanged();

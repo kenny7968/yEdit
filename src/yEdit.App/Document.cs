@@ -5,11 +5,11 @@ namespace yEdit.App;
 
 /// <summary>
 /// 開いている1ドキュメント。独立した編集コントロール・タブ面・メタ状態を束ねる。
-/// 変更フラグは Editor.Modified（Scintilla のセーブポイント）を唯一の真実とする。
+/// 変更フラグは Editor.Modified（TextBuffer のセーブポイント）を唯一の真実とする。
 /// </summary>
 public sealed class Document
 {
-    public ScintillaHost Editor { get; }
+    public EditorControl Editor { get; }
     public TabPage Page { get; }
     public DocumentState State { get; } = new();
 
@@ -23,7 +23,7 @@ public sealed class Document
     /// 行き先を明示するため直接指定する。</summary>
     public Control FocusTarget => State.CsvMode ? CsvSink : Editor;
 
-    public Document(ScintillaHost editor, TabPage page)
+    public Document(EditorControl editor, TabPage page)
     {
         Editor = editor;
         Page = page;

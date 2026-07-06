@@ -21,7 +21,7 @@ public sealed class CsvCellEditor
     public bool IsEditing => _box is not null;
 
     /// <summary>セル編集を開始する。onCommit は確定値（改行は \n 正規化済み）、onCancel は取消で呼ぶ。</summary>
-    public void Begin(ScintillaHost ed, CsvField field, Control refocusTarget, Action<string> onCommit, Action onCancel)
+    public void Begin(EditorControl ed, CsvField field, Control refocusTarget, Action<string> onCommit, Action onCancel)
     {
         if (IsEditing) return;
         _refocus = refocusTarget; _onCommit = onCommit; _onCancel = onCancel; _closing = false;

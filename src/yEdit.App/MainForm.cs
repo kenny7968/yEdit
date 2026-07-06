@@ -92,12 +92,13 @@ public sealed partial class MainForm : Form
         _file.NewFile(); // 起動時の無題タブ1つ（Q1=B：常に新規タブ）
     }
 
-    /// <summary>タブ毎の ScintillaHost を生成する。SR 適応はハンドル生成前に確定させる（M1 と同順）。</summary>
-    private ScintillaHost CreateEditor()
+    /// <summary>タブ毎の EditorControl を生成する。SR 適応は EditorControl 単一経路（UIA v2）に一本化されており、
+    /// 旧 <c>ScintillaHost.ApplySrAdaptation</c> のような SR 二系統の切替は不要（Task 15 で SrContext 側の
+    /// 分岐も除去予定）。</summary>
+    private EditorControl CreateEditor()
     {
-        var e = new ScintillaHost { Dock = DockStyle.Fill };
-        e.ApplySrAdaptation(useNativeReading: SrContext.UseNativeReading); // ハンドル生成前に起動時確定の SR 適応を反映
-        EditorAppearance.Apply(e, _settings);  // フォント＋配色テーマを適用（M7）
+        var e = new EditorControl { Dock = DockStyle.Fill };
+        EditorAppearance.Apply(e, _settings);  // フォント＋配色テーマ＋表示設定を EditorControl.ApplyAppearance へ委譲
         return e;
     }
 
@@ -430,7 +431,7 @@ public sealed partial class MainForm : Form
         var ed = _docs.Active?.Editor;
         if (ed is null) return;
         int line = ed.CurrentLine + 1;
-        int totalLines = ed.Lines.Count;
+        int totalLines = ed.LineCount;
         int column = ed.GetColumn(ed.CurrentPosition) + 1;
         var (s, e) = ed.GetSelectionCharRange();
         _announcer.Say(PositionFormatter.Format(line, totalLines, column, ed.SnapshotText.Length, e - s, ed.Overtype));
@@ -454,11 +455,11 @@ public sealed partial class MainForm : Form
         if (_docs.Active?.State.CsvMode == true) { _csv.GoToCell(); return; }
         var ed = _docs.Active?.Editor;
         if (ed is null) return;
-        int max = ed.Lines.Count;
+        int max = ed.LineCount;
         using var dlg = new GoToLineDialog(ed.CurrentLine + 1, max);
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
         int target = Math.Clamp(dlg.LineNumber, 1, max);
-        ed.Lines[target - 1].Goto();
+        ed.GoToLine(target - 1);
         ed.Focus();
         _announcer.Say($"行 {target}");
     }

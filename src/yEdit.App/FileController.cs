@@ -281,7 +281,9 @@ public sealed class FileController
         _recentChanged();
     }
 
-    /// <summary>doc.State.LineEnding をそのエディタの EOL モードへ反映する。</summary>
+    /// <summary>doc.State.LineEnding をそのエディタの EOL モードへ反映する。
+    /// EditorControl.EolMode は LineEnding 直値のため、旧 ScintillaHost.ApplyLineEnding のような
+    /// Eol enum への写像は不要（P6 Task 8+9 の型置換に伴い代入 1 行に短縮）。</summary>
     private static void ApplyEol(Document doc)
-        => doc.Editor.ApplyLineEnding(doc.State.LineEnding);
+        => doc.Editor.EolMode = doc.State.LineEnding;
 }

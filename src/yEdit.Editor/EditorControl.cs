@@ -1293,12 +1293,42 @@ public sealed class EditorControl : Control
     /// システムキャレット位置に反映する。可視外(TopLine 未到達 / 下端超過)は
     /// 見えない位置 (-1000, -1000) へ退避。フォーカス無し・buffer 未設定時は何もしない。
     /// 折り返し OFF 時は最終位置から <see cref="ScrollX"/> を引いてから SetCaretPos する。
+    ///
+    /// P4 Task 11: <see cref="IsComposing"/> 中は「未確定文字列内の IME カーソル位置」
+    /// (<c>_ime.Start + _ime.CursorPos</c>)へキャレットを置く=IME 内で左右矢印を押した
+    /// ときにシステムキャレットが追従するようにする。CursorPos の prefix 幅は
+    /// <see cref="_underlineFontCache"/>(=Task 9 で描画に使う overlay フォント)で
+    /// <see cref="TextRenderer.MeasureText"/> して加算する(<see cref="DrawImeOverlay"/>
+    /// と同じ font/flags で測ることで、描画上の位置とピクセル整合を取る)。
+    ///
+    /// <para>Perf 注記: 未確定中のみ <see cref="Control.CreateGraphics"/> を都度作る=
+    /// 未確定期間は入力の合間で相対的に短いため v1 では許容。将来 <c>_metrics</c> に
+    /// 未確定文字列用の Measure API を持たせる余地がある(計画書 §Task 11 Follow-ups)。</para>
     /// </summary>
     private void PositionCaret()
     {
         if (!_hasFocus || _buffer is null) return;
-        var (x, y, visible) = ComputeCaretPoint(_caret);
-        if (visible) NativeMethods.SetCaretPos(x - _scrollX, y);
+
+        // P4 Task 11: 未確定中は IME 内カーソル位置 (_ime.Start + _ime.CursorPos) に SetCaretPos。
+        // 非 IME 経路の前に分岐させる(視覚的にキャレット位置を反映する、というセマンティクスは同じ)。
+        if (IsComposing)
+        {
+            var (x, y, visible) = ComputeCaretPoint(_ime.Start);
+            if (!visible) return;
+            // _ime.CursorPos は SnapCursorPos で 0..Text.Length にクランプ済(Task 2/6)だが、
+            // 悪意/誤動作 IME 対策として範囲外を防御的にクランプ(0 なら prefix="" で幅 0=OK)。
+            int cur = Math.Clamp(_ime.CursorPos, 0, _ime.Text.Length);
+            string prefix = _ime.Text[..cur];
+            using var g = CreateGraphics();
+            Size sz = TextRenderer.MeasureText(g, prefix, _underlineFontCache,
+                new Size(int.MaxValue, int.MaxValue),
+                TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+            NativeMethods.SetCaretPos(x - _scrollX + sz.Width, y);
+            return;
+        }
+
+        var (cx, cy, cvisible) = ComputeCaretPoint(_caret);
+        if (cvisible) NativeMethods.SetCaretPos(cx - _scrollX, cy);
         else NativeMethods.SetCaretPos(-1000, -1000);
     }
 

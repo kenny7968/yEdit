@@ -314,8 +314,17 @@ SR側の癖に起因するため新コントロールへ移植する:
 
 #### P5 結果(2026-07-06・**自動 DoD 全達成・実機中間検証待ち**)
 
-- 実装: Task 1〜14 全完了・13 commits(`f85f245`〜`d3627db` + Task 14=`XXXXXXX`、feature branch のみ・main 未変更)
-- 別エージェント最終レビュー: **後追記**(コミット `XXXXXXX` 内で対応)
+- 実装: Task 1〜14 全完了・14 commits(`f85f245`〜`032cd04` + レビュー対応、feature branch のみ・main 未変更)
+- 別エージェント最終レビュー: **Critical 0 / Important 5 / Minor 9**
+  - **Important 対応済み(コード修正)**:
+    - I-1: `HasFocus` を `Focused`(内部で `GetFocus()`=RPC で常に false)から `_hasFocus` キャッシュへ(v1 ScintillaHost と同形)
+    - I-2: `Handle` を live プロパティ(Handle 未生成時に CreateHandle 誘発)から `_hwnd` キャッシュへ。`OnHandleCreated` で捕捉、`OnHandleDestroyed` で 0 リセット(v1 と同形)
+    - I-3: `SetSelection`/`SetFocus` に `if (IsDisposed || !IsHandleCreated) return;` ガード追加(v1 と同形・破棄後 BeginInvoke で `InvalidOperationException` を防ぐ)
+  - **Important 対応済み(ドキュメント整合)**:
+    - I-4: 座標 API の「UI スレッド Invoke マーシャリング方式」を本結果表に明記(上記「座標 API」節)
+    - I-5: 単語境界セマンティクスの不一致(WordStart/End は空白区切り・NextWordStart/PrevWordStart は Core WordBoundary 委譲)を実機チェックリスト §6 の観察点に追加
+  - **Minor 対応済み**: M-2(TestHook_ForceUiaListen static bool のレース)→ `[Collection("UiaEventHook")]` 排他
+  - **Minor 申し送り(P7 送り)**: M-1(`_caret`/`_anchor` volatile 化)/ M-3(`_clientToScreenX/Y` stale=フォームドラッグ時)/ M-4(逐行 Wrap の O(N²)=大容量ベンチ NG なら Frame キャッシュ)/ M-5(行頭終端 1px 矩形の設計書明記)/ M-6(`_lastFrame` を `_paintedFrameForTest` に改名検討)/ M-7(Core.Tests が net9.0-windows 限定=`tests/yEdit.Accessibility.Tests` 分離の余地)/ M-8(`GetPatternProvider`/`GetPropertyValue` の nullable annotation・v1 も同形の既存踏襲)/ M-9(`OnPaint` 内の `PointToScreen` を `OnLocationChanged` 集約=M-3 と併せて対応)
 - ビルド 0 警告 / テスト全緑:
   - Core.Tests 528→540(+12=`IUiaTextHostContractStubTests`(+1)/`TextRangeProviderV2Tests`(+7)/`TextProviderImplV2Tests`(+4))
   - Editor.Tests 155→182(+27=`EditorControlUiaHostTests`(+10)/`EditorControlUiaGetObjectTests`(+2)/`EditorControlNativeSurfaceTests`(+2)/`EditorControlUiaEventsTests`(+3)/`EditorControlUiaFocusEventTests`(+1)/`EditorControlBoundingRectsTests`(+3)/`EditorControlOffsetFromPointTests`(+3)/`EditorControlWordNavEventTests`(+3))
@@ -339,9 +348,12 @@ SR側の癖に起因するため新コントロールへ移植する:
   - OnGotFocus → AutomationFocusChangedEvent + TextSelectionChangedEvent(PC-Talker 2 秒ポーリング対策)
   - OnKeyDown(Ctrl+←→ かつ非 shift)→ 新設 WordNavigatedEvent(App 層 Announcer 補完受け口・P0 で確定)
 
-- **座標 API**:
-  - `GetBoundingRectangles(s, e)`: ComputeCaretPoint 逐行分解 → client→screen オフセット加算(RPC スレッドは Invoke マーシャリング)
-  - `OffsetFromScreenPoint(x, y)`: 既存 `OffsetFromClientPoint` 再利用 → `RangeFromPoint` が本挙動化
+- **座標 API**(**設計ドリフト解消・レビュー I-4**):
+  - **当初設計**(§2-7 / §4-5 / §4-6・実装計画 Task 10): RPC スレッド上で `_lastFrame` + `PixelMapper.OffsetToPx(frame, pos)` を直接計算(=UI スレッド非依存)。
+  - **実装**: `PixelMapper` に `Frame` オーバーロードが存在しないため、既存 UI スレッド専用純ロジック(`ComputeCaretPoint` / `OffsetFromClientPoint`)を `InvokeRequired ? Invoke : 直接` で再利用する方式に変更。`_lastFrame` は `OnPaint` 末尾でキャッシュされるが座標算出には使わず、Task 11 テスト用フック(`TestHook_GetLastFrame`)専用となった。
+  - **選択理由**: (1)計画書の「編集直後で `_lastFrame` が古い」問題(§4-6)を自動回避できる (2)UI スレッド Invoke は稀な同期呼び出しでデッドロックリスクを持つが、UIA 座標問合せの頻度は低く、実運用では許容
+  - **`GetBoundingRectangles(s, e)`**: ComputeCaretPoint 逐行分解 → client→screen オフセット加算
+  - **`OffsetFromScreenPoint(x, y)`**: 既存 `OffsetFromClientPoint` 再利用 → `RangeFromPoint` が本挙動化
 
 - **設計判断のポイント**:
   - **v1/v2 並存**: v1 挙動を一切変えないことで撤退安全性を担保(`git revert f85f245..HEAD` で P4 完了状態へ完全復帰可能)

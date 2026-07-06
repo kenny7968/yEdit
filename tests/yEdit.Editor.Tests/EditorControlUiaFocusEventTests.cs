@@ -6,6 +6,9 @@ using Xunit;
 
 namespace yEdit.Editor.Tests;
 
+// P5 Task 14 (M-2): TestHook_ForceUiaListen は static bool のため、
+// UIA イベント発火系テストは同じ collection に押し込んで xUnit の並列実行から除外する。
+[Collection("UiaEventHook")]
 public class EditorControlUiaFocusEventTests
 {
     [Fact]

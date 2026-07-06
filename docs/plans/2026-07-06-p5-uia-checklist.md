@@ -12,6 +12,7 @@
 4. **SayAll**: NVDA=NVDA+↓ / PC-Talker=全文読み / ナレーター=Ctrl+全文 で、先頭から末尾まで途切れず読み上げる。
 5. **選択読み**: Shift+矢印 で選択スパンを読み上げる(TextSelectionChangedEvent が届いていること)。
 6. **単語ナビ**: Ctrl+← / Ctrl+→ で、単語スパンを発声する。PC-Talker は `WordNavigatedEvent` → `UiaSmokeAnnouncer` の PC-Talker 直叩き経路で単語スパンを補完発声する(NVDA/ナレーターは UIA の TextUnit.Word で自然に読める)。
+    - **観察点(P5 レビュー I-5)**: 日本語×英語混在テキスト(例: `hello漢字world`)で `Move(Word)` と `Expand(Word)` のスパンが一致するか(EditorControl の `WordStart`/`WordEnd` は空白区切り簡易実装なので、Latin↔Han 境界では `NextWordStart`(Core WordBoundary 委譲)と一致しない可能性=単語スパン発声が広めに読まれることを目視確認。NG なら P7 で `WordBoundary` の CharClass 露出+委譲へ変更する申し送り)
 7. **空行着地**: 空行に着地したとき、`CaretEnteredEmptyLine` 経路で「空行」と発声する(全 SR で同じ)。
 8. **他ウィンドウ→復帰**: 別のウィンドウにフォーカスを移し、再び smoke に戻す。フォーカス復帰時に SR が「本文」と現在キャレット位置の内容を発声する(OnGotFocus 明示発火の `AutomationFocusChangedEvent` + `TextSelectionChangedEvent` の 2 発が届く)。
 

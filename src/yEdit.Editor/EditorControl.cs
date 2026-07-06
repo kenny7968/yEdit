@@ -118,6 +118,11 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     private volatile yEdit.Core.Layout.Frame? _lastFrame;
     private int _clientToScreenX, _clientToScreenY;
 
+    // P5 Task 14 (I-2): UIA プロバイダは RPC スレッドから Handle を取得する。Control.Handle は
+    // Handle 未生成時に CreateHandle を誘発し得るため、OnHandleCreated で捕捉した値をキャッシュ。
+    // v1 ScintillaHost._hwnd と同形。
+    private nint _hwnd;
+
     public EditorControl()
     {
         SetStyle(
@@ -2631,7 +2636,14 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        _hwnd = Handle;   // P5 Task 14 (I-2): RPC スレッドが安全に読める hwnd キャッシュ
         UpdateBoundsCache();
+    }
+
+    protected override void OnHandleDestroyed(EventArgs e)
+    {
+        _hwnd = IntPtr.Zero;
+        base.OnHandleDestroyed(e);
     }
 
     protected override void OnSizeChanged(EventArgs e)
@@ -2665,6 +2677,8 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
 
     void yEdit.Accessibility.IUiaTextHost.SetSelection(int start, int end)
     {
+        // P5 Task 14 (I-3): 破棄後 / Handle 未生成での BeginInvoke による InvalidOperationException を防ぐ
+        if (IsDisposed || !IsHandleCreated) return;
         if (InvokeRequired)
         {
             BeginInvoke(new Action(() => ((yEdit.Accessibility.IUiaTextHost)this).SetSelection(start, end)));
@@ -2884,9 +2898,12 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     // P5 Task 10/11: テスト用フック(Editor.Tests から _lastFrame を観察できるように)
     internal static yEdit.Core.Layout.Frame? TestHook_GetLastFrame(EditorControl c) => c._lastFrame;
 
-    nint yEdit.Accessibility.IUiaTextHost.Handle => Handle;
+    // P5 Task 14 (I-2): live プロパティ Handle は RPC で CreateHandle を誘発し得るためキャッシュ返し。
+    nint yEdit.Accessibility.IUiaTextHost.Handle => _hwnd;
 
-    bool yEdit.Accessibility.IUiaTextHost.HasFocus => Focused;
+    // P5 Task 14 (I-1): Focused は内部で GetFocus() を呼ぶ=RPC スレッドから読むと常に false に落ちる。
+    // OnGotFocus/OnLostFocus で管理している _hasFocus キャッシュを返す(v1 ScintillaHost 同形)。
+    bool yEdit.Accessibility.IUiaTextHost.HasFocus => _hasFocus;
 
     int yEdit.Accessibility.IUiaTextHost.ControlTypeId => System.Windows.Automation.ControlType.Document.Id;
 
@@ -2896,6 +2913,8 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
 
     void yEdit.Accessibility.IUiaTextHost.SetFocus()
     {
+        // P5 Task 14 (I-3): 破棄後 / Handle 未生成での BeginInvoke による InvalidOperationException を防ぐ
+        if (IsDisposed || !IsHandleCreated) return;
         if (InvokeRequired)
         {
             BeginInvoke(new Action(() => Focus()));

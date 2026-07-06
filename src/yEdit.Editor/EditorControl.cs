@@ -875,6 +875,49 @@ public sealed class EditorControl : Control
     }
 
     /// <summary>
+    /// P4 IME 経路。<see cref="OnKeyDown"/>/<see cref="OnKeyPress"/> は書き換えず、WndProc で
+    /// WM_IME_* を横取りする(§0-4)。P4 Task 4 では WM_IME_SETCONTEXT のみ処理し、
+    /// 他は base.WndProc へ流す。Task 5〜8 で WM_IME_STARTCOMPOSITION / WM_IME_COMPOSITION /
+    /// WM_IME_ENDCOMPOSITION の case をここへ追加していく。
+    /// </summary>
+    protected override void WndProc(ref Message m)
+    {
+        switch (m.Msg)
+        {
+            case NativeMethods.WM_IME_SETCONTEXT:
+                OnImeSetContext(ref m);
+                return;
+            // 以下は Task 5〜8 で埋める
+            // case NativeMethods.WM_IME_STARTCOMPOSITION: ...
+            // case NativeMethods.WM_IME_COMPOSITION: ...
+            // case NativeMethods.WM_IME_ENDCOMPOSITION: ...
+        }
+        base.WndProc(ref m);
+    }
+
+    /// <summary>
+    /// WM_IME_SETCONTEXT: IME の既定 composition ウィンドウ描画を止めて自前描画に切り替える(P4)。
+    /// lParam の ISC_SHOWUICOMPOSITIONWINDOW ビットを落として base.WndProc に流す。
+    /// </summary>
+    /// <remarks>
+    /// ISC_SHOWUICOMPOSITIONWINDOW = 0x80000000。int のままだと符号ビットになるため
+    /// long に一旦上げてビットマスクを適用し、nint に戻す(nint(long) は truncate ではなく
+    /// プラットフォームサイズへ符号拡張/縮小=x86/x64 双方で意図どおり)。
+    /// </remarks>
+    private void OnImeSetContext(ref Message m)
+    {
+        long lp = m.LParam.ToInt64();
+        lp &= ~(long)NativeMethods.ISC_SHOWUICOMPOSITIONWINDOW;
+        m.LParam = new nint(lp);
+        base.WndProc(ref m);
+    }
+
+    // テスト用ヘルパ(internal・EditorControlImeTests から呼ぶ)。
+    // WndProc は protected のためテストから直接呼べない=WM_IME_SETCONTEXT の lParam
+    // マスク挙動を検証するための最小の受け口。
+    internal void __TestProcessMessage(ref Message m) => WndProc(ref m);
+
+    /// <summary>
     /// 与えられた UTF-16 char offset のクライアント座標(px)と可視性を算出する純ロジック。
     /// - Visible=false: TopLine 未到達 / paintHeight を超える論理行 / y &gt;= paintHeight
     /// - Visible=true: (X, Y) は「行番号マージン含む・_scrollX を引く前」の座標

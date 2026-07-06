@@ -111,6 +111,13 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     private readonly object _boundsSync = new();
     private System.Windows.Rect _bounds;
 
+    // P5 Task 10: 座標 API 用の描画スナップショット + client→screen オフセットキャッシュ。
+    // _lastFrame は OnPaint 完了時点の Frame(描画に使われたもの)。BB 計算では直接使わず、
+    // 「最新描画のあと」の判定と Task 11 テスト用フックに使う。
+    // _clientToScreenX/Y は OnPaint / UpdateBoundsCache で更新した client 原点のスクリーン座標。
+    private volatile yEdit.Core.Layout.Frame? _lastFrame;
+    private int _clientToScreenX, _clientToScreenY;
+
     public EditorControl()
     {
         SetStyle(
@@ -2305,6 +2312,14 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
             // 呼ばない=空描画のコストゼロ。節ハイライト(反転)は Task 10・
             // IME 内キャレット位置反映は Task 11 で扱う。
             if (IsComposing) DrawImeOverlay(g);
+
+            // P5 Task 10: 描画完了時点の Frame を UIA 座標 API 用に公開(不変参照)。
+            _lastFrame = frame;
+            // client→screen オフセットも念のため refresh(スクロールでウィンドウ位置が
+            // 動かなくても、DPI 変化・親コントロール移動などで値が変わり得る)。
+            var origin = PointToScreen(new System.Drawing.Point(0, 0));
+            _clientToScreenX = origin.X;
+            _clientToScreenY = origin.Y;
         }
         // 本コントロールの描画を確定させた後に Paint イベント購読者に描かせる
         // (App 層の overlay 拡張余地を残す)。base.OnPaint は Paint イベントを発火する。
@@ -2579,6 +2594,10 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         if (!IsHandleCreated) return;
         var r = RectangleToScreen(ClientRectangle);
         lock (_boundsSync) _bounds = new System.Windows.Rect(r.Left, r.Top, r.Width, r.Height);
+        // P5 Task 10: client→screen オフセットも同時に更新
+        var origin = PointToScreen(new System.Drawing.Point(0, 0));
+        _clientToScreenX = origin.X;
+        _clientToScreenY = origin.Y;
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -2750,10 +2769,66 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         get { lock (_boundsSync) return _bounds; }
     }
 
-    // 座標 API はスタブ(Task 10/11 で本実装)
-    double[] yEdit.Accessibility.IUiaTextHost.GetBoundingRectangles(int start, int end) => Array.Empty<double>();
+    // P5 Task 10: 座標 API 本実装
+    // [start, end) を含む各行のスクリーン矩形を UIA 形式 (x,y,w,h, ...) で返す。
+    // ComputeCaretPoint は UI スレッド専用の状態(_topLine 等)を参照するため、
+    // RPC スレッドから呼ばれた場合は Invoke で UI スレッドへマーシャリングする。
+    // ハンドル未生成 / 非可視範囲は空配列。
+    double[] yEdit.Accessibility.IUiaTextHost.GetBoundingRectangles(int start, int end)
+    {
+        if (InvokeRequired)
+        {
+            if (!IsHandleCreated) return Array.Empty<double>();
+            return (double[])Invoke(new Func<double[]>(() => ComputeBoundingRectangles(start, end)));
+        }
+        return ComputeBoundingRectangles(start, end);
+    }
 
+    private double[] ComputeBoundingRectangles(int start, int end)
+    {
+        var snap = _bufferSnapshot;
+        if (snap is null) return Array.Empty<double>();
+        int s = Math.Clamp(start, 0, snap.CharLength);
+        int en = Math.Clamp(end, 0, snap.CharLength);
+        if (s >= en) return Array.Empty<double>();
+
+        int csx = _clientToScreenX, csy = _clientToScreenY;
+        int lineHeight = _metrics.LineHeightPx;
+        var rects = new System.Collections.Generic.List<double>(16);
+
+        int pos = s;
+        int safety = 0;
+        while (pos < en && safety++ < 100_000)
+        {
+            int line = snap.GetLineIndexOfChar(pos);
+            int lineEndNoBreak = snap.GetLineEnd(line, includeBreak: false);
+            int rangeEnd = Math.Min(en, lineEndNoBreak);
+
+            var (x1, y1, visible) = ComputeCaretPoint(pos);
+            var (x2, _, _) = ComputeCaretPoint(rangeEnd);
+            if (visible)
+            {
+                double w = Math.Max(1, x2 - x1);
+                rects.Add(csx + x1);
+                rects.Add(csy + y1);
+                rects.Add(w);
+                rects.Add(lineHeight);
+            }
+
+            int nextLineStart = (line + 1 < snap.LineCount)
+                ? snap.GetLineStart(line + 1)
+                : snap.CharLength;
+            if (nextLineStart <= pos) break;
+            pos = nextLineStart;
+        }
+        return rects.ToArray();
+    }
+
+    // P5 Task 11: 座標 API 本実装(次 Task で置き換え)
     int yEdit.Accessibility.IUiaTextHost.OffsetFromScreenPoint(double x, double y) => 0;
+
+    // P5 Task 10/11: テスト用フック(Editor.Tests から _lastFrame を観察できるように)
+    internal static yEdit.Core.Layout.Frame? TestHook_GetLastFrame(EditorControl c) => c._lastFrame;
 
     nint yEdit.Accessibility.IUiaTextHost.Handle => Handle;
 

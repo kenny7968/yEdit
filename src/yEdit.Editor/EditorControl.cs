@@ -21,6 +21,9 @@ public sealed class EditorControl : Control
     // Task 13 で ApplyAppearance によりフォント差し替え/GdiCharMetrics 再構築/ViewportStyle 差し替えを
     // 行うため readonly を外した(Font 差し替え時は明示的に古い Font.Dispose を呼ぶ責務)。
     private Font _font;
+    // Task 9 レビュー I-1: IME overlay 用の下線フォントは打鍵毎の OnPaint で使う=
+    // 毎回 new すると GDI HFONT 割当が積む。_font と寿命同期でキャッシュ(ApplyAppearance で再構築)。
+    private Font _underlineFontCache;
     private ICharMetrics _metrics;
     private ViewportStyle _style;
     private readonly VScrollBar _vscroll;
@@ -107,6 +110,7 @@ public sealed class EditorControl : Control
         BackColor = Color.White;
         ForeColor = Color.Black;
         _font = new Font("MS ゴシック", 12f);
+        _underlineFontCache = new Font(_font, _font.Style | FontStyle.Underline);
         _metrics = new GdiCharMetrics(_font);
         _style = DefaultStyle();
         Cursor = Cursors.IBeam;
@@ -2125,9 +2129,8 @@ public sealed class EditorControl : Control
         var (x, y, visible) = ComputeCaretPoint(_ime.Start);
         if (!visible) return;   // 可視範囲外は no-op
 
-        using var underlineFont = new Font(_font, _font.Style | FontStyle.Underline);
         TextRenderer.DrawText(
-            g, _ime.Text, underlineFont,
+            g, _ime.Text, _underlineFontCache,
             new Point(x - _scrollX, y), ForeColor,
             TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
     }
@@ -2225,7 +2228,9 @@ public sealed class EditorControl : Control
             throw;
         }
         _font.Dispose();
+        _underlineFontCache.Dispose();
         _font = newFont;
+        _underlineFontCache = new Font(_font, _font.Style | FontStyle.Underline);
         _metrics = newMetrics;
 
         // テーマから ViewportStyle 算出 + Graphics.Clear 用 BackColor 同期

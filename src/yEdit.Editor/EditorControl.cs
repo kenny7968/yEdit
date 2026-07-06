@@ -2824,8 +2824,34 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         return rects.ToArray();
     }
 
-    // P5 Task 11: 座標 API 本実装(次 Task で置き換え)
-    int yEdit.Accessibility.IUiaTextHost.OffsetFromScreenPoint(double x, double y) => 0;
+    // P5 Task 11: OffsetFromScreenPoint 本実装
+    // スクリーン座標 (x, y) 直下の文字オフセットを返す(HitTest 相当)。範囲外は clamp。
+    // 既存の OffsetFromClientPoint(UI スレッド専用)を再利用し、
+    // RPC スレッドから呼ばれた場合は Invoke で UI スレッドへマーシャリングする。
+    int yEdit.Accessibility.IUiaTextHost.OffsetFromScreenPoint(double x, double y)
+    {
+        if (InvokeRequired)
+        {
+            if (!IsHandleCreated) return 0;
+            return (int)Invoke(new Func<int>(() => ComputeOffsetFromScreenPoint(x, y)));
+        }
+        return ComputeOffsetFromScreenPoint(x, y);
+    }
+
+    private int ComputeOffsetFromScreenPoint(double x, double y)
+    {
+        var snap = _bufferSnapshot;
+        if (snap is null) return 0;
+        // スクリーン→クライアント変換(client 原点は _clientToScreenX/Y)。範囲外は
+        // OffsetFromClientPoint 側で「Y<0=先頭視覚行の X」「exhausted=文書末尾」に丸める。
+        int clientX = (int)(x - _clientToScreenX);
+        int clientY = (int)(y - _clientToScreenY);
+        // 負座標はゼロ扱い(文書先頭 0 に落ちる=clamp)。上限は OffsetFromClientPoint が自然に処理。
+        if (clientX < 0) clientX = 0;
+        if (clientY < 0) clientY = 0;
+        int pos = OffsetFromClientPoint(clientX, clientY);
+        return Math.Clamp(pos, 0, snap.CharLength);
+    }
 
     // P5 Task 10/11: テスト用フック(Editor.Tests から _lastFrame を観察できるように)
     internal static yEdit.Core.Layout.Frame? TestHook_GetLastFrame(EditorControl c) => c._lastFrame;

@@ -216,12 +216,19 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     /// <summary>
     /// P6 Task 1: 既存 TextBuffer を新しいものに差し替える(ファイル開き直し・バックアップ復元用)。
     /// SetSource が 1 度限りなのに対し、これは任意回呼べる=Document ごとに EditorControl を
-    /// 作り直すのを避ける。
-    /// キャレット/選択/スクロール/スナップショットキャッシュを全てリセットする。
+    /// 作り直すのを避ける。キャレット/選択/スクロール/セル強調/IME 未確定/マウス・ホイール状態/
+    /// スナップショットキャッシュをすべてリセットし、UIA TextChangedEvent(および有効時は
+    /// TextSelectionChangedEvent)を発火する。
     /// </summary>
+    /// <remarks>
+    /// <c>SetSource</c> の 2 回目以降相当=バッファ参照の丸ごと差替え(本文の一部置換ではない=
+    /// 部分置換は <see cref="ReplaceCharRange"/> を使う)。
+    /// </remarks>
     public void ReplaceSource(TextBuffer buffer)
     {
         ArgumentNullException.ThrowIfNull(buffer);
+        // §4-6: 他の状態変異 API と同じく IME 未確定はまず確定キャンセルする
+        if (IsComposing) CancelCompositionAndDefault();
         _buffer = buffer;
         _caret = 0;
         _anchor = 0;
@@ -229,6 +236,9 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         _scrollX = 0;
         _lastCaretLine = 0;
         _desiredXpx = -1;
+        _cellHighlight = null;      // 旧バッファのオフセット由来のセル強調は無効化
+        _mouseDragging = false;     // ドラッグ選択の途中状態を破棄
+        _wheelAccum = 0;            // ホイール蓄積(1 tick = 120)をリセット
         UpdateVerticalScrollbar();
         UpdateHorizontalScrollbar();
         if (_hasFocus)
@@ -237,6 +247,11 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         }
         Invalidate();
         CacheSnapshot();  // P5 RPC スレッド用スナップショット更新
+        // P5 Task 8 / P6 Task 1: バッファ全差替えは AfterEdit と同じ通知契約
+        // (SR/UIA クライアントが旧本文をキャッシュしたままにならないよう発火)
+        RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextChangedEvent);
+        if (RaiseUiaSelectionEvents)
+            RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
     }
 
     /// <summary>行の高さ(px)。<see cref="ICharMetrics.LineHeightPx"/> の透過。</summary>

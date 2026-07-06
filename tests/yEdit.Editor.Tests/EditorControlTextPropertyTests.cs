@@ -57,4 +57,48 @@ public class EditorControlTextPropertyTests
             Assert.Equal("second", ctrl.Text);
         });
     }
+
+    [Fact]
+    public void Text_Get_BeforeSetSource_ReturnsEmpty()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            Assert.Equal(string.Empty, ctrl.Text);
+        });
+    }
+
+    [Fact]
+    public void Text_Set_BeforeSetSource_UsesSetSourceBranch()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.Text = "initial content";
+            Assert.Equal("initial content", ctrl.Text);
+        });
+    }
+
+    [Fact]
+    public void Text_SetNull_TreatedAsEmpty()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("original"));
+            ctrl.Text = null!;
+            Assert.Equal(string.Empty, ctrl.Text);
+        });
+    }
+
+    [Fact]
+    public void ReplaceSource_Null_Throws()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("hello"));
+            Assert.Throws<ArgumentNullException>(() => ctrl.ReplaceSource(null!));
+        });
+    }
 }

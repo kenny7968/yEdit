@@ -147,19 +147,6 @@ public class GrepServiceTests
     }
 
     [Fact]
-    public void Utf16_file_is_searched_not_treated_as_binary()
-    {
-        using var t = new TempDir();
-        // UTF-16LE（BOM 付き）は NUL を含むが、ワイド文字判定でバイナリ扱いしない。
-        var enc = new UnicodeEncoding(bigEndian: false, byteOrderMark: true);
-        t.Write("u16.txt", enc.GetPreamble().Concat(enc.GetBytes("これは TARGET です\n")).ToArray());
-
-        var outcome = GrepService.Search(Req(t.Root, "TARGET"));
-        Assert.Single(outcome.Hits);
-        Assert.Empty(outcome.Errors);
-    }
-
-    [Fact]
     public void MatchCase_and_whole_word_are_honored()
     {
         using var t = new TempDir();

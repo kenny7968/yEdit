@@ -16,10 +16,6 @@ public static class EncodingDetector
         // ① BOM 確定
         if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
             return new DetectedEncoding(65001, true);
-        if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
-            return new DetectedEncoding(1200, true);
-        if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
-            return new DetectedEncoding(1201, true);
 
         // 空は UTF-8 既定
         if (bytes.Length == 0) return new DetectedEncoding(65001, false);
@@ -48,7 +44,7 @@ public static class EncodingDetector
     }
 
     /// <summary>
-    /// UTF.Unknown の名前→コードページ。採用は utf-8 / shift_jis / euc-jp / utf-16(le/be) のみ。
+    /// UTF.Unknown の名前→コードページ。採用は utf-8 / shift_jis / euc-jp のみ。
     /// 低信頼（&lt;0.5）と未対応の名前は不採用（null を返し、呼び出し側で Shift_JIS フォールバック）。
     /// </summary>
     private static int? MapCharset(string? name, float confidence)
@@ -59,8 +55,6 @@ public static class EncodingDetector
             "utf-8" => 65001,
             "shift-jis" or "shift_jis" => 932,
             "euc-jp" => 51932,
-            "utf-16le" or "utf-16" => 1200,
-            "utf-16be" => 1201,
             _ => null,
         };
     }

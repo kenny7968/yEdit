@@ -910,11 +910,13 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         if (RaiseUiaSelectionEvents)
             RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
         // P6 Task 4: Modified 遷移(false→true)で SavePointLeft、常時 UpdateUI を発火。
-        // SavePointLeft は「保存後の最初の編集」で 1 回だけ発火する契約=遷移検出のみで、
-        // 以降 SavePointReached(=SetSavePoint)が呼ばれるまで再発火しない。
+        // state-first-then-fire で SetSavePoint / ReplaceSource と揃え、handler 内での
+        // 再入(SavePointLeft ハンドラが Undo 等で AfterEdit を再呼び出しするケース)でも
+        // SavePointLeft を二重発火させない(§0 設計)。
         bool nowModified = Modified;
-        if (!_wasModified && nowModified) SavePointLeft?.Invoke(this, EventArgs.Empty);
+        bool shouldFireLeft = !_wasModified && nowModified;
         _wasModified = nowModified;
+        if (shouldFireLeft) SavePointLeft?.Invoke(this, EventArgs.Empty);
         UpdateUI?.Invoke(this, EventArgs.Empty);
     }
 

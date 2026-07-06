@@ -129,7 +129,22 @@ public class EditorControlCompatApiTests
             int fired = 0;
             ctrl.UpdateUI += (_, _) => fired++;
             ctrl.SetCaretCharOffset(3);
-            Assert.True(fired >= 1);
+            Assert.Equal(1, fired);
+        });
+    }
+
+    [Fact]
+    public void SavePointLeft_FiresOnce_PerSaveEditCycle()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("hello"));
+            int fired = 0;
+            ctrl.SavePointLeft += (_, _) => fired++;
+            ctrl.ReplaceCharRange(0, 5, "xxx");   // Modified false→true → fire
+            ctrl.ReplaceCharRange(0, 3, "yyy");   // stays Modified=true → no fire
+            Assert.Equal(1, fired);
         });
     }
 }

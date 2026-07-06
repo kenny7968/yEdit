@@ -887,7 +887,9 @@ public sealed class EditorControl : Control
             case NativeMethods.WM_IME_SETCONTEXT:
                 OnImeSetContext(ref m);
                 return;
-            // 以下は Task 5〜8 で埋める
+            // 以下は Task 5〜8 で埋める。**各 case は必ず return; で終えること**
+            // (末尾の base.WndProc(ref m) は unhandled 用=return; を忘れると二重処理となり、
+            //  base の既定 IME 挙動が KeyPress を re-post 等して 1 Splice=1 Undo が崩れる)。
             // case NativeMethods.WM_IME_STARTCOMPOSITION: ...
             // case NativeMethods.WM_IME_COMPOSITION: ...
             // case NativeMethods.WM_IME_ENDCOMPOSITION: ...

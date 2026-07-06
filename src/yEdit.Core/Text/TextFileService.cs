@@ -1,4 +1,5 @@
 using System.Text;
+using yEdit.Core.Buffers;
 
 namespace yEdit.Core.Text;
 
@@ -12,6 +13,55 @@ public static partial class TextFileService
     {
         byte[] bytes = File.ReadAllBytes(path);
         return DecodeBytes(bytes, forcedCodePage);
+    }
+
+    /// <summary>
+    /// P6 Task 7: Stream I/O でファイルを TextBuffer に読み込む(大容量 OOM 回避)。
+    /// UTF-8 は変換ゼロで <see cref="TextBufferBuilder"/> にチャンク流し(4MB 単位・境界は carry で吸収)。
+    /// SJIS/EUC-JP は <see cref="StreamReader"/> で UTF-16 化してから <see cref="TextBuffer.FromString"/>。
+    /// forcedCodePage 版の <see cref="Load"/> と違い、encoding は呼び出し側で確定済み(再オープン/明示指定用)。
+    /// </summary>
+    /// <param name="path">ファイルパス。</param>
+    /// <param name="encoding">読み込みエンコーディング(UTF-8/SJIS/EUC-JP のいずれか想定)。</param>
+    /// <param name="hasBom">UTF-8 BOM を持つファイルなら true。UTF-8 経路のみ意味を持つ(先頭 3 バイトをスキップ)。</param>
+    /// <returns>チャンク木構築済みの TextBuffer。</returns>
+    public static TextBuffer LoadAsBuffer(string path, Encoding encoding, bool hasBom = false)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(encoding);
+        EncodingCatalog.EnsureRegistered();
+
+        using var stream = File.OpenRead(path);
+        if (encoding.CodePage == 65001)
+        {
+            // UTF-8: 変換ゼロで TextBufferBuilder に流す
+            var builder = new TextBufferBuilder();
+            byte[] buf = new byte[64 * 1024]; // 64KB チャンク
+            if (hasBom)
+            {
+                // BOM(3 バイト)を読み飛ばす
+                int skipped = 0;
+                while (skipped < 3)
+                {
+                    int r = stream.Read(buf, 0, 3 - skipped);
+                    if (r <= 0) break;
+                    skipped += r;
+                }
+            }
+            int n;
+            while ((n = stream.Read(buf, 0, buf.Length)) > 0)
+                builder.Add(new ReadOnlySpan<byte>(buf, 0, n));
+            return builder.Build();
+        }
+        else
+        {
+            // SJIS/EUC-JP は StreamReader で UTF-16 化(日本語ファイルは高々数百 MB 想定=許容)。
+            // detectEncodingFromByteOrderMarks: false = 先頭バイトを BOM 検出に流用せず、
+            // 指定エンコーディングで確実にデコードする(SJIS/EUC-JP に BOM は無いが保険)。
+            using var reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: false);
+            string content = reader.ReadToEnd();
+            return TextBuffer.FromString(content);
+        }
     }
 
     /// <summary>
@@ -113,5 +163,25 @@ public static partial class TextFileService
             //     in-place は上記の非切詰め特性により安全）。
             File.WriteAllBytes(path, payload);
         }
+    }
+
+    /// <summary>
+    /// P6 Task 7: <see cref="TextBuffer"/> をファイルに保存する(Stream I/O 経路のオーバーロード)。
+    /// 現行の string 版と同一の原子書込み(<see cref="IO.AtomicFile"/>)/共有違反フォールバック契約を維持。
+    /// EOL 変換は事前に <c>yEdit.Editor.EditorControl.ConvertEols</c> 済み前提=ここは既存本文をそのまま保存。
+    /// </summary>
+    /// <remarks>
+    /// 内部で string 経由(TextBuffer→string→bytes)。真の Stream write ではないが、
+    /// TextBuffer は 4MB チャンク列なので Encoding.GetBytes は 1 バッファに集約される
+    /// (App 層で ConvertEols → Save の順で呼ばれる契約=保存直前に本文全量が確定)。
+    /// 既存 string 版へ委譲することで BOM/AtomicFile/共有違反フォールバックの契約を共有する。
+    /// </remarks>
+    public static void Save(string path, TextBuffer buffer, Encoding encoding, bool hasBom)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(buffer);
+        ArgumentNullException.ThrowIfNull(encoding);
+        string text = buffer.Current.GetText(0, buffer.Current.CharLength);
+        Save(path, text, encoding, hasBom);
     }
 }

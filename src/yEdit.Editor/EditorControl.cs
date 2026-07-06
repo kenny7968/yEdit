@@ -969,6 +969,23 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     /// </summary>
     protected override void WndProc(ref Message m)
     {
+        // P5 Task 6: UIA プロバイダ配線 ---- 先頭で処理
+        if (m.Msg == NativeMethods.WM_GETOBJECT)
+        {
+            long objid = m.LParam.ToInt64();
+            if (objid == NativeMethods.UiaRootObjectId)
+            {
+                _provider ??= new yEdit.Accessibility.TextControlProviderV2(this);
+                m.Result = System.Windows.Automation.Provider.AutomationInteropProvider
+                    .ReturnRawElementProvider(Handle, m.WParam, m.LParam, _provider);
+                _testHook_LastGetObjectServed = true;
+                return;
+            }
+            _testHook_LastGetObjectServed = false;
+            // OBJID_CLIENT (=-4) / OBJID_WINDOW (=0) 等は base=DefWindowProc に流す
+            // (=自前で MSAA プロキシを作らない=ネイティブ表面原則 §2-7)
+        }
+
         switch (m.Msg)
         {
             case NativeMethods.WM_IME_SETCONTEXT:
@@ -989,6 +1006,15 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         }
         base.WndProc(ref m);
     }
+
+    // P5 Task 6: UIA プロバイダ(v2)は WM_GETOBJECT(UiaRootObjectId)で lazy 生成する。
+    // インスタンスの寿命は EditorControl と同じ(Dispose で解放不要=マネージ参照のみ)。
+    private yEdit.Accessibility.TextControlProviderV2? _provider;
+
+    // Task 6 テスト用フック: WndProc 経路と self-served 判定を Editor.Tests から観察する。
+    private bool _testHook_LastGetObjectServed;
+    internal static void TestHook_WndProc(EditorControl c, ref Message m) => c.WndProc(ref m);
+    internal static bool TestHook_LastGetObjectServed(EditorControl c) => c._testHook_LastGetObjectServed;
 
     /// <summary>
     /// WM_IME_ENDCOMPOSITION: 未確定期間の終端。<c>_ime</c> を Empty へリセットし、overlay を

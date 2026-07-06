@@ -8,4 +8,11 @@
     <UseWPF>true</UseWPF>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- P5 Task 3: v2 系(TextRangeProviderV2 / TextProviderImplV2 / 仮の TextControlProviderV2)は internal のため、
+         Core.Tests / Editor.Tests から契約テストを書けるように InternalsVisibleTo を付ける -->
+    <InternalsVisibleTo Include="yEdit.Core.Tests" />
+    <InternalsVisibleTo Include="yEdit.Editor.Tests" />
+  </ItemGroup>
+
 </Project>

@@ -175,6 +175,20 @@ public class EditorControlCompatApiTests
     }
 
     [Fact]
+    public void CurrentBuffer_BeforeSetSource_ReturnsSameReference_OnRepeatedCalls()
+    {
+        // Task 10 レビュー M-2: null 経路(SetSource 前)は静的キャッシュ共有=連続呼びで参照同一。
+        // 毎回 new すると Assert.Same が意図せず失敗する反直観挙動になるのを防ぐ。
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            var a = ctrl.CurrentBuffer;
+            var b = ctrl.CurrentBuffer;
+            Assert.Same(a, b);
+        });
+    }
+
+    [Fact]
     public void CurrentBuffer_ReflectsReplaceSource()
     {
         Sta.Run(() =>

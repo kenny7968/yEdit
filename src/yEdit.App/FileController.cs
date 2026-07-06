@@ -272,7 +272,9 @@ public sealed class FileController
         // P6 Task 10: BackupRecord.Content は string 保存(Task 12 で Stream 化判断)なので、
         // ここでは TextBuffer.FromString でラップして SetOrReplaceSource に流す(パターン統一)。
         // 復元は fresh Document への初回差し込みなので実質 SetSource 経路になる。
-        doc.Editor.SetOrReplaceSource(TextBuffer.FromString(rec.Content));
+        // レビュー M-5: 旧 Text setter は内部で `value ?? string.Empty` していた=null 耐性の
+        // 対称性を戻す(BackupRecord の JSON 破損時に「タブ生成失敗」を避け「空タブ復元」で継続)。
+        doc.Editor.SetOrReplaceSource(TextBuffer.FromString(rec.Content ?? string.Empty));
         ApplyEol(doc);
         doc.Editor.EmptyUndoBuffer();
         // SetSavePoint しない → Modified=true のまま（ユーザーが保存できる）。

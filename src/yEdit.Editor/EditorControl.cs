@@ -123,6 +123,12 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     // v1 ScintillaHost._hwnd と同形。
     private nint _hwnd;
 
+    // P6 Task 10 レビュー M-2: CurrentBuffer の null 経路で毎回 new すると
+    // Assert.Same(ctrl.CurrentBuffer, ctrl.CurrentBuffer) が SetSource 前で失敗する反直観挙動になる。
+    // 空 TextBuffer は immutable な使い方に留める前提(=呼び出し側は Save 読み出し等の read-only 用途)
+    // のため、プロセス寿命の静的キャッシュで参照同一性を保証する。
+    private static readonly TextBuffer s_emptyBuffer = TextBuffer.FromString(string.Empty);
+
     // P6 Task 4: 直前の Modified 状態(SavePointLeft 検出用)。AfterEdit で Modified=false→true
     // 遷移を検出して SavePointLeft を発火する。SetSource/ReplaceSource/SetSavePoint で
     // 初期同期する(初回編集後の spurious fire 回避=SetSource 直後のバッファが Modified=true
@@ -205,7 +211,8 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     /// <summary>
     /// P6 Task 1: 本文全体を string で読み書きする互換 API。
     /// getter は現在の TextBuffer スナップショットから全文を返す(内部 GetText と同じ経路)。
-    /// setter は新規 TextBuffer を組み立てて <see cref="ReplaceSource"/> に流す。
+    /// setter は新規 TextBuffer を組み立てて <see cref="SetOrReplaceSource"/> に流す
+    /// (Task 10 レビュー M-1: SetSource/ReplaceSource 分岐は 1 箇所に集約)。
     /// SetSource 前 / _buffer=null で getter は空文字列を返し、setter は初回 SetSource として扱う。
     /// </summary>
     /// <remarks>
@@ -216,12 +223,7 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     public new string Text
     {
         get => _buffer?.Current.GetText(0, _buffer.Current.CharLength) ?? string.Empty;
-        set
-        {
-            var buf = TextBuffer.FromString(value ?? string.Empty);
-            if (_buffer is null) SetSource(buf);
-            else ReplaceSource(buf);
-        }
+        set => SetOrReplaceSource(TextBuffer.FromString(value ?? string.Empty));
     }
 
     /// <summary>
@@ -301,15 +303,17 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     /// P6 Task 10: 現在の <see cref="TextBuffer"/> 参照を返す(App 層 Stream I/O 経路の Save 対称化用)。
     /// SetSource/ReplaceSource で差し込まれたものをそのまま返す=<see cref="TextFileService.Save(string, TextBuffer, System.Text.Encoding, bool)"/>
     /// と組み合わせて 1GB 級 UTF-8 の string 全文化を回避する契約。null 経路(SetSource 前)では
-    /// 空文字列相当の TextBuffer を新規生成して返す(常に non-null 保証=呼び出し側で null チェック不要)。
+    /// プロセス寿命の静的空 TextBuffer を返す(常に non-null 保証=呼び出し側で null チェック不要・
+    /// 同経路の連続呼び出しで参照同一性も保つ=Task 10 レビュー M-2)。
     /// </summary>
     /// <remarks>
     /// 返す参照は「編集用」ではなく「保存/照会用のスナップショット提供元」の位置付け。
     /// バッファは可変(TextBuffer.Insert/Delete/Replace)なので、返した参照へ外部から書き込むと
     /// EditorControl の内部状態(キャレット/選択/描画)と齟齬が出る=読み取り用途に限る。
+    /// null 経路で返す静的空バッファも同様=編集してはならない(プロセス全体で共有)。
     /// </remarks>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public TextBuffer CurrentBuffer => _buffer ?? TextBuffer.FromString(string.Empty);
+    public TextBuffer CurrentBuffer => _buffer ?? s_emptyBuffer;
 
     /// <summary>P6 Task 2: 長さベースの選択設定エイリアス(App 層互換)。</summary>
     public void SelectCharRange(int start, int length)

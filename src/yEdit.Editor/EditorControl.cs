@@ -254,6 +254,20 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
             RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
     }
 
+    /// <summary>
+    /// P6 Task 2: 現在の TextBuffer スナップショットから全文を返す(App 層互換)。
+    /// 大容量ファイルでは 64MB 閾値二層化(<see cref="SearchController"/>)で回避されるが、
+    /// 呼び出し側でメモリ配慮が必要な場面もある(App 層側で判定=§設計 §2-8)。
+    /// </summary>
+    public string SnapshotText => _buffer?.Current.GetText(0, _buffer.Current.CharLength) ?? string.Empty;
+
+    /// <summary>P6 Task 2: 長さベースの選択設定エイリアス(App 層互換)。</summary>
+    public void SelectCharRange(int start, int length)
+        => SetSelectionCharRange(start, start + Math.Max(0, length));
+
+    /// <summary>P6 Task 2: <see cref="SetCaretCharOffset"/> のエイリアス(App 層互換)。</summary>
+    public void MoveCaretCharOffset(int offset) => SetCaretCharOffset(offset);
+
     /// <summary>行の高さ(px)。<see cref="ICharMetrics.LineHeightPx"/> の透過。</summary>
     public int LineHeightPx => _metrics.LineHeightPx;
 

@@ -66,7 +66,7 @@ public class EditorControlImeTests
             };
             c.__TestProcessMessage(ref m);
 
-            Assert.Equal("aef", c.__TestSnapshotText());   // 選択削除
+            Assert.Equal("aef", c.GetText());              // 選択削除
             Assert.Equal(1, c.CaretCharOffset);            // キャレット = 選択先頭
             Assert.Equal(1, c.__TestImeStart());
             Assert.False(c.__TestIsComposing());           // 未確定文字列はまだ空
@@ -87,7 +87,7 @@ public class EditorControlImeTests
             var m = new Message { HWnd = c.Handle, Msg = NativeMethods.WM_IME_STARTCOMPOSITION };
             c.__TestProcessMessage(ref m);
 
-            Assert.Equal("abcdef", c.__TestSnapshotText());   // 本文不変
+            Assert.Equal("abcdef", c.GetText());              // 本文不変
             Assert.Equal(3, c.CaretCharOffset);
             Assert.Equal(3, c.__TestImeStart());
             Assert.False(c.__TestIsComposing());

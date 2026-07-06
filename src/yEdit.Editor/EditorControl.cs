@@ -965,11 +965,11 @@ public sealed class EditorControl : Control
 
     // P4 Task 5〜8: IME 未確定状態を検査するためのテスト用アクセサ(internal・
     // EditorControlImeTests から呼ぶ)。__Test* 規約で命名。
+    // 本文の取得は既存の internal GetText()(line ~854)をテスト側で呼ぶ規約に統一する
+    // (P3 まで 55 箇所超で使用中の規約=__TestSnapshotText を新設せず既存に合流)。
     internal int __TestImeStart() => _ime.Start;
     internal bool __TestIsComposing() => IsComposing;
     internal string __TestImeText() => _ime.Text;
-    internal string __TestSnapshotText()
-        => _buffer is null ? "" : _buffer.Current.GetText(0, _buffer.Current.CharLength);
 
     /// <summary>
     /// 与えられた UTF-16 char offset のクライアント座標(px)と可視性を算出する純ロジック。

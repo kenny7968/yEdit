@@ -159,4 +159,54 @@ public class EditorControlImeTests
             Assert.Equal(1, c.__TestImeStart());
         }
     });
+
+    // Task 7: GCS_RESULTSTR 確定通知の適用本体を検証する。
+    // - _ime を先にクリアしてから InsertConfirmedText(Task 3)を呼ぶ=1 Splice=1 Undo
+    // - IsComposing が false に戻る(overlay は本文に確定=もう浮いていない)
+    // - キャレットは Start + 確定文字数 に位置する
+    // - 1 度の Undo で確定前の本文/キャレット状態(=元の "abc"・キャレット位置 1)に戻る
+    //   (InsertConfirmedText 内の _buffer.Insert が単一 Splice で履歴に積まれることを担保する)
+    [Fact]
+    public void ApplyResult_InsertsAsSingleUndo() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            c.SetCaretCharOffset(1);
+
+            var m = new Message { HWnd = c.Handle, Msg = NativeMethods.WM_IME_STARTCOMPOSITION };
+            c.__TestProcessMessage(ref m);
+            c.__TestApplyComposition("あい", cursorPos: 2, attrs: [0, 0], clauses: [0, 2]);
+            c.__TestApplyResult("漢字");
+
+            Assert.False(c.__TestIsComposing());
+            Assert.Equal("a漢字bc", c.GetText());
+            Assert.Equal(1 + 2, c.CaretCharOffset);   // Start + 確定文字数
+            Assert.True(c.CanUndo);
+            c.Undo();
+            Assert.Equal("abc", c.GetText());   // 1 Undo で元に戻る
+        }
+    });
+
+    // Task 7: ESC 取消時など GCS_RESULTSTR が空文字列で来た場合、本文/キャレットは
+    // 一切変わらず overlay だけがクリアされる(=IsComposing=false)。
+    // InsertConfirmedText は「text.Length > 0」ガードで空文字を捨てるため履歴に積まれない
+    // (=Undo エントリが増えず、直前の本文編集を巻き戻したい呼び出し側が困らない)。
+    [Fact]
+    public void ApplyResult_EmptyString_NoInsert() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            c.SetCaretCharOffset(1);
+            var m = new Message { HWnd = c.Handle, Msg = NativeMethods.WM_IME_STARTCOMPOSITION };
+            c.__TestProcessMessage(ref m);
+            c.__TestApplyComposition("あ", cursorPos: 1, attrs: [0], clauses: [0, 1]);
+            c.__TestApplyResult("");   // ESC 取消相当
+
+            Assert.False(c.__TestIsComposing());
+            Assert.Equal("abc", c.GetText());
+            Assert.Equal(1, c.CaretCharOffset);
+        }
+    });
 }

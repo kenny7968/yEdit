@@ -889,10 +889,9 @@ public sealed class EditorControl : Control
 
     /// <summary>
     /// P4 IME 経路。<see cref="OnKeyDown"/>/<see cref="OnKeyPress"/> は書き換えず、WndProc で
-    /// WM_IME_* を横取りする(§0-4)。P4 Task 4/5/6 で WM_IME_SETCONTEXT /
-    /// WM_IME_STARTCOMPOSITION / WM_IME_COMPOSITION(GCS_COMPSTR)を処理済。Task 7 で
-    /// WM_IME_COMPOSITION 内の GCS_RESULTSTR 分岐(既存 case 内で完結)を追加、Task 8 で
-    /// WM_IME_ENDCOMPOSITION の case をここへ追加する。
+    /// WM_IME_* を横取りする(§0-4)。P4 Task 4/5/6/7 で WM_IME_SETCONTEXT /
+    /// WM_IME_STARTCOMPOSITION / WM_IME_COMPOSITION(GCS_COMPSTR + GCS_RESULTSTR)を処理済。
+    /// Task 8 で WM_IME_ENDCOMPOSITION の case をここへ追加する。
     /// </summary>
     protected override void WndProc(ref Message m)
     {
@@ -964,16 +963,21 @@ public sealed class EditorControl : Control
     }
 
     /// <summary>
-    /// WM_IME_COMPOSITION: lParam の GCS_ フラグ束を見て未確定文字列を反映する(P4 Task 6)。
-    /// GCS_COMPSTR/GCS_COMPATTR/GCS_COMPCLAUSE/GCS_CURSORPOS の 4 種を Imm* 呼び出しで取得し、
-    /// <see cref="ApplyComposition"/> 経由で <c>_ime</c> に載せる。節ハイライトの描画本体は Task 10・
-    /// キャレット位置反映は Task 11 で扱う=本タスクは <c>_ime</c> フィールドへの取り込みまで。
-    /// GCS_RESULTSTR(確定文字列)は Task 7 で扱う=本 case からは触らない。
+    /// WM_IME_COMPOSITION: lParam の GCS_ フラグ束を見て未確定/確定文字列を反映する
+    /// (P4 Task 6/7)。GCS_COMPSTR/GCS_COMPATTR/GCS_COMPCLAUSE/GCS_CURSORPOS の 4 種は
+    /// 未確定期間の更新=<see cref="ApplyComposition"/> 経由で <c>_ime</c> に載せる。
+    /// GCS_RESULTSTR(確定文字列)は <see cref="ApplyResult"/> 経由で
+    /// <see cref="InsertConfirmedText"/> に流し、単発 <see cref="TextBuffer.Insert"/> によって
+    /// 1 Splice=1 Undo になる。節ハイライトの描画本体は Task 10・キャレット位置反映は
+    /// Task 11 で扱う=本タスクは <c>_ime</c> フィールドへの取り込み + 確定挿入まで。
     /// </summary>
     /// <remarks>
     /// - <see cref="ReadOnly"/> / SetSource 前は no-op(<see cref="OnImeStartComposition"/> と同じ防御)。
     /// - <see cref="NativeMethods.ImmGetContext"/> の返却は必ず try/finally で
     ///   <see cref="NativeMethods.ImmReleaseContext"/> する(§0-6=ハンドルリーク防止)。
+    /// - GCS_COMPSTR と GCS_RESULTSTR が同一 lParam に同時に立つケース(IME 実装による)は
+    ///   仕様上あり得るが、Task 7 では独立に評価する=順序は COMPSTR → RESULTSTR
+    ///   (RESULTSTR が来ていれば ApplyResult で <c>_ime</c> がクリアされて overlay は落ちる)。
     /// </remarks>
     private void OnImeComposition(long gcsFlags)
     {
@@ -996,12 +1000,45 @@ public sealed class EditorControl : Control
                     : 0;
                 ApplyComposition(compStr, cursor, attrs, clauses);
             }
-            // GCS_RESULTSTR は Task 7 で扱う
+            if ((gcsFlags & NativeMethods.GCS_RESULTSTR) != 0)
+            {
+                string resultStr = ReadImeString(hIMC, NativeMethods.GCS_RESULTSTR);
+                ApplyResult(resultStr);
+            }
         }
         finally
         {
             NativeMethods.ImmReleaseContext(Handle, hIMC);
         }
+    }
+
+    /// <summary>
+    /// 確定文字列の適用本体(Task 7)。テストは <see cref="__TestApplyResult"/> 経由でここを呼ぶ。
+    /// </summary>
+    /// <remarks>
+    /// 順序(§0-2 の 1 Splice=1 Undo 契約):
+    /// - <b>先に</b> <c>_ime = ImeCompositionState.Empty</c> で overlay を落とす
+    ///   =この直後の <see cref="InsertConfirmedText"/> が <see cref="AfterEdit"/> 内で
+    ///   Invalidate/OnPaint を誘発しても、overlay の旧 Start に基づいて確定済みの本文の上へ
+    ///   偽の未確定描画が重ならないようにする。
+    /// - 空文字列(<c>text.Length == 0</c>=ESC 取消時の GCS_RESULTSTR)は何も挿入しない
+    ///   (仕様は length ベース=<see cref="string.IsNullOrEmpty"/> と結果は同じだが契約は
+    ///   「長さ 0」で表す)。InsertConfirmedText 内にも同旨のガードがあるが、
+    ///   ここで早期返却することで「空文字なら AfterEdit も走らせない=履歴に副作用なし」
+    ///   を明示する。
+    /// - <see cref="InsertConfirmedText"/> は単一 <see cref="TextBuffer.Insert"/>(または
+    ///   <see cref="TextBuffer.Replace"/>=選択削除時のみ)で 1 Splice=1 Undo になる。
+    ///   Coalescing を分割する <see cref="TextBuffer.BreakUndoCoalescing"/> は呼ばない
+    ///   (=次以降の GCS_RESULTSTR やユーザータイピングとの結合可否は TextBuffer 側の規約に任せる)。
+    /// - 最後の <see cref="Control.Invalidate()"/> は overlay を消した再描画。
+    ///   InsertConfirmedText 経路が非空文字時は <see cref="AfterEdit"/> 内で Invalidate 済みだが、
+    ///   空文字経路でも overlay 消去分の再描画が必要なため、無条件で呼ぶ。
+    /// </remarks>
+    private void ApplyResult(string text)
+    {
+        _ime = ImeCompositionState.Empty;   // overlay を先に外して Insert 経路と競合させない
+        if (text.Length > 0) InsertConfirmedText(text);
+        Invalidate();
     }
 
     /// <summary>
@@ -1080,6 +1117,10 @@ public sealed class EditorControl : Control
     // Task 14 の smoke で扱う。
     internal void __TestApplyComposition(string text, int cursorPos, byte[] attrs, int[] clauses)
         => ApplyComposition(text, cursorPos, attrs, clauses);
+
+    // Task 7: 実 IME を介さずに ApplyResult(=GCS_RESULTSTR 確定通知)の適用だけを検証する受け口。
+    // OnImeComposition → Imm* → ApplyResult の全経路は Task 14 の smoke で扱う。
+    internal void __TestApplyResult(string text) => ApplyResult(text);
 
     /// <summary>
     /// 与えられた UTF-16 char offset のクライアント座標(px)と可視性を算出する純ロジック。

@@ -13,10 +13,10 @@ public sealed class TextControlProvider :
     IRawElementProviderFragment,
     IRawElementProviderFragmentRoot
 {
-    private readonly IUiaTextHost _host;
+    private readonly IUiaTextHostLegacy _host;
     private readonly TextProviderImpl _textProvider;
 
-    public TextControlProvider(IUiaTextHost host)
+    public TextControlProvider(IUiaTextHostLegacy host)
     {
         _host = host;
         _textProvider = new TextProviderImpl(host, this);

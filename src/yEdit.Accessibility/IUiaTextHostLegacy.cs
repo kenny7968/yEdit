@@ -9,7 +9,7 @@ namespace yEdit.Accessibility;
 /// 注意: ここのメンバは UI スレッド外（UIA の RPC スレッド）から呼ばれ得る。
 /// 実装側はスナップショット（不変文字列参照）／キャッシュ値で安全に応答すること。
 /// </summary>
-public interface IUiaTextHost
+public interface IUiaTextHostLegacy
 {
     /// <summary>本文全体のスナップショット。呼び出しごとに不変な文字列を返すこと。</summary>
     string GetText();

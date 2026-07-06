@@ -8,10 +8,10 @@ namespace yEdit.Accessibility;
 /// <summary>UIA TextPattern 本体（ITextProvider）。範囲の生成と現在選択の提供を担う。</summary>
 internal sealed class TextProviderImpl : ITextProvider
 {
-    public IUiaTextHost Host { get; }
+    public IUiaTextHostLegacy Host { get; }
     public IRawElementProviderSimple RootProvider { get; }
 
-    public TextProviderImpl(IUiaTextHost host, IRawElementProviderSimple root)
+    public TextProviderImpl(IUiaTextHostLegacy host, IRawElementProviderSimple root)
     {
         Host = host;
         RootProvider = root;

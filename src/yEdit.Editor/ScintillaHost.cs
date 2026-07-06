@@ -23,7 +23,7 @@ namespace yEdit.Editor;
 /// UTF-16 オフセット空間のまま（= 自作 WinForms 版で検証した状態と同一・無改変）流用する。
 /// Scintilla 内部の UTF-8 バイト位置との変換は本ホストが UI スレッドで担う。
 /// </summary>
-public sealed class ScintillaHost : Scintilla, IUiaTextHost
+public sealed class ScintillaHost : Scintilla, IUiaTextHostLegacy
 {
     // ---- スナップショット（UI スレッドで更新 / RPC スレッドで読む） ----
     private volatile string _snapshot = string.Empty;   // 全文（UTF-16）
@@ -548,46 +548,46 @@ public sealed class ScintillaHost : Scintilla, IUiaTextHost
     public int LineHeightPx
         => IsHandleCreated ? DirectMessage(Sci.SCI_TEXTHEIGHT, (nint)0).ToInt32() : 16;
 
-    // ==================== IUiaTextHost（RPC スレッドから呼ばれる） ====================
+    // ==================== IUiaTextHostLegacy（RPC スレッドから呼ばれる） ====================
 
-    string IUiaTextHost.GetText() => _snapshot;
+    string IUiaTextHostLegacy.GetText() => _snapshot;
 
-    int IUiaTextHost.TextLength => _snapshot.Length;
+    int IUiaTextHostLegacy.TextLength => _snapshot.Length;
 
-    (int Start, int End) IUiaTextHost.GetSelection()
+    (int Start, int End) IUiaTextHostLegacy.GetSelection()
     {
         int s = _selStart, e = _selEnd;
         return (Math.Min(s, e), Math.Max(s, e));
     }
 
-    void IUiaTextHost.SetSelection(int start, int end)
+    void IUiaTextHostLegacy.SetSelection(int start, int end)
     {
         if (!IsHandleCreated || IsDisposed) return; // ハンドル破棄後の BeginInvoke を防ぐ
-        if (InvokeRequired) { BeginInvoke(new Action(() => ((IUiaTextHost)this).SetSelection(start, end))); return; }
+        if (InvokeRequired) { BeginInvoke(new Action(() => ((IUiaTextHostLegacy)this).SetSelection(start, end))); return; }
         int bs = Utf16ToByte(Clamp16(start));
         int be = Utf16ToByte(Clamp16(end));
         DirectMessage(Sci.SCI_SETSEL, (nint)bs, (nint)be);
         RefreshSelection();
     }
 
-    WpfRect IUiaTextHost.BoundingRectangle { get { lock (_boundsSync) return _bounds; } }
+    WpfRect IUiaTextHostLegacy.BoundingRectangle { get { lock (_boundsSync) return _bounds; } }
 
     // §6 で SCI_POINTXFROMPOSITION / SCI_POINTYFROMPOSITION により実装予定。
     // 現状は WinForms 版同様スタブ（PC-Talker は 0 矩形でもテキスト歩きで読めた）。
-    double[] IUiaTextHost.GetBoundingRectangles(int start, int end) => Array.Empty<double>();
+    double[] IUiaTextHostLegacy.GetBoundingRectangles(int start, int end) => Array.Empty<double>();
 
-    nint IUiaTextHost.Handle => _hwnd;
+    nint IUiaTextHostLegacy.Handle => _hwnd;
 
-    bool IUiaTextHost.HasFocus => _hasFocus;
+    bool IUiaTextHostLegacy.HasFocus => _hasFocus;
 
-    int IUiaTextHost.ControlTypeId => System.Windows.Automation.ControlType.Document.Id;
+    int IUiaTextHostLegacy.ControlTypeId => System.Windows.Automation.ControlType.Document.Id;
 
     // SR がフォーカス時などに読む名前。文書名はタブ側が担うため、編集領域は固定文言でよい。
-    string IUiaTextHost.Name => "本文";
+    string IUiaTextHostLegacy.Name => "本文";
 
-    string IUiaTextHost.AutomationId => "editor";
+    string IUiaTextHostLegacy.AutomationId => "editor";
 
-    void IUiaTextHost.SetFocus()
+    void IUiaTextHostLegacy.SetFocus()
     {
         if (!IsHandleCreated || IsDisposed) return; // ハンドル破棄後の BeginInvoke を防ぐ
         if (InvokeRequired) { BeginInvoke(new Action(() => Focus())); return; }

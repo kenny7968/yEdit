@@ -13,7 +13,7 @@ namespace yEdit.UiaProbe;
 /// 診断のため、SR が位置追従に使う 2 系統（システムキャレット / UIA イベント）を
 /// 個別に ON/OFF でき、報告 ControlType（Document/Edit）も切り替えられる。
 /// </summary>
-public sealed class UiaTextControl : Control, IUiaTextHost
+public sealed class UiaTextControl : Control, IUiaTextHostLegacy
 {
     private string _text = string.Empty;     // 不変参照（編集ごとに差し替え）
     private volatile int _caret;             // キャレット位置（オフセット）
@@ -457,44 +457,44 @@ public sealed class UiaTextControl : Control, IUiaTextHost
             $"uiaSel={(RaiseUiaSelectionEvents ? 1 : 0)} uiaText={(RaiseUiaTextEvents ? 1 : 0)}");
     }
 
-    // ==================== IUiaTextHost ====================
+    // ==================== IUiaTextHostLegacy ====================
 
-    string IUiaTextHost.GetText() => _text;
+    string IUiaTextHostLegacy.GetText() => _text;
 
-    int IUiaTextHost.TextLength => _text.Length;
+    int IUiaTextHostLegacy.TextLength => _text.Length;
 
-    (int Start, int End) IUiaTextHost.GetSelection()
+    (int Start, int End) IUiaTextHostLegacy.GetSelection()
     {
         int c = _caret, a = _anchor;
         return (Math.Min(a, c), Math.Max(a, c));
     }
 
-    void IUiaTextHost.SetSelection(int start, int end)
+    void IUiaTextHostLegacy.SetSelection(int start, int end)
     {
-        if (InvokeRequired) { BeginInvoke(new Action(() => ((IUiaTextHost)this).SetSelection(start, end))); return; }
+        if (InvokeRequired) { BeginInvoke(new Action(() => ((IUiaTextHostLegacy)this).SetSelection(start, end))); return; }
         _anchor = Clamp(start);
         _caret = Clamp(end);
         OnCaretChanged();
     }
 
-    WpfRect IUiaTextHost.BoundingRectangle { get { lock (_boundsSync) return _bounds; } }
+    WpfRect IUiaTextHostLegacy.BoundingRectangle { get { lock (_boundsSync) return _bounds; } }
 
-    double[] IUiaTextHost.GetBoundingRectangles(int start, int end)
+    double[] IUiaTextHostLegacy.GetBoundingRectangles(int start, int end)
         => Array.Empty<double>(); // 計装ビルドでは空のまま（挙動を変えない）。本番/修正時に実装。
 
-    nint IUiaTextHost.Handle => _hwnd;
+    nint IUiaTextHostLegacy.Handle => _hwnd;
 
-    bool IUiaTextHost.HasFocus => _hasFocus;
+    bool IUiaTextHostLegacy.HasFocus => _hasFocus;
 
-    int IUiaTextHost.ControlTypeId => _controlTypeId;
+    int IUiaTextHostLegacy.ControlTypeId => _controlTypeId;
 
     // SR がフォーカス時に読む名前。プローブであることが分かる固定文言。
-    string IUiaTextHost.Name => "プローブ本文";
+    string IUiaTextHostLegacy.Name => "プローブ本文";
 
     // 検証スクリプト(tools/verify-uia.ps1, walk-test.ps1)が FindFirst で使う識別子。変更禁止。
-    string IUiaTextHost.AutomationId => "uiaProbeDocument";
+    string IUiaTextHostLegacy.AutomationId => "uiaProbeDocument";
 
-    void IUiaTextHost.SetFocus()
+    void IUiaTextHostLegacy.SetFocus()
     {
         if (InvokeRequired) { BeginInvoke(new Action(() => Focus())); return; }
         Focus();

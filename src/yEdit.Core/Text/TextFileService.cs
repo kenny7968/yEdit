@@ -24,8 +24,15 @@ public static partial class TextFileService
     /// <param name="path">ファイルパス。</param>
     /// <param name="encoding">読み込みエンコーディング(UTF-8/SJIS/EUC-JP のいずれか想定)。</param>
     /// <param name="hasBom">UTF-8 BOM を持つファイルなら true。UTF-8 経路のみ意味を持つ(先頭 3 バイトをスキップ)。</param>
-    /// <returns>チャンク木構築済みの TextBuffer。</returns>
-    public static TextBuffer LoadAsBuffer(string path, Encoding encoding, bool hasBom = false)
+    /// <returns>
+    /// <c>Buffer</c> = チャンク木構築済みの TextBuffer。
+    /// <c>HadReplacement</c> = デコード中に不正バイトが U+FFFD REPLACEMENT CHARACTER で埋められたか。
+    /// UTF-8 は <see cref="TextBufferBuilder.HadReplacement"/> をそのまま返し、
+    /// SJIS/EUC-JP は明示的な <see cref="DecoderReplacementFallback"/>("�") で U+FFFD 化された
+    /// 本文を後スキャンして判定する(<see cref="DecodeBytes"/> と同じ契約=文字コード取り違え検出用)。
+    /// SJIS/EUC-JP 経路の詳細フォールバック仕様は <see cref="DecodeBytes"/> のコメントを参照。
+    /// </returns>
+    public static (TextBuffer Buffer, bool HadReplacement) LoadAsBuffer(string path, Encoding encoding, bool hasBom = false)
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(encoding);
@@ -51,16 +58,23 @@ public static partial class TextFileService
             int n;
             while ((n = stream.Read(buf, 0, buf.Length)) > 0)
                 builder.Add(new ReadOnlySpan<byte>(buf, 0, n));
-            return builder.Build();
+            return (builder.Build(), builder.HadReplacement);
         }
         else
         {
             // SJIS/EUC-JP は StreamReader で UTF-16 化(日本語ファイルは高々数百 MB 想定=許容)。
             // detectEncodingFromByteOrderMarks: false = 先頭バイトを BOM 検出に流用せず、
             // 指定エンコーディングで確実にデコードする(SJIS/EUC-JP に BOM は無いが保険)。
-            using var reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: false);
+            // 既定の Encoding.GetEncoding(cp) は DecoderFallback に PUA U+F8F3 相当を返す挙動があり、
+            // 不正バイトが U+FFFD で検出できず「文字コード取り違え」警告が沈黙する。
+            // DecodeBytes と同じく明示的な DecoderReplacementFallback("�") を差し込む。
+            var decoding = Encoding.GetEncoding(encoding.CodePage,
+                EncoderFallback.ReplacementFallback,
+                new DecoderReplacementFallback("�"));
+            using var reader = new StreamReader(stream, decoding, detectEncodingFromByteOrderMarks: false);
             string content = reader.ReadToEnd();
-            return TextBuffer.FromString(content);
+            bool hadReplacement = content.Contains('�');
+            return (TextBuffer.FromString(content), hadReplacement);
         }
     }
 

@@ -53,4 +53,19 @@ public class TextFileServiceSaveTextBufferTests
         }
         finally { File.Delete(path); }
     }
+
+    [Fact]
+    public void SaveBuffer_EucJp_Roundtrip()
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            var buf = TextBuffer.FromString(Jp);
+            var enc = EncodingCatalog.Get(51932);
+            TextFileService.Save(path, buf, enc, hasBom: false);
+            byte[] bytes = File.ReadAllBytes(path);
+            Assert.Equal(enc.GetBytes(Jp), bytes);
+        }
+        finally { File.Delete(path); }
+    }
 }

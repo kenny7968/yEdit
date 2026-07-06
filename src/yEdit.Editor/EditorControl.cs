@@ -986,6 +986,13 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
             // (=自前で MSAA プロキシを作らない=ネイティブ表面原則 §2-7)
         }
 
+        // P5 Task 7: ネイティブ表面原則 = 本文非公開(WM_GETTEXT / WM_GETTEXTLENGTH に応答しない)
+        if (m.Msg == NativeMethods.WM_GETTEXT || m.Msg == NativeMethods.WM_GETTEXTLENGTH)
+        {
+            m.Result = IntPtr.Zero;
+            return;
+        }
+
         switch (m.Msg)
         {
             case NativeMethods.WM_IME_SETCONTEXT:

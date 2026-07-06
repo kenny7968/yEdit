@@ -9,6 +9,11 @@ internal static class NativeMethods
     /// <summary>UIA がプロバイダを要求するときの WM_GETOBJECT lParam。</summary>
     public const int UiaRootObjectId = -25;
 
+    // P5 Task 7: ネイティブ表面原則 = 本文非公開。WM_GETTEXT / WM_GETTEXTLENGTH に応答しない
+    // (SR は UIA 経路のみで読む・MSAA / GetWindowText 経由の漏洩を防ぐ)。
+    public const int WM_GETTEXT = 0x000D;
+    public const int WM_GETTEXTLENGTH = 0x000E;
+
     // Win32 システムキャレット API(UI スレッド専用)。P2 Task 10 で EditorControl から使用。
     // フォーカスを持つウィンドウ毎に 1 個だけ。CreateCaret 後 ShowCaret で表示・DestroyCaret で破棄。
 

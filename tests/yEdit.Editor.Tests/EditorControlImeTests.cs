@@ -93,4 +93,47 @@ public class EditorControlImeTests
             Assert.False(c.__TestIsComposing());
         }
     });
+
+    // WM_IME_COMPOSITION 相当を __TestApplyComposition 経由で流し、_ime に Text/CursorPos/
+    // Attrs/Clauses が反映されて IsComposing=true になることを確認する(Task 6)。
+    // STARTCOMPOSITION で凍結した _ime.Start は多重メッセージでも維持される
+    // (=以後の COMPOSITION で Start は上書きされない=設計 §0 4-9)。
+    [Fact]
+    public void ApplyComposition_UpdatesImeFields() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            c.SetCaretCharOffset(1);
+
+            // STARTCOMPOSITION 相当
+            var m1 = new Message { HWnd = c.Handle, Msg = NativeMethods.WM_IME_STARTCOMPOSITION };
+            c.__TestProcessMessage(ref m1);
+
+            // COMPOSITION 相当を internal 経由で流す
+            c.__TestApplyComposition("あい", cursorPos: 2, attrs: [0, 0], clauses: [0, 2]);
+
+            Assert.True(c.__TestIsComposing());
+            Assert.Equal("あい", c.__TestImeText());
+            Assert.Equal(1, c.__TestImeStart());   // STARTCOMPOSITION で凍結した _caret
+        }
+    });
+
+    // 空文字への遷移(例: 全消し/取消)で IsComposing=false に戻る。
+    // Start は Task 6 の範囲では触らず、Text.Length で IsActive を判定する仕様
+    // (=クリーンアップは Task 7 の WM_IME_ENDCOMPOSITION 側で担う)。
+    [Fact]
+    public void ApplyComposition_EmptyText_ReturnsToEmpty() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            var m = new Message { HWnd = c.Handle, Msg = NativeMethods.WM_IME_STARTCOMPOSITION };
+            c.__TestProcessMessage(ref m);
+            c.__TestApplyComposition("あ", cursorPos: 1, attrs: [0], clauses: [0, 1]);
+            c.__TestApplyComposition("", cursorPos: 0, attrs: [], clauses: []);
+
+            Assert.False(c.__TestIsComposing());
+        }
+    });
 }

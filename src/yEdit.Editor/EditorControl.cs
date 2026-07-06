@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using yEdit.Core.Buffers;
 using yEdit.Core.Editing;
 using yEdit.Core.Layout;
@@ -888,9 +889,9 @@ public sealed class EditorControl : Control
 
     /// <summary>
     /// P4 IME 経路。<see cref="OnKeyDown"/>/<see cref="OnKeyPress"/> は書き換えず、WndProc で
-    /// WM_IME_* を横取りする(§0-4)。P4 Task 4 では WM_IME_SETCONTEXT のみ処理し、
-    /// 他は base.WndProc へ流す。Task 5〜8 で WM_IME_STARTCOMPOSITION / WM_IME_COMPOSITION /
-    /// WM_IME_ENDCOMPOSITION の case をここへ追加していく。
+    /// WM_IME_* を横取りする(§0-4)。P4 Task 4/5/6 で WM_IME_SETCONTEXT /
+    /// WM_IME_STARTCOMPOSITION / WM_IME_COMPOSITION を処理する。Task 7 で
+    /// WM_IME_ENDCOMPOSITION(GCS_RESULTSTR 経由の確定)の case をここへ追加する。
     /// </summary>
     protected override void WndProc(ref Message m)
     {
@@ -903,10 +904,13 @@ public sealed class EditorControl : Control
                 OnImeStartComposition();
                 m.Result = IntPtr.Zero;
                 return;
-            // 以下は Task 6〜8 で埋める。**各 case は必ず return; で終えること**
+            case NativeMethods.WM_IME_COMPOSITION:
+                OnImeComposition(m.LParam.ToInt64());
+                m.Result = IntPtr.Zero;
+                return;
+            // 以下は Task 7〜8 で埋める。**各 case は必ず return; で終えること**
             // (末尾の base.WndProc(ref m) は unhandled 用=return; を忘れると二重処理となり、
             //  base の既定 IME 挙動が KeyPress を re-post 等して 1 Splice=1 Undo が崩れる)。
-            // case NativeMethods.WM_IME_COMPOSITION: ...
             // case NativeMethods.WM_IME_ENDCOMPOSITION: ...
         }
         base.WndProc(ref m);
@@ -958,6 +962,105 @@ public sealed class EditorControl : Control
         Invalidate();
     }
 
+    /// <summary>
+    /// WM_IME_COMPOSITION: lParam の GCS_ フラグ束を見て未確定文字列を反映する(P4 Task 6)。
+    /// GCS_COMPSTR/GCS_COMPATTR/GCS_COMPCLAUSE/GCS_CURSORPOS の 4 種を Imm* 呼び出しで取得し、
+    /// <see cref="ApplyComposition"/> 経由で <c>_ime</c> に載せる。節ハイライトの描画本体は Task 10・
+    /// キャレット位置反映は Task 11 で扱う=本タスクは <c>_ime</c> フィールドへの取り込みまで。
+    /// GCS_RESULTSTR(確定文字列)は Task 7 で扱う=本 case からは触らない。
+    /// </summary>
+    /// <remarks>
+    /// - <see cref="ReadOnly"/> / SetSource 前は no-op(<see cref="OnImeStartComposition"/> と同じ防御)。
+    /// - <see cref="NativeMethods.ImmGetContext"/> の返却は必ず try/finally で
+    ///   <see cref="NativeMethods.ImmReleaseContext"/> する(§0-6=ハンドルリーク防止)。
+    /// </remarks>
+    private void OnImeComposition(long gcsFlags)
+    {
+        if (_buffer is null || ReadOnly) return;
+        nint hIMC = NativeMethods.ImmGetContext(Handle);
+        if (hIMC == IntPtr.Zero) return;
+        try
+        {
+            if ((gcsFlags & NativeMethods.GCS_COMPSTR) != 0)
+            {
+                string compStr = ReadImeString(hIMC, NativeMethods.GCS_COMPSTR);
+                byte[] attrs = (gcsFlags & NativeMethods.GCS_COMPATTR) != 0
+                    ? ImeCompositionState.ParseAttrs(ReadImeBytes(hIMC, NativeMethods.GCS_COMPATTR))
+                    : [];
+                int[] clauses = (gcsFlags & NativeMethods.GCS_COMPCLAUSE) != 0
+                    ? ImeCompositionState.ParseClauses(ReadImeBytes(hIMC, NativeMethods.GCS_COMPCLAUSE))
+                    : [];
+                int cursor = (gcsFlags & NativeMethods.GCS_CURSORPOS) != 0
+                    ? ImeCompositionState.SnapCursorPos(compStr, ReadImeInt(hIMC, NativeMethods.GCS_CURSORPOS))
+                    : 0;
+                ApplyComposition(compStr, cursor, attrs, clauses);
+            }
+            // GCS_RESULTSTR は Task 7 で扱う
+        }
+        finally
+        {
+            NativeMethods.ImmReleaseContext(Handle, hIMC);
+        }
+    }
+
+    /// <summary>
+    /// 未確定文字列の適用本体(Task 6)。テストは <see cref="__TestApplyComposition"/> 経由でここを呼ぶ。
+    /// </summary>
+    /// <remarks>
+    /// 多重メッセージ自己防衛(§0 4-9): <see cref="ImeCompositionState.IsActive"/> が true(=既に
+    /// 未確定期間中)なら既存の <c>Start</c> を維持し、そうでなければ現在のキャレット
+    /// (<see cref="OnImeStartComposition"/> が事前に凍結済み)から取り直す。これにより
+    /// STARTCOMPOSITION → 複数回の COMPOSITION の途中で Start が上書きされない。
+    /// </remarks>
+    private void ApplyComposition(string text, int cursorPos, byte[] attrs, int[] clauses)
+    {
+        _ime = new ImeCompositionState(
+            Start: _ime.IsActive ? _ime.Start : _caret,
+            Text: text,
+            CursorPos: cursorPos,
+            Attrs: attrs,
+            Clauses: clauses);
+        Invalidate();
+    }
+
+    // Imm* からの文字列/バイト列読み出しヘルパ(Task 6)。
+    // ImmGetCompositionStringW は「lpBuf=IntPtr.Zero, dwBufLen=0」で必要バイト数を返し、
+    // 二回目の呼び出しで実データをコピーする 2 段階 API。
+    private static string ReadImeString(nint hIMC, int gcsFlag)
+    {
+        int byteLen = NativeMethods.ImmGetCompositionStringW(hIMC, gcsFlag, IntPtr.Zero, 0);
+        if (byteLen <= 0) return "";
+        nint buf = Marshal.AllocHGlobal(byteLen);
+        try
+        {
+            NativeMethods.ImmGetCompositionStringW(hIMC, gcsFlag, buf, byteLen);
+            // byteLen は UTF-16 のバイト数=char 数は byteLen / 2。
+            return Marshal.PtrToStringUni(buf, byteLen / 2) ?? "";
+        }
+        finally { Marshal.FreeHGlobal(buf); }
+    }
+
+    private static byte[] ReadImeBytes(nint hIMC, int gcsFlag)
+    {
+        int byteLen = NativeMethods.ImmGetCompositionStringW(hIMC, gcsFlag, IntPtr.Zero, 0);
+        if (byteLen <= 0) return [];
+        nint buf = Marshal.AllocHGlobal(byteLen);
+        try
+        {
+            NativeMethods.ImmGetCompositionStringW(hIMC, gcsFlag, buf, byteLen);
+            var arr = new byte[byteLen];
+            Marshal.Copy(buf, arr, 0, byteLen);
+            return arr;
+        }
+        finally { Marshal.FreeHGlobal(buf); }
+    }
+
+    private static int ReadImeInt(nint hIMC, int gcsFlag)
+    {
+        // GCS_CURSORPOS は「戻り値そのものが値」(バッファは使わない)。
+        return NativeMethods.ImmGetCompositionStringW(hIMC, gcsFlag, IntPtr.Zero, 0);
+    }
+
     // テスト用ヘルパ(internal・EditorControlImeTests から呼ぶ)。
     // WndProc は protected のためテストから直接呼べない=WM_IME_SETCONTEXT の lParam
     // マスク挙動を検証するための最小の受け口。
@@ -970,6 +1073,12 @@ public sealed class EditorControl : Control
     internal int __TestImeStart() => _ime.Start;
     internal bool __TestIsComposing() => IsComposing;
     internal string __TestImeText() => _ime.Text;
+
+    // Task 6: 実 IME を介さずに ApplyComposition の状態遷移だけを検証するための受け口。
+    // Windows API を経由する経路(WndProc → OnImeComposition → Imm* → ApplyComposition)は
+    // Task 14 の smoke で扱う。
+    internal void __TestApplyComposition(string text, int cursorPos, byte[] attrs, int[] clauses)
+        => ApplyComposition(text, cursorPos, attrs, clauses);
 
     /// <summary>
     /// 与えられた UTF-16 char offset のクライアント座標(px)と可視性を算出する純ロジック。

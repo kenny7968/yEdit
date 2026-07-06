@@ -760,6 +760,7 @@ public sealed class EditorControl : Control
     /// </remarks>
     public void Undo()
     {
+        if (IsComposing) CancelCompositionAndDefault();   // §4-6(Task 13 レビュー I-1)
         if (_buffer is null || ReadOnly) return;
         var r = _buffer.Undo();
         if (r is null) return;
@@ -777,6 +778,7 @@ public sealed class EditorControl : Control
     /// </summary>
     public void Redo()
     {
+        if (IsComposing) CancelCompositionAndDefault();   // §4-6(Task 13 レビュー I-1)
         if (_buffer is null || ReadOnly) return;
         var r = _buffer.Redo();
         if (r is null) return;
@@ -834,6 +836,7 @@ public sealed class EditorControl : Control
     /// </remarks>
     public void Cut()
     {
+        if (IsComposing) CancelCompositionAndDefault();   // §4-6(Task 13 レビュー I-1)
         if (_buffer is null || ReadOnly) return;
         var (s, en) = GetSelectionCharRange();
         if (s == en) return;
@@ -857,6 +860,7 @@ public sealed class EditorControl : Control
     /// </remarks>
     public void Paste()
     {
+        if (IsComposing) CancelCompositionAndDefault();   // §4-6(Task 13 レビュー I-1)
         if (_buffer is null || ReadOnly) return;
         if (!Clipboard.ContainsText(TextDataFormat.UnicodeText)) return;
         string text = Clipboard.GetText(TextDataFormat.UnicodeText);

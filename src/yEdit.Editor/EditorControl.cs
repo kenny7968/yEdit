@@ -916,9 +916,11 @@ public sealed class EditorControl : Control
                 }
                 finally { NativeMethods.ImmReleaseContext(Handle, hIMC); }
             }
-            // ImmNotifyIME が届かない環境の保険=overlay を落とす(Invalidate は
-            // base.OnLostFocus / DestroyCaret 後にどのみち再描画されるため省略)。
+            // ImmNotifyIME が届かない環境の保険=overlay を落とす。
+            // base.OnLostFocus / DestroyCaret は再描画を保証しないため Invalidate 明示
+            // (Task 8 レビュー I-1・CancelCompositionAndDefault と対称に揃える)。
             _ime = ImeCompositionState.Empty;
+            Invalidate();
         }
         base.OnLostFocus(e);
         _hasFocus = false;

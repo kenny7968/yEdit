@@ -471,6 +471,7 @@ public sealed class EditorControl : Control
     /// </remarks>
     public void ReplaceCharRange(int start, int length, string replacement)
     {
+        if (IsComposing) CancelCompositionAndDefault();
         if (_buffer is null || ReadOnly) return;
         ArgumentNullException.ThrowIfNull(replacement);
         int s = SnapAndClamp(start);
@@ -500,6 +501,7 @@ public sealed class EditorControl : Control
     /// </summary>
     public void SetCaretCharOffset(int offset)
     {
+        if (IsComposing) CancelCompositionAndDefault();
         if (_buffer is null) return;
         int snapped = SnapAndClamp(offset);
         if (_caret == snapped && _anchor == snapped) return;
@@ -534,6 +536,7 @@ public sealed class EditorControl : Control
     /// </remarks>
     public void SetSelectionCharRange(int start, int end)
     {
+        if (IsComposing) CancelCompositionAndDefault();
         if (_buffer is null) return;
         int s = SnapAndClamp(Math.Min(start, end));
         int e = SnapAndClamp(Math.Max(start, end));
@@ -554,6 +557,7 @@ public sealed class EditorControl : Control
     /// </summary>
     public void MoveCaretWithSelection(int newCaret)
     {
+        if (IsComposing) CancelCompositionAndDefault();
         if (_buffer is null) return;
         int snapped = SnapAndClamp(newCaret);
         if (_caret == snapped) return;
@@ -573,6 +577,7 @@ public sealed class EditorControl : Control
     /// </summary>
     public void SetSelectionAnchored(int anchor, int caret)
     {
+        if (IsComposing) CancelCompositionAndDefault();
         if (_buffer is null) return;
         int a = SnapAndClamp(anchor);
         int c = SnapAndClamp(caret);
@@ -1479,6 +1484,7 @@ public sealed class EditorControl : Control
     /// </remarks>
     protected override void OnMouseDown(MouseEventArgs e)
     {
+        if (IsComposing) CancelCompositionAndDefault();
         base.OnMouseDown(e);
         if (_buffer is null || e.Button != MouseButtons.Left) return;
         Focus();

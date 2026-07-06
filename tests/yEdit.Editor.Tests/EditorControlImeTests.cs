@@ -282,4 +282,44 @@ public class EditorControlImeTests
         other.Select();   // フォーカス移動 → OnLostFocus 経路
         Assert.False(c.__TestIsComposing());
     });
+
+    // Task 13: 未確定期間中に外部から編集 API(ReplaceCharRange)が呼ばれた場合、
+    // まず未確定を強制取消してから置換を実行する(=undefined behavior 防止・§4-6)。
+    // - IsComposing=false に戻る
+    // - 置換自体は実行され、期待どおりの本文になる
+    //   (=ガードは cancel だけ実行し、本来の置換動作は妨げない)
+    [Fact]
+    public void ReplaceCharRange_DuringComposition_CancelsFirst() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abcdef");
+        using (f) using (c)
+        {
+            c.SetCaretCharOffset(3);
+            var m = new Message { HWnd = c.Handle, Msg = NativeMethods.WM_IME_STARTCOMPOSITION };
+            c.__TestProcessMessage(ref m);
+            c.__TestApplyComposition("あい", cursorPos: 2, attrs: [0, 0], clauses: [0, 2]);
+            Assert.True(c.__TestIsComposing());
+
+            c.ReplaceCharRange(0, 3, "XYZ");
+            Assert.False(c.__TestIsComposing());
+            Assert.Equal("XYZdef", c.GetText());
+        }
+    });
+
+    // Task 13: 未確定期間中に SetCaretCharOffset が呼ばれた場合も同様に強制取消する。
+    // App 層 programmatic ジャンプ(検索ジャンプ・GoTo 等)が未確定中に走っても
+    // overlay が浮きっぱなしにならない(§4-6)。
+    [Fact]
+    public void SetCaretCharOffset_DuringComposition_Cancels() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            var m = new Message { HWnd = c.Handle, Msg = NativeMethods.WM_IME_STARTCOMPOSITION };
+            c.__TestProcessMessage(ref m);
+            c.__TestApplyComposition("あ", cursorPos: 1, attrs: [0], clauses: [0, 1]);
+            c.SetCaretCharOffset(2);
+            Assert.False(c.__TestIsComposing());
+        }
+    });
 }

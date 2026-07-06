@@ -136,4 +136,27 @@ public class EditorControlImeTests
             Assert.False(c.__TestIsComposing());
         }
     });
+
+    // 多重 COMPOSITION での Start 保持 (§0 4-9): START(caret=1)で凍結された Start=1 が、
+    // 以降 2 回連続する COMPOSITION で書き換えられないことを直接ロックする。Task 6 レビュー M-4。
+    [Fact]
+    public void ApplyComposition_MultipleUpdates_KeepsInitialStart() => Sta.Run(() =>
+    {
+        var (f, c) = MakeControl("abc");
+        using (f) using (c)
+        {
+            c.SetCaretCharOffset(1);
+            var m = new Message { HWnd = c.Handle, Msg = NativeMethods.WM_IME_STARTCOMPOSITION };
+            c.__TestProcessMessage(ref m);
+
+            c.__TestApplyComposition("あ", cursorPos: 1, attrs: [0], clauses: [0, 1]);
+            Assert.Equal(1, c.__TestImeStart());
+
+            c.__TestApplyComposition("あい", cursorPos: 2, attrs: [0, 0], clauses: [0, 2]);
+            Assert.Equal(1, c.__TestImeStart());   // 2 回目以降も凍結値のまま
+
+            c.__TestApplyComposition("あいう", cursorPos: 3, attrs: [0, 0, 0], clauses: [0, 3]);
+            Assert.Equal(1, c.__TestImeStart());
+        }
+    });
 }

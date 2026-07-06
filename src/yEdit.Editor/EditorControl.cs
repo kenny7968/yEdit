@@ -890,8 +890,9 @@ public sealed class EditorControl : Control
     /// <summary>
     /// P4 IME 経路。<see cref="OnKeyDown"/>/<see cref="OnKeyPress"/> は書き換えず、WndProc で
     /// WM_IME_* を横取りする(§0-4)。P4 Task 4/5/6 で WM_IME_SETCONTEXT /
-    /// WM_IME_STARTCOMPOSITION / WM_IME_COMPOSITION を処理する。Task 7 で
-    /// WM_IME_ENDCOMPOSITION(GCS_RESULTSTR 経由の確定)の case をここへ追加する。
+    /// WM_IME_STARTCOMPOSITION / WM_IME_COMPOSITION(GCS_COMPSTR)を処理済。Task 7 で
+    /// WM_IME_COMPOSITION 内の GCS_RESULTSTR 分岐(既存 case 内で完結)を追加、Task 8 で
+    /// WM_IME_ENDCOMPOSITION の case をここへ追加する。
     /// </summary>
     protected override void WndProc(ref Message m)
     {

@@ -16,7 +16,7 @@ namespace yEdit.Editor;
 /// GDI 呼び出しに置換して描画する。P6 で <c>ScintillaHost</c> を置換する予定・現状は並行運用。
 /// UI スレッド専用(<see cref="GdiCharMetrics"/>・<c>SetSource</c> は 1 度だけ)。
 /// </summary>
-public sealed class EditorControl : Control
+public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
 {
     // Task 13 で ApplyAppearance によりフォント差し替え/GdiCharMetrics 再構築/ViewportStyle 差し替えを
     // 行うため readonly を外した(Font 差し替え時は明示的に古い Font.Dispose を呼ぶ責務)。
@@ -103,6 +103,14 @@ public sealed class EditorControl : Control
     // 発火閾値 (>=120 / <=-120) に達したら SystemInformation.MouseWheelScrollLines 行送りを 1 回発動する。
     private int _wheelAccum;
 
+    // P5 Task 5: UIA v2 用 RPC スレッド安全キャッシュ。
+    // _bufferSnapshot は不変(TextSnapshot は immutable)なので UI スレッドで参照を差し替えるだけで
+    // RPC スレッドは自己整合なスナップショットを読める。編集経路(SetSource/AfterEdit)で更新する。
+    // _bounds は WPF Rect のためロック越しで読み書き(参照差替不可の struct)。
+    private volatile TextSnapshot? _bufferSnapshot;
+    private readonly object _boundsSync = new();
+    private System.Windows.Rect _bounds;
+
     public EditorControl()
     {
         SetStyle(
@@ -167,6 +175,8 @@ public sealed class EditorControl : Control
         Invalidate();
         // Task 12: 初期化時に未確定文字列用フォントを IME に通知(候補窓/未確定描画のメトリクス整合)。
         NotifyCompositionFont();
+        // P5 Task 5: RPC スレッド用スナップショットキャッシュを初期化
+        CacheSnapshot();
     }
 
     /// <summary>行の高さ(px)。<see cref="ICharMetrics.LineHeightPx"/> の透過。</summary>
@@ -738,6 +748,8 @@ public sealed class EditorControl : Control
         PositionCaret();
         BringCaretIntoView();
         Invalidate();
+        // P5 Task 5: 編集後に RPC スレッド用スナップショットを更新
+        CacheSnapshot();
     }
 
     /// <summary>
@@ -2492,6 +2504,218 @@ public sealed class EditorControl : Control
     /// <summary>0xRRGGBB の int から Alpha=255 の <see cref="Color"/> を組む(BackColor 設定用)。</summary>
     private static Color FromRgb(int rgb)
         => Color.FromArgb(255, (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+
+    // ==================== P5 Task 5: IUiaTextHost v2 実装 ====================
+    // UIA プロバイダ(TextControlProviderV2)のバックエンド。RPC スレッドから呼ばれ得るため
+    // 全メンバは不変スナップショット参照 + キャッシュ値で応答する。SetSelection / SetFocus のみ
+    // UI スレッドへマーシャリングする。座標 API 2 個(GetBoundingRectangles / OffsetFromScreenPoint)は
+    // 本 Task ではスタブで、Task 10/11 で本実装する。
+
+    private void CacheSnapshot()
+    {
+        if (_buffer is not null) _bufferSnapshot = _buffer.Current;
+    }
+
+    private void UpdateBoundsCache()
+    {
+        if (!IsHandleCreated) return;
+        var r = RectangleToScreen(ClientRectangle);
+        lock (_boundsSync) _bounds = new System.Windows.Rect(r.Left, r.Top, r.Width, r.Height);
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        UpdateBoundsCache();
+    }
+
+    protected override void OnSizeChanged(EventArgs e)
+    {
+        base.OnSizeChanged(e);
+        UpdateBoundsCache();
+    }
+
+    protected override void OnLocationChanged(EventArgs e)
+    {
+        base.OnLocationChanged(e);
+        UpdateBoundsCache();
+    }
+
+    string yEdit.Accessibility.IUiaTextHost.GetTextRange(int start, int length)
+    {
+        var snap = _bufferSnapshot;
+        if (snap is null) return "";
+        int s = Math.Clamp(start, 0, snap.CharLength);
+        int l = Math.Clamp(length, 0, snap.CharLength - s);
+        return snap.GetText(s, l);
+    }
+
+    int yEdit.Accessibility.IUiaTextHost.TextLength => _bufferSnapshot?.CharLength ?? 0;
+
+    (int Start, int End) yEdit.Accessibility.IUiaTextHost.GetSelection()
+    {
+        int c = _caret, a = _anchor;
+        return (Math.Min(a, c), Math.Max(a, c));
+    }
+
+    void yEdit.Accessibility.IUiaTextHost.SetSelection(int start, int end)
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action(() => ((yEdit.Accessibility.IUiaTextHost)this).SetSelection(start, end)));
+            return;
+        }
+        SetSelectionCharRange(start, end);
+    }
+
+    int yEdit.Accessibility.IUiaTextHost.NextChar(int offset)
+    {
+        var snap = _bufferSnapshot;
+        if (snap is null) return 0;
+        int o = Math.Clamp(offset, 0, snap.CharLength);
+        if (o >= snap.CharLength) return snap.CharLength;
+        char c = snap.GetChar(o);
+        if (char.IsHighSurrogate(c) && o + 1 < snap.CharLength && char.IsLowSurrogate(snap.GetChar(o + 1)))
+            return o + 2;
+        return o + 1;
+    }
+
+    int yEdit.Accessibility.IUiaTextHost.PrevChar(int offset)
+    {
+        var snap = _bufferSnapshot;
+        if (snap is null) return 0;
+        int o = Math.Clamp(offset, 0, snap.CharLength);
+        if (o <= 0) return 0;
+        if (char.IsLowSurrogate(snap.GetChar(o - 1)) && o - 2 >= 0 && char.IsHighSurrogate(snap.GetChar(o - 2)))
+            return o - 2;
+        return o - 1;
+    }
+
+    int yEdit.Accessibility.IUiaTextHost.LineStartOf(int offset)
+    {
+        var snap = _bufferSnapshot;
+        if (snap is null) return 0;
+        int o = Math.Clamp(offset, 0, snap.CharLength);
+        int line = snap.GetLineIndexOfChar(o);
+        return snap.GetLineStart(line);
+    }
+
+    int yEdit.Accessibility.IUiaTextHost.LineEnd(int offset)
+    {
+        var snap = _bufferSnapshot;
+        if (snap is null) return 0;
+        int o = Math.Clamp(offset, 0, snap.CharLength);
+        int line = snap.GetLineIndexOfChar(o);
+        if (line + 1 < snap.LineCount) return snap.GetLineStart(line + 1);
+        return snap.CharLength;
+    }
+
+    int yEdit.Accessibility.IUiaTextHost.LineEndNoBreakOf(int offset)
+    {
+        var snap = _bufferSnapshot;
+        if (snap is null) return 0;
+        int e = ((yEdit.Accessibility.IUiaTextHost)this).LineEnd(offset);
+        // CRLF 混在対応: LF → CR の順で剥がす
+        if (e > 0 && snap.GetChar(e - 1) == '\n') e--;
+        if (e > 0 && snap.GetChar(e - 1) == '\r') e--;
+        return e;
+    }
+
+    int yEdit.Accessibility.IUiaTextHost.WordStart(int offset)
+    {
+        var snap = _bufferSnapshot;
+        if (snap is null) return 0;
+        int o = Math.Clamp(offset, 0, snap.CharLength);
+        return WordBoundary_WordStart(snap, o);
+    }
+
+    int yEdit.Accessibility.IUiaTextHost.WordEnd(int offset)
+    {
+        var snap = _bufferSnapshot;
+        if (snap is null) return 0;
+        int o = Math.Clamp(offset, 0, snap.CharLength);
+        return WordBoundary_WordEnd(snap, o);
+    }
+
+    int yEdit.Accessibility.IUiaTextHost.NextWordStart(int offset)
+    {
+        var snap = _bufferSnapshot;
+        if (snap is null) return 0;
+        int o = Math.Clamp(offset, 0, snap.CharLength);
+        return yEdit.Core.Editing.WordBoundary.NextWordStart(snap, o);
+    }
+
+    int yEdit.Accessibility.IUiaTextHost.PrevWordStart(int offset)
+    {
+        var snap = _bufferSnapshot;
+        if (snap is null) return 0;
+        int o = Math.Clamp(offset, 0, snap.CharLength);
+        return yEdit.Core.Editing.WordBoundary.PrevWordStart(snap, o);
+    }
+
+    // WordStart/WordEnd は Core WordBoundary に直接メンバがないため、
+    // 「offset を含む単語の左/右端(空白でない連続の左/右端)」を素朴実装する
+    // (計画書 §5-5: v1 の TextNavigation.WordStart と同じ流儀=空白区切りだけ)。
+    private static int WordBoundary_WordStart(TextSnapshot snap, int pos)
+    {
+        if (pos <= 0) return 0;
+        int p = pos;
+        while (p > 0)
+        {
+            int prev = p - 1;
+            if (prev > 0 && char.IsLowSurrogate(snap.GetChar(prev)) && char.IsHighSurrogate(snap.GetChar(prev - 1)))
+                prev--;
+            char pc = snap.GetChar(prev);
+            if (char.IsWhiteSpace(pc) || pc == '\r' || pc == '\n') break;
+            p = prev;
+        }
+        return p;
+    }
+
+    private static int WordBoundary_WordEnd(TextSnapshot snap, int pos)
+    {
+        int p = pos;
+        while (p < snap.CharLength)
+        {
+            char c = snap.GetChar(p);
+            if (char.IsWhiteSpace(c) || c == '\r' || c == '\n') break;
+            if (char.IsHighSurrogate(c) && p + 1 < snap.CharLength && char.IsLowSurrogate(snap.GetChar(p + 1)))
+                p += 2;
+            else
+                p++;
+        }
+        return p;
+    }
+
+    System.Windows.Rect yEdit.Accessibility.IUiaTextHost.BoundingRectangle
+    {
+        get { lock (_boundsSync) return _bounds; }
+    }
+
+    // 座標 API はスタブ(Task 10/11 で本実装)
+    double[] yEdit.Accessibility.IUiaTextHost.GetBoundingRectangles(int start, int end) => Array.Empty<double>();
+
+    int yEdit.Accessibility.IUiaTextHost.OffsetFromScreenPoint(double x, double y) => 0;
+
+    nint yEdit.Accessibility.IUiaTextHost.Handle => Handle;
+
+    bool yEdit.Accessibility.IUiaTextHost.HasFocus => Focused;
+
+    int yEdit.Accessibility.IUiaTextHost.ControlTypeId => System.Windows.Automation.ControlType.Document.Id;
+
+    string yEdit.Accessibility.IUiaTextHost.Name => "本文";
+
+    string yEdit.Accessibility.IUiaTextHost.AutomationId => "editor";
+
+    void yEdit.Accessibility.IUiaTextHost.SetFocus()
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action(() => Focus()));
+            return;
+        }
+        Focus();
+    }
 
     /// <summary>
     /// GDI ハンドル(Font)を解放する。P6 でタブ毎にインスタンス生成/破棄する運用のため、

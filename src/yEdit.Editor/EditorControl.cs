@@ -191,6 +191,54 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         CacheSnapshot();
     }
 
+    /// <summary>
+    /// P6 Task 1: 本文全体を string で読み書きする互換 API。
+    /// getter は現在の TextBuffer スナップショットから全文を返す(内部 GetText と同じ経路)。
+    /// setter は新規 TextBuffer を組み立てて <see cref="ReplaceSource"/> に流す。
+    /// SetSource 前 / _buffer=null で getter は空文字列を返し、setter は初回 SetSource として扱う。
+    /// </summary>
+    /// <remarks>
+    /// Control.Text と同名だが、Control.Text は本文非公開原則(§0-6 / P5 Task 7)により
+    /// WM_GETTEXT/WM_GETTEXTLENGTH で応答しない=シャドウ new が必要。
+    /// </remarks>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public new string Text
+    {
+        get => _buffer?.Current.GetText(0, _buffer.Current.CharLength) ?? string.Empty;
+        set
+        {
+            var buf = TextBuffer.FromString(value ?? string.Empty);
+            if (_buffer is null) SetSource(buf);
+            else ReplaceSource(buf);
+        }
+    }
+
+    /// <summary>
+    /// P6 Task 1: 既存 TextBuffer を新しいものに差し替える(ファイル開き直し・バックアップ復元用)。
+    /// SetSource が 1 度限りなのに対し、これは任意回呼べる=Document ごとに EditorControl を
+    /// 作り直すのを避ける。
+    /// キャレット/選択/スクロール/スナップショットキャッシュを全てリセットする。
+    /// </summary>
+    public void ReplaceSource(TextBuffer buffer)
+    {
+        ArgumentNullException.ThrowIfNull(buffer);
+        _buffer = buffer;
+        _caret = 0;
+        _anchor = 0;
+        _topLine = 0;
+        _scrollX = 0;
+        _lastCaretLine = 0;
+        _desiredXpx = -1;
+        UpdateVerticalScrollbar();
+        UpdateHorizontalScrollbar();
+        if (_hasFocus)
+        {
+            PositionCaret();
+        }
+        Invalidate();
+        CacheSnapshot();  // P5 RPC スレッド用スナップショット更新
+    }
+
     /// <summary>行の高さ(px)。<see cref="ICharMetrics.LineHeightPx"/> の透過。</summary>
     public int LineHeightPx => _metrics.LineHeightPx;
 

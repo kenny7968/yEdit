@@ -368,7 +368,12 @@ SR側の癖に起因するため新コントロールへ移植する:
 
 - **暫定 OK として P6 へ進む判定**(実機中間検証チェックリスト実施後):
   - `docs/plans/2026-07-06-p5-uia-checklist.md` 16 項目を NVDA / PC-Talker / ナレーター / ATOK で実施
-  - 結果は本セクションに追記予定(ユーザー実施待ち)
+
+#### P5 実機中間検証(2026-07-06・**合格**)
+
+- ユーザー実機確認: **OK**(NVDA / PC-Talker / ナレーター / ATOK 全て許容範囲)
+- 自動検証: build 0 警告 / 722 テスト全緑 / SR 非依存スクリプト 3 種全 PASS
+- **判定=合格**。**P6 へ進む**(App 層一発置き換え + Scintilla/v1 系一括撤去)
 
 ### P6: App層一発置き換え
 - `Document.Editor`型差し替え・EditorAppearance書き換え・FileControllerストリームI/O化(3エンコーディング・UTF-16廃止)・SearchController閾値二層化・CSV/禁則/Markdown/バックアップ/Grep/行ジャンプ/文字情報配線・Scintilla NuGet撤去

@@ -123,6 +123,13 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     // v1 ScintillaHost._hwnd と同形。
     private nint _hwnd;
 
+    // P6 Task 4: 直前の Modified 状態(SavePointLeft 検出用)。AfterEdit で Modified=false→true
+    // 遷移を検出して SavePointLeft を発火する。SetSource/ReplaceSource/SetSavePoint で
+    // 初期同期する(初回編集後の spurious fire 回避=SetSource 直後のバッファが Modified=true
+    // だった場合に AfterEdit なしで SavePointLeft が「打たれてないのに」焚かれないよう、
+    // 初期化時点で Modified に合わせる)。
+    private bool _wasModified;
+
     public EditorControl()
     {
         SetStyle(
@@ -189,6 +196,10 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         NotifyCompositionFont();
         // P5 Task 5: RPC スレッド用スナップショットキャッシュを初期化
         CacheSnapshot();
+        // P6 Task 4: SavePointLeft 検出用の直前状態をバッファに同期
+        // (FromString で生まれるバッファは Modified=false 前提だが、既に Modified=true な
+        //  バッファを差し込まれた場合に初回 AfterEdit で SavePointLeft が spurious 発火するのを防ぐ)。
+        _wasModified = _buffer.Modified;
     }
 
     /// <summary>
@@ -247,11 +258,16 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         }
         Invalidate();
         CacheSnapshot();  // P5 RPC スレッド用スナップショット更新
+        // P6 Task 4: 差し替え後のバッファ状態で SavePointLeft 検出用の直前状態を同期
+        // (SetSource と同旨=バッファが Modified=true でも初回 AfterEdit で spurious 発火しないよう)
+        _wasModified = buffer.Modified;
         // P5 Task 8 / P6 Task 1: バッファ全差替えは AfterEdit と同じ通知契約
         // (SR/UIA クライアントが旧本文をキャッシュしたままにならないよう発火)
         RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextChangedEvent);
         if (RaiseUiaSelectionEvents)
             RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
+        // P6 Task 4: バッファ全差替えは App 層のステータスバー更新契機なので UpdateUI 発火
+        UpdateUI?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -509,6 +525,17 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     /// </remarks>
     public event EventHandler? CaretEnteredEmptyLine;
 
+    // P6 Task 4: App 層互換イベント。TextBuffer の Modified 状態遷移と UI 更新契機を通知する。
+
+    /// <summary>P6 Task 4: <see cref="SetSavePoint"/>(=<see cref="TextBuffer.MarkSaved"/>)呼び出し時に発火(App 層は「保存済み表示」に切替)。</summary>
+    public event EventHandler? SavePointReached;
+
+    /// <summary>P6 Task 4: 保存後最初の編集で Modified=false→true 遷移時に発火(App 層は「変更あり」表示に切替)。</summary>
+    public event EventHandler? SavePointLeft;
+
+    /// <summary>P6 Task 4: キャレット/選択/表示範囲変化時に発火(App 層のステータスバー更新用)。</summary>
+    public event EventHandler? UpdateUI;
+
     /// <summary>
     /// キャレット/選択移動時の UIA TextSelectionChangedEvent を発火するか。
     /// <b>P3 では受け口のみ</b>(値は読み書きできるが挙動は無し)=P5 の UIA 接続で本挙動化する。
@@ -634,6 +661,8 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
         if (RaiseUiaSelectionEvents)
             RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
+        // P6 Task 4: キャレット位置変化は App 層のステータスバー更新契機
+        UpdateUI?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>現在の選択範囲(UTF-16 文字オフセット・Start &lt;= End で返す)。</summary>
@@ -670,6 +699,8 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
         if (RaiseUiaSelectionEvents)
             RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
+        // P6 Task 4: 選択範囲変化は App 層のステータスバー更新契機
+        UpdateUI?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -693,6 +724,8 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
         if (RaiseUiaSelectionEvents)
             RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
+        // P6 Task 4: shift+移動系の共通経路。App 層のステータスバー更新契機として UpdateUI 発火
+        UpdateUI?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -717,6 +750,8 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
         if (RaiseUiaSelectionEvents)
             RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
+        // P6 Task 4: 非対称版の選択範囲変化も App 層のステータスバー更新契機
+        UpdateUI?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -874,6 +909,13 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextChangedEvent);
         if (RaiseUiaSelectionEvents)
             RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
+        // P6 Task 4: Modified 遷移(false→true)で SavePointLeft、常時 UpdateUI を発火。
+        // SavePointLeft は「保存後の最初の編集」で 1 回だけ発火する契約=遷移検出のみで、
+        // 以降 SavePointReached(=SetSavePoint)が呼ばれるまで再発火しない。
+        bool nowModified = Modified;
+        if (!_wasModified && nowModified) SavePointLeft?.Invoke(this, EventArgs.Empty);
+        _wasModified = nowModified;
+        UpdateUI?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -929,7 +971,14 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     /// 現ルートとの参照比較で判定される。SetSource 前は no-op。P6 の <c>ScintillaHost.SetSavePoint</c>
     /// と同名(App 層 Save 経路からの機械的置換用)。
     /// </summary>
-    public void SetSavePoint() => _buffer?.MarkSaved();
+    public void SetSavePoint()
+    {
+        _buffer?.MarkSaved();
+        // P6 Task 4: 保存直後は「未変更」状態=次の編集が Modified=false→true 遷移として
+        // SavePointLeft を発火できるよう _wasModified も同期リセット。
+        _wasModified = false;
+        SavePointReached?.Invoke(this, EventArgs.Empty);
+    }
 
     /// <summary>
     /// EmptyUndoBuffer 相当(<see cref="TextBuffer.ClearUndo"/> の別名)。Undo/Redo 履歴を破棄する。

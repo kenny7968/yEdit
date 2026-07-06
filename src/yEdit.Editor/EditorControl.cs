@@ -1508,25 +1508,16 @@ public sealed class EditorControl : Control
     }
 
     /// <summary>
-    /// 文字挿入(WM_CHAR)入り口(P3 Task 8)。<see cref="Overtype"/> ON では直後 1 文字を潰す
-    /// (改行はスキップ・サロゲートペアは 2 code units を潰す)。<see cref="ReadOnly"/> ON では no-op。
+    /// 文字挿入(WM_CHAR)入り口(P3 Task 8 / P4 Task 3 で <see cref="InsertConfirmedText"/> へ委譲)。
+    /// 制御文字を弾いてから確定 1 文字を <see cref="InsertConfirmedText"/> に流し
+    /// P4 の IME 確定経路(WM_IME_COMPOSITION の GCS_RESULTSTR)と挿入本体を共有する。
     /// </summary>
     /// <remarks>
-    /// 実装方針:
-    /// - <b>制御文字は無視</b>: WM_CHAR は Ctrl 修飾の 0x01〜0x1F も来る(Ctrl+A=0x01 等)。
-    ///   加えて Ctrl+Backspace は Windows のキーボード変換仕様上 wParam=0x7F(ASCII DEL)を
-    ///   届けるため、これも除外対象(Task 8 レビュー I-1)。編集操作は全て <c>OnKeyDown</c>
-    ///   経路(Task 6 の Ctrl+A・Task 9 の BackSpace/Delete/Enter/Tab/Insert)で処理する。
-    ///   BackSpace(0x08)/Enter(0x0D)/Tab(0x09) は Task 9 で OnKeyDown 経由で処理済み=ここでは素通り
-    ///   (Task 8 申し送り S-1 決着=選択肢 (A))。
-    /// - <b>選択があれば無条件 Replace</b>: Overtype 影響なし(選択範囲を完全に置換)。
-    /// - <b>Overtype で改行スキップ</b>: <c>\r</c>/<c>\n</c> の直前では潰さず単純挿入(Scintilla 互換)。
-    /// - <b>サロゲート考慮</b>: <c>_caret</c> が high surrogate 位置なら pair 全体を潰す。
-    ///   BMP 外の文字を新たに挿入するケース(WM_CHAR 2 回発火)は Task 8 対象外=将来の IME/貼付で対応。
-    /// - <b>_desiredXpx リセット</b>: 挿入で垂直位置が変わる可能性があるため、水平移動系と同じく -1 に。
-    /// - <b>AfterEdit へ集約</b>: スクロールバー再計算 → キャレット再配置 → 追従スクロール → Invalidate
-    ///   を編集系共通の後処理に集約(Task 9〜11 でも再利用)。
-    /// - <b>e.Handled = true</b>: WinForms のフォーカス処理や親フォームへのバブリングを抑止。
+    /// <b>制御文字は無視</b>: WM_CHAR は Ctrl 修飾の 0x01〜0x1F(Ctrl+A=0x01 等)や
+    /// Ctrl+Backspace の 0x7F(ASCII DEL・Task 8 レビュー I-1)も届くため、これらは除外する。
+    /// 編集操作(BackSpace/Enter/Tab/Ctrl+A 等)は <c>OnKeyDown</c> 経路(Task 6/9)で処理済み。
+    /// 選択/上書き/サロゲートの分岐と <c>_desiredXpx</c>/AfterEdit の後処理は
+    /// <see cref="InsertConfirmedText"/> に集約(=1 経路)。<see cref="ReadOnly"/> ON では no-op。
     /// </remarks>
     protected override void OnKeyPress(KeyPressEventArgs e)
     {

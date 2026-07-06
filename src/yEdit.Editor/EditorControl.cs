@@ -908,7 +908,7 @@ public sealed class EditorControl : Control
                 OnImeComposition(m.LParam.ToInt64());
                 m.Result = IntPtr.Zero;
                 return;
-            // 以下は Task 7〜8 で埋める。**各 case は必ず return; で終えること**
+            // 以下は Task 8 で埋める。**各 case は必ず return; で終えること**
             // (末尾の base.WndProc(ref m) は unhandled 用=return; を忘れると二重処理となり、
             //  base の既定 IME 挙動が KeyPress を re-post 等して 1 Splice=1 Undo が崩れる)。
             // case NativeMethods.WM_IME_ENDCOMPOSITION: ...

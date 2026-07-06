@@ -5,7 +5,7 @@ namespace yEdit.Editor.Tests;
 /// - WM_IME_SETCONTEXT: lParam の ISC_SHOWUICOMPOSITIONWINDOW ビットを落として base に流す
 ///   (=既定 composition ウィンドウ描画を抑止し、Task 6 以降の自前描画に切り替える下地)。
 /// - WM_IME_STARTCOMPOSITION: 選択削除 + _ime.Start をキャレット位置で初期化(Task 5)。
-/// Task 6〜8 で WM_IME_COMPOSITION / WM_IME_ENDCOMPOSITION の case をここに追加していく。
+/// Task 8 で WM_IME_ENDCOMPOSITION の case をここに追加する。
 /// </summary>
 public class EditorControlImeTests
 {
@@ -121,7 +121,7 @@ public class EditorControlImeTests
 
     // 空文字への遷移(例: 全消し/取消)で IsComposing=false に戻る。
     // Start は Task 6 の範囲では触らず、Text.Length で IsActive を判定する仕様
-    // (=クリーンアップは Task 7 の WM_IME_ENDCOMPOSITION 側で担う)。
+    // (=クリーンアップは Task 8 の WM_IME_ENDCOMPOSITION 側で担う)。
     [Fact]
     public void ApplyComposition_EmptyText_ReturnsToEmpty() => Sta.Run(() =>
     {
@@ -207,6 +207,7 @@ public class EditorControlImeTests
             Assert.False(c.__TestIsComposing());
             Assert.Equal("abc", c.GetText());
             Assert.Equal(1, c.CaretCharOffset);
+            Assert.False(c.CanUndo);   // 履歴に副作用を残さない(Task 7 レビュー M-1)
         }
     });
 }

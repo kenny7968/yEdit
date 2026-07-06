@@ -145,6 +145,7 @@ public sealed class MainForm : Form
     {
         _editor.SetSource(buf);
         _currentPath = label;
+        _encodingLabel = "(in-memory)";   // Task 14 レビュー M-3: in-memory サンプルは encoding 非該当
         UpdateFileStatus(buf.Current.LineCount);
         UpdateCaretStatus();
     }

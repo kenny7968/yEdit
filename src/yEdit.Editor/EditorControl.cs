@@ -943,6 +943,14 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         NativeMethods.CreateCaret(Handle, nint.Zero, _caretWidthPx, _metrics.LineHeightPx);
         PositionCaret();
         NativeMethods.ShowCaret(Handle);
+
+        // P5 Task 9: フォーカス獲得時の UIA イベント明示発火。
+        // PC-Talker は 2 秒ポーリングで選択を追う既知挙動(HANDOFF §13.6)があるため、
+        // フォーカス獲得時に AutomationFocusChangedEvent + TextSelectionChangedEvent を
+        // 明示発火して SR に「今ここにフォーカスがある」と伝える(v1 ScintillaHost 踏襲)。
+        RaiseUia(System.Windows.Automation.AutomationElementIdentifiers.AutomationFocusChangedEvent);
+        if (RaiseUiaSelectionEvents)
+            RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
     }
 
     protected override void OnLostFocus(EventArgs e)

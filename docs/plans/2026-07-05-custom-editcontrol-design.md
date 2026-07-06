@@ -265,6 +265,45 @@ SR側の癖に起因するため新コントロールへ移植する:
 - WM_IME_*処理・インライン未確定表示・候補ウィンドウ位置・確定/取消
 - **DoD**: ATOK実機(ユーザー)で実用水準。NG→撤退可能(App層無傷)
 
+#### P4 結果(2026-07-06・**自動 DoD 全達成・ATOK 実機検証待ち**)
+
+- 実装: Task 1〜15 全完了・29 commits(`b8175d3`〜`79f0100`、feature branch のみ・main 未変更)
+- 別エージェント最終レビュー: **Critical 0 / Important 0 / Minor 6**(全て申し送り可)
+- ビルド 0 警告 / テスト全緑:
+  - Core.Tests 521→528(+7 件=`ImeCompositionStateTests` 純ロジック)
+  - Editor.Tests 142→155(+13 件=`EditorControlImeTests`:SetContext / STARTCOMPOSITION / GCS_COMPSTR / GCS_RESULTSTR / ENDCOMPOSITION / LostFocus / ReadOnly / 外部編集 API ガード全経路)
+
+- **overlay 方式の実装**(設計 §2 完全準拠):
+  - 未確定文字列は `TextBuffer` に触れず EditorControl 内部 `_ime` フィールド(`ImeCompositionState`)で保持
+  - `OnPaint` で本文描画直後に inline 合成(下線・変換対象節は Bold+SelectionBack 反転)
+  - GCS_RESULTSTR で初めて `InsertConfirmedText`(Task 3 の共通経路)へ流し 1 変換=1 Splice=1 Undo
+  - 空取消(ESC/BackSpace で `Text.Length==0`)は Undo 履歴不変(`!CanUndo` 検証済)
+
+- **公開 API 追加**(P4 は internal のみ):
+  - `yEdit.Core.Editing.ImeCompositionState`(Start / Text / CursorPos / Attrs / Clauses + ParseAttrs/ParseClauses/SnapCursorPos)
+  - `yEdit.Core.Editing.ImeAttribute`(6 バイト定数 = WinUser.h の GCS_COMPATTR 値)
+  - EditorControl の public 表面は不変(Task 13 でガード追加 = 挙動変更なし)
+
+- **NativeMethods 拡張**: WM_IME_* 定数群 / GCS_* / NI_/CPS_ / CFS_ / ISC_SHOWUICOMPOSITIONWINDOW / POINT / RECT / CANDIDATEFORM / **LOGFONT(unsafe struct + fixed char)** / Imm* 6 P/Invoke。LOGFONT は `Font.ToLogFont` の pinning 要件から blittable 化=`AllowUnsafeBlocks` を EditorControl プロジェクトで有効化(LOGFONT 1 struct に閉じる)。
+
+- **設計判断のポイント**:
+  - **overlay 方式採用**(TextBuffer 無汚染)= Undo 純粋・GCS_RESULTSTR で 1 Splice=1 Undo が自然に成立
+  - **`InsertConfirmedText` 共通化**(Task 3)で `OnKeyPress` 挙動不変(P3 §0-9 温存)+ IME 経路と 1 経路統一
+  - **`CancelCompositionAndDefault` 1 経路**(Task 8)で ReadOnly / LostFocus / 外部編集 10 API / MouseDown の縁ケースを共通化
+  - **Font キャッシュ**(`_underlineFontCache` / `_targetFontCache`)を ctor / `ApplyAppearance` / `Dispose(bool)` の 3 箇所で対称=打鍵毎 OnPaint の GDI HFONT リーク回避
+  - **`PositionCaret` の IME 分岐**(Task 11)を `ApplyComposition`/`OnImeStartComposition` から明示配線=SR がキャレット追従できる(初期実装で漏れていた重要バグをレビューで検出→修正済)
+  - **`NotifyCandidateWindow` を `PositionCaret` 経路に一本化**(Task 12 レビュー I-2 対応)=二重発火とデッド呼出を排除
+
+- **P4+ 申し送り**(Minor 6 件・全て非ブロッカー):
+  - **M-1**: `EnsureVisibleCharRange` は §4-6 未ガード(現状 App 層に未確定期間中の programmatic ジャンプ経路なし=P7 実機評価で判断)
+  - **M-2**: `AllowUnsafeBlocks` は C# 12 `[InlineArray(32)]` で回避可能(P5〜P7 で他 P/Invoke に unsafe 波及したら再検討)
+  - **M-3**: `ImeCompositionState` を `public` 化=設計書 §3-1 の `internal` 表記と乖離(実質 `yEdit.Core.Editing` の他型と同格の扱いで妥当・doc 側を実装踏襲に合わせる余地)
+  - **M-4**: `Copy()` はミューテーションなし=composing 中でも本文不変=ガード不要(XML doc に明記の余地)
+  - **M-5**: `NotifyCandidateWindow` は `PositionCaret` 経由で `ComputeCaretPoint` を 2 回呼ぶ=低頻度経路のため YAGNI(必要になったら `(x, y)` オーバーロード新設)
+  - **M-6**: ATOK チェックリスト §7「戻ってきても残骸なし」の NG 診断にタイトルバー `[IME: ...]` 残存チェックを追記する余地
+
+- **未達成**: **ATOK 実機 7 項目チェックリスト**(`docs/plans/2026-07-06-p4-ime-checklist.md`)= ユーザー実機実施待ち。合格判定で P4 DoD 完成。NG 判定なら `git revert d1793b0..79f0100` で P3 完了状態(`d1793b0`)へ復帰可能(App 層完全無変更・撤退安全性担保)。
+
 ### P5: UIA/SR接続(第2ゲート)
 - `IUiaTextHost` v2リファクタ・EditorControlのホスト実装・WM_GETOBJECT・イベント一式・空行イベント・座標API本実装・ネイティブ表面原則適用
 - `tools/verify-uia*/walk-test*` を新コントロール向けに調整→SR非依存回帰(Moveスパン等)→ユーザー実機中間検証(P0と同項目を本物で)

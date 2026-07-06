@@ -312,6 +312,52 @@ SR側の癖に起因するため新コントロールへ移植する:
 - `tools/verify-uia*/walk-test*` を新コントロール向けに調整→SR非依存回帰(Moveスパン等)→ユーザー実機中間検証(P0と同項目を本物で)
 - **DoD**: SR非依存スクリプト全PASS+実機中間OK。PC-Talker NGなら表面調整→再試行→ダメなら撤退
 
+#### P5 結果(2026-07-06・**自動 DoD 全達成・実機中間検証待ち**)
+
+- 実装: Task 1〜14 全完了・13 commits(`f85f245`〜`d3627db` + Task 14=`XXXXXXX`、feature branch のみ・main 未変更)
+- 別エージェント最終レビュー: **後追記**(コミット `XXXXXXX` 内で対応)
+- ビルド 0 警告 / テスト全緑:
+  - Core.Tests 528→540(+12=`IUiaTextHostContractStubTests`(+1)/`TextRangeProviderV2Tests`(+7)/`TextProviderImplV2Tests`(+4))
+  - Editor.Tests 155→182(+27=`EditorControlUiaHostTests`(+10)/`EditorControlUiaGetObjectTests`(+2)/`EditorControlNativeSurfaceTests`(+2)/`EditorControlUiaEventsTests`(+3)/`EditorControlUiaFocusEventTests`(+1)/`EditorControlBoundingRectsTests`(+3)/`EditorControlOffsetFromPointTests`(+3)/`EditorControlWordNavEventTests`(+3))
+
+- **v1/v2 並存アーキテクチャ**(設計 §2-3 完全準拠):
+  - v1 `IUiaTextHost` は `IUiaTextHostLegacy` にリネームのみ(挙動不変)。ScintillaHost / UiaTextControl / v1 系 Provider 群のロジックは無変更
+  - v2 `IUiaTextHost` を新設(範囲ベース + 位置歩き 8 メンバ + 座標 API)。全 19 メンバ
+  - v2 用 Provider 3 クラス新設: `TextControlProviderV2`(public・IRawElementProviderSimple/Fragment/FragmentRoot)/ `TextProviderImplV2`(internal・ITextProvider)/ `TextRangeProviderV2`(internal・v1 Move スパン保持ロジック踏襲)
+  - EditorControl が v2 を explicit 実装(19 メンバ) + `WM_GETOBJECT`(UiaRootObjectId) 応答 + `WM_GETTEXT`/`WM_GETTEXTLENGTH` 抑止(ネイティブ表面原則)
+
+- **RPC スレッド安全性**:
+  - `_bufferSnapshot`(volatile TextSnapshot?)は SetSource / AfterEdit で参照差替=RPC スレッドは不変スナップショットを読める
+  - `_bounds`(WPF Rect + lock)は UI 経路(OnHandleCreated / OnSizeChanged / OnLocationChanged)で更新
+  - `_lastFrame`(volatile Frame?)/ `_clientToScreenX/Y` は OnPaint 末尾 / UpdateBoundsCache で更新
+  - UI 経路必須の API(SetSelection / SetFocus / GetBoundingRectangles / OffsetFromScreenPoint)は `InvokeRequired ? Invoke : 直接` パターン
+
+- **UIA イベント発火**:
+  - `RaiseUia` 共通ヘルパ+ 3 種カウンタ + `TestHook_ForceUiaListen`(テストで `ClientsAreListening=false` 環境を突破)
+  - AfterEdit → TextChanged + TextSelectionChanged(RaiseUiaSelectionEvents 条件付)
+  - Set*/MoveCaret* → TextSelectionChanged(同上)
+  - OnGotFocus → AutomationFocusChangedEvent + TextSelectionChangedEvent(PC-Talker 2 秒ポーリング対策)
+  - OnKeyDown(Ctrl+←→ かつ非 shift)→ 新設 WordNavigatedEvent(App 層 Announcer 補完受け口・P0 で確定)
+
+- **座標 API**:
+  - `GetBoundingRectangles(s, e)`: ComputeCaretPoint 逐行分解 → client→screen オフセット加算(RPC スレッドは Invoke マーシャリング)
+  - `OffsetFromScreenPoint(x, y)`: 既存 `OffsetFromClientPoint` 再利用 → `RangeFromPoint` が本挙動化
+
+- **設計判断のポイント**:
+  - **v1/v2 並存**: v1 挙動を一切変えないことで撤退安全性を担保(`git revert f85f245..HEAD` で P4 完了状態へ完全復帰可能)
+  - **Move スパン保持ロジック**(TextRangeProviderV2): v1 と同挙動を意識的に踏襲=PC-Talker の文字歩き(Expand(Char)→Move(Char,1)→GetText の繰り返し)で 2 文字目以降が空にならない
+  - **UI Invoke マーシャリング**: 座標 API 2 個は RPC スレッド上で純ロジック化するのを避け、UI スレッドの既存純ロジック(ComputeCaretPoint / OffsetFromClientPoint)を再利用。設計書「RPC スレッド安全」は満たしつつ実装コストを最小化
+  - **WordNavigatedEvent 先出し**: App 層 Announcer(P6 で本実装)の受け口を EditorControl 側に用意=P6 で App 層一発置き換え時に配線するだけ
+
+- **P5+ 申し送り**(Task 14 レビュー結果次第で更新):
+  - `IUiaTextHost.WordStart`/`WordEnd` は Core `WordBoundary` へ委譲せず簡易実装(空白区切りのみ・§5-5 明記)。精度不足なら P7 で Core `WordBoundary` の CharClass 露出を検討
+  - Core.Tests の TFM を `net9.0` → `net9.0-windows` に変更、`UseWPF=true`、`<Using Include="System.IO" />` 追加、Accessibility を ProjectReference 追加。実装計画に明記なかったが v2 契約テストを Core.Tests に置くために不可避
+  - Task 13 `UiaSmokeAnnouncer` の UIA `RaiseNotificationEvent` は WPF Automation API に非存在=PC-Talker 直叩きのみ(NVDA/ナレーターは v2 provider の TextChanged/TextSelectionChanged で自然追従できる想定)
+
+- **暫定 OK として P6 へ進む判定**(実機中間検証チェックリスト実施後):
+  - `docs/plans/2026-07-06-p5-uia-checklist.md` 16 項目を NVDA / PC-Talker / ナレーター / ATOK で実施
+  - 結果は本セクションに追記予定(ユーザー実施待ち)
+
 ### P6: App層一発置き換え
 - `Document.Editor`型差し替え・EditorAppearance書き換え・FileControllerストリームI/O化(3エンコーディング・UTF-16廃止)・SearchController閾値二層化・CSV/禁則/Markdown/バックアップ/Grep/行ジャンプ/文字情報配線・Scintilla NuGet撤去
 - `SrRoute.Nvda`/`CsvFocusSink` は無効化のみで残す(切り分け用)

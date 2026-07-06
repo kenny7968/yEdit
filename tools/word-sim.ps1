@@ -1,12 +1,35 @@
-# Simulate SR word-navigation call patterns against yEdit.UiaProbe (ASCII only).
+# Simulate SR word-navigation call patterns against yEdit.UiaProbe or EditorSmoke (--uia).
 # Verifies the provider's TextUnit.Word behavior (Expand/Move span/GetSelection/MoveEndpointByUnit).
 # Background: PC-Talker never calls TextUnit.Word (proven by P0 trace); NVDA relies on it.
-param([string]$Exe = "<repo>\src\yEdit.UiaProbe\bin\Debug\net9.0-windows\yEdit.UiaProbe.exe")
+# P5 Task 14: -Target で ProbeExe(既定 v1 用) / EditorSmokeExe(v2 用) を切替。
+param(
+    [string]$Exe = "",
+    [ValidateSet('ProbeExe','EditorSmokeExe')]
+    [string]$Target = 'ProbeExe'
+)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 
-$proc = Start-Process -FilePath $Exe -PassThru
+# Target 別のデフォルト設定
+switch ($Target) {
+    'ProbeExe' {
+        if (-not $Exe) { $Exe = "<repo>\src\yEdit.UiaProbe\bin\Debug\net9.0-windows\yEdit.UiaProbe.exe" }
+        $automationId = 'uiaProbeDocument'
+        $extraArgs = @()
+        $tmp = $null
+    }
+    'EditorSmokeExe' {
+        if (-not $Exe) { $Exe = "<repo>\.worktrees\custom-editcontrol-design\tests\yEdit.Editor.Smoke\bin\Debug\net9.0-windows\yEdit.Editor.Smoke.exe" }
+        $automationId = 'editor'
+        # smoke には --uia + ファイルパスを渡す(word-sim が期待する "ABC abc 123" を含むテキストを作る)
+        $tmp = Join-Path $env:TEMP ("yedit-word-sim-{0}.txt" -f ([guid]::NewGuid()))
+        [System.IO.File]::WriteAllText($tmp, "prelude ABC abc 123 tail`nsecond line`n", [System.Text.UTF8Encoding]::new($false))
+        $extraArgs = @("--uia", $tmp)
+    }
+}
+
+$proc = Start-Process -FilePath $Exe -ArgumentList $extraArgs -PassThru
 Start-Sleep -Seconds 2
 
 $AE   = [System.Windows.Automation.AutomationElement]
@@ -21,8 +44,9 @@ function Write-Check($ok, $msg) {
 
 try {
     $root = $AE::RootElement
-    $idCond = New-Object System.Windows.Automation.PropertyCondition($AE::AutomationIdProperty, "uiaProbeDocument")
+    $idCond = New-Object System.Windows.Automation.PropertyCondition($AE::AutomationIdProperty, $automationId)
     $doc = $root.FindFirst($TS::Descendants, $idCond)
+    if ($null -eq $doc) { Write-Output "[FAIL] element not found (AutomationId=$automationId)"; exit 1 }
     $tp  = [System.Windows.Automation.TextPattern]$doc.GetCurrentPattern($TP::Pattern)
 
     $full = $tp.DocumentRange.GetText(-1)
@@ -82,4 +106,5 @@ try {
 }
 finally {
     if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+    if ($tmp -and (Test-Path $tmp)) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
 }

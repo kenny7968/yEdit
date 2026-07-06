@@ -1051,12 +1051,12 @@ public sealed class EditorControl : Control
         _ime = ImeCompositionState.Empty with { Start = _caret };
         // Task 11 レビュー I-1: SetCaretPos を IME 経路から発火する。ここで PositionCaret を
         // 呼ばないと、_ime.CursorPos の変更に OS 側キャレットが追従しない=SR が IME 内の
-        // 移動を読めない。Task 12 で NotifyCandidateWindow がこの経路に相乗り。
+        // 移動を読めない。Task 12 で NotifyCandidateWindow が PositionCaret に相乗りするため
+        // ここでの明示 NotifyCandidateWindow は不要(Task 12 レビュー I-1: この時点は
+        // IsComposing=false=候補窓通知はガードで早期 return する上、初回 ApplyComposition
+        // 時に PositionCaret 経由で発火する=初期位置は取れる)。
         PositionCaret();
         Invalidate();
-        // Task 12: 候補ウィンドウの初期位置を IME に通知(未確定開始時)。PositionCaret 後に呼ぶ
-        // ことで、直近の SetCaretPos で確定した座標と NotifyCandidateWindow の座標算出を揃える。
-        NotifyCandidateWindow();
     }
 
     /// <summary>
@@ -1155,12 +1155,11 @@ public sealed class EditorControl : Control
             CursorPos: cursorPos,
             Attrs: attrs,
             Clauses: clauses);
-        // Task 11 レビュー I-1: _ime.CursorPos の反映=IME 内キャレット追従
-        // (Task 12 で NotifyCandidateWindow もこの配線に相乗り)。
+        // Task 11 レビュー I-1: _ime.CursorPos の反映=IME 内キャレット追従。
+        // NotifyCandidateWindow は PositionCaret の IME 分岐末尾で発火する経路に集約する
+        // (Task 12 レビュー I-2: 明示的な二重発火を避けて 1 経路に統一)。
         PositionCaret();
         Invalidate();
-        // Task 12: 未確定更新時の候補窓追従(キャレット行が変わる可能性がある=座標再通知)。
-        NotifyCandidateWindow();
     }
 
     // Imm* からの文字列/バイト列読み出しヘルパ(Task 6)。

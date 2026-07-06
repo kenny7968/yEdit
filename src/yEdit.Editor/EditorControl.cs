@@ -277,6 +277,40 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     /// </summary>
     public string SnapshotText => _buffer?.Current.GetText(0, _buffer.Current.CharLength) ?? string.Empty;
 
+    /// <summary>
+    /// P6 Task 10: <see cref="TextBuffer"/> を差し込む(初回は <see cref="SetSource"/>・
+    /// 2 度目以降は <see cref="ReplaceSource"/> に自動振り分け)。<see cref="Text"/> セッターの
+    /// TextBuffer 直入れ版=App 層 Stream I/O 経路が string 全文化を経ずにバッファを流し込むための API。
+    /// FileController の LoadInto / RestoreFromBackup(=fresh Document への初回差し込み or
+    /// 開き直しでの差し替え)で使う。
+    /// </summary>
+    /// <remarks>
+    /// SetSource は 1 度限りの契約(2 度目は <see cref="InvalidOperationException"/>)。
+    /// ReplaceSource は _buffer 存在前提のイベント/UI 更新契約(CreateCaret/NotifyCompositionFont を
+    /// 打たない)=fresh EditorControl に直接呼ぶとシステムキャレットが未生成のまま残る。
+    /// 本メソッドは <see cref="Text"/> セッターの分岐と等価(の string 経由を省いた版)。
+    /// </remarks>
+    public void SetOrReplaceSource(TextBuffer buffer)
+    {
+        ArgumentNullException.ThrowIfNull(buffer);
+        if (_buffer is null) SetSource(buffer);
+        else ReplaceSource(buffer);
+    }
+
+    /// <summary>
+    /// P6 Task 10: 現在の <see cref="TextBuffer"/> 参照を返す(App 層 Stream I/O 経路の Save 対称化用)。
+    /// SetSource/ReplaceSource で差し込まれたものをそのまま返す=<see cref="TextFileService.Save(string, TextBuffer, System.Text.Encoding, bool)"/>
+    /// と組み合わせて 1GB 級 UTF-8 の string 全文化を回避する契約。null 経路(SetSource 前)では
+    /// 空文字列相当の TextBuffer を新規生成して返す(常に non-null 保証=呼び出し側で null チェック不要)。
+    /// </summary>
+    /// <remarks>
+    /// 返す参照は「編集用」ではなく「保存/照会用のスナップショット提供元」の位置付け。
+    /// バッファは可変(TextBuffer.Insert/Delete/Replace)なので、返した参照へ外部から書き込むと
+    /// EditorControl の内部状態(キャレット/選択/描画)と齟齬が出る=読み取り用途に限る。
+    /// </remarks>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public TextBuffer CurrentBuffer => _buffer ?? TextBuffer.FromString(string.Empty);
+
     /// <summary>P6 Task 2: 長さベースの選択設定エイリアス(App 層互換)。</summary>
     public void SelectCharRange(int start, int length)
         => SetSelectionCharRange(start, start + Math.Max(0, length));

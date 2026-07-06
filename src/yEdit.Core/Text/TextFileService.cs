@@ -79,6 +79,109 @@ public static partial class TextFileService
     }
 
     /// <summary>
+    /// P6 Task 10: App 層一発読み(<see cref="LoadInto"/> 相当の統合エントリ)。Stream ベースで
+    /// 検出 → <see cref="LoadAsBuffer"/> → LineEnding 検出を一括で行う。UTF-8 は 64KB チャンク Stream で
+    /// 常駐 ~1x に抑え、1GB 級 UTF-8 の OOM(全文 string ~3GB 常駐)を回避する。
+    /// SJIS/EUC-JP は現行同等(<see cref="StreamReader"/> 経由で string を経由=日本語ファイルは高々
+    /// 数百 MB 想定の許容範囲・<see cref="LoadAsBuffer"/> のドキュメント参照)。
+    /// </summary>
+    /// <remarks>
+    /// エンコーディング検出は先頭 64KB を prefix として <see cref="EncodingDetector.Detect"/> に渡す
+    /// (BOM は先頭 3 バイト固定・UtfUnknown CharsetDetector は数十 KB で十分な精度・
+    /// 厳格 UTF-8 判定は UTF-8 の chunk 境界で multibyte が分断されないよう <see cref="Utf8SafePrefixLength"/>
+    /// で prefix 末尾を UTF-8 sequence 境界にトリムしてから渡す)。
+    /// LineEnding は本文チャンク木の先頭 4KB code unit を <see cref="LineEndingDetector.Detect"/> に流す
+    /// (実運用のテキストファイルは改行種別が全編で統一されているため=数行で判別可)。
+    /// forcedCodePage 指定時は自動判定を飛ばし <see cref="HasBomFor"/> のみでプリアンブル判定。
+    /// </remarks>
+    public static LoadedBuffer LoadAsBufferAuto(string path, int? forcedCodePage = null)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        EncodingCatalog.EnsureRegistered();
+
+        // 1) prefix 読み(64KB or ファイル全体で小さい方)
+        byte[] prefix;
+        using (var probe = File.OpenRead(path))
+        {
+            long fileLen = probe.Length;
+            int prefixLen = (int)Math.Min(64L * 1024L, fileLen);
+            prefix = new byte[prefixLen];
+            int read = 0;
+            while (read < prefixLen)
+            {
+                int n = probe.Read(prefix, read, prefixLen - read);
+                if (n <= 0) break;
+                read += n;
+            }
+            if (read != prefixLen) Array.Resize(ref prefix, read);
+        }
+
+        // 2) エンコーディング検出。厳格 UTF-8 判定が prefix 末尾で multibyte 分断により
+        //    誤って false になるのを防ぐため、UTF-8 sequence 境界にトリムしてから渡す
+        //    (例: 日本語 3-byte が prefix 末尾で 2 バイトだけ入っていると DecoderFallback で失敗する)。
+        DetectedEncoding det;
+        if (forcedCodePage is int cp)
+        {
+            det = new DetectedEncoding(cp, HasBomFor(prefix, cp));
+        }
+        else
+        {
+            int safeLen = Utf8SafePrefixLength(prefix);
+            byte[] safePrefix = safeLen == prefix.Length
+                ? prefix
+                : prefix.AsSpan(0, safeLen).ToArray();
+            det = EncodingDetector.Detect(safePrefix);
+        }
+
+        Encoding enc = EncodingCatalog.Get(det.CodePage);
+
+        // 3) 本体を Stream で TextBuffer に読み込み
+        var (buffer, hadReplacement) = LoadAsBuffer(path, enc, det.HasBom);
+
+        // 4) LineEnding 検出。バッファ先頭 4KB を GetText して LineEndingDetector に流す
+        //    (空バッファなら 0 バイト=CRLF 既定)。
+        var snap = buffer.Current;
+        int probeChars = Math.Min(4096, snap.CharLength);
+        string lineProbe = probeChars > 0 ? snap.GetText(0, probeChars) : string.Empty;
+        LineEnding eol = LineEndingDetector.Detect(lineProbe);
+
+        return new LoadedBuffer
+        {
+            Buffer = buffer,
+            Encoding = enc,
+            HasBom = det.HasBom,
+            LineEnding = eol,
+            HadReplacementChar = hadReplacement,
+        };
+    }
+
+    /// <summary>
+    /// prefix バイト列の末尾を UTF-8 シーケンス境界にトリムする長さを返す(<see cref="LoadAsBufferAuto"/> 用)。
+    /// 末尾の 10xxxxxx 継続バイトを遡り、直近の leader を見つけて必要バイト数と比較する。
+    /// leader から後ろが不完全なら leader 位置で切る=<see cref="EncodingDetector"/> の厳格 UTF-8
+    /// 判定が「途中で切れた multibyte」で誤って failed になるのを防ぐ。
+    /// 全継続バイト/不正 leader の場合は元の長さをそのまま返す(strict test に判断を委ねる)。
+    /// </summary>
+    private static int Utf8SafePrefixLength(byte[] bytes)
+    {
+        int len = bytes.Length;
+        if (len == 0) return 0;
+        // 末尾から継続バイト(10xxxxxx)を遡る
+        int scan = len - 1;
+        while (scan >= 0 && (bytes[scan] & 0xC0) == 0x80) scan--;
+        if (scan < 0) return len;   // 全部継続バイト=malformed(strict test で失敗させる)
+        byte lead = bytes[scan];
+        int expected;
+        if ((lead & 0x80) == 0) expected = 1;              // 0xxxxxxx
+        else if ((lead & 0xE0) == 0xC0) expected = 2;      // 110xxxxx
+        else if ((lead & 0xF0) == 0xE0) expected = 3;      // 1110xxxx
+        else if ((lead & 0xF8) == 0xF0) expected = 4;      // 11110xxx
+        else return len;                                    // 不正 leader
+        int have = len - scan;
+        return have >= expected ? len : scan;               // 不完全なら leader 直前で切る
+    }
+
+    /// <summary>
     /// 既に読み込んだバイト列を本文・文字コード・改行へ復号する（grep がバイトを 1 回だけ読んで
     /// 流用するための抽出点。Load と完全に同じ判定・復号ロジック）。
     /// forcedCodePage 指定時は自動判定せずそのコードページで読む。

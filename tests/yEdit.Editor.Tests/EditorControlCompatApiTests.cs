@@ -147,4 +147,43 @@ public class EditorControlCompatApiTests
             Assert.Equal(1, fired);
         });
     }
+
+    // -------- Task 10: CurrentBuffer --------
+
+    [Fact]
+    public void CurrentBuffer_ReturnsSameReference_AfterSetSource()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            var buf = TextBuffer.FromString("hello");
+            ctrl.SetSource(buf);
+            Assert.Same(buf, ctrl.CurrentBuffer);
+        });
+    }
+
+    [Fact]
+    public void CurrentBuffer_NotNull_BeforeSetSource_ReturnsEmpty()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            var buf = ctrl.CurrentBuffer;
+            Assert.NotNull(buf);
+            Assert.Equal(0, buf.Current.CharLength);
+        });
+    }
+
+    [Fact]
+    public void CurrentBuffer_ReflectsReplaceSource()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("hello"));
+            var replaced = TextBuffer.FromString("world");
+            ctrl.ReplaceSource(replaced);
+            Assert.Same(replaced, ctrl.CurrentBuffer);
+        });
+    }
 }

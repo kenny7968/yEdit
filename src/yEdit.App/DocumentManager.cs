@@ -43,6 +43,9 @@ public sealed class DocumentManager
     /// シンク退避判断は上位（MainForm）が行う（_csv.IsEditing を参照できるのが上位のため）。</summary>
     public event Action<Document>? EditorGotFocus;
 
+    /// <summary>キー起因(Ctrl+Tab/Ctrl+1..9)のタブ切替時に発火。MainForm が Announcer でタブ名を読ませる。</summary>
+    public event Action<Document>? KeyBasedSwitch;
+
     /// <summary>新しい空タブを生成しアクティブ化する。State の中身は呼び出し側が設定する。</summary>
     public Document CreateNew()
     {
@@ -111,7 +114,7 @@ public sealed class DocumentManager
         return true;
     }
 
-    /// <summary>タブを相対移動し、フォーカスをタブ列へ移す（SR が選択タブ＝ファイル名を読むため）。</summary>
+    /// <summary>タブを相対移動し、直接エディタへフォーカス。SR には KeyBasedSwitch でタブ名を読ませる(I-5)。</summary>
     public void SelectNext(int dir)
     {
         int n = _tabs.TabPages.Count;
@@ -119,16 +122,18 @@ public sealed class DocumentManager
         int i = _tabs.SelectedIndex;
         BeforeActiveChange?.Invoke();   // 切替前に F2 編集等を後始末（キーボード経路）
         _tabs.SelectedIndex = ((i + dir) % n + n) % n; // 端は巡回
-        FocusTabStrip(); // タブ列にフォーカスを留め、SR が選択タブ（ファイル名＋位置）を読む
+        FocusActiveEditor();            // I-5: タブ列を経由せず直接エディタへ
+        if (Active is { } d) KeyBasedSwitch?.Invoke(d); // SR にタブ名を能動発声させる
     }
 
-    /// <summary>指定位置のタブを選択し、フォーカスをタブ列へ移す（SR が選択タブ＝ファイル名を読むため）。</summary>
+    /// <summary>指定位置のタブを選択し、直接エディタへフォーカス。SR には KeyBasedSwitch でタブ名を読ませる(I-5)。</summary>
     public void SelectAt(int index)
     {
         if (index < 0 || index >= _tabs.TabPages.Count) return;
         BeforeActiveChange?.Invoke();   // 切替前に F2 編集等を後始末（キーボード経路）
         _tabs.SelectedIndex = index;
-        FocusTabStrip();
+        FocusActiveEditor();            // I-5: タブ列を経由せず直接エディタへ
+        if (Active is { } d) KeyBasedSwitch?.Invoke(d); // SR にタブ名を能動発声させる
     }
 
     public void UpdateLabel(Document doc) => doc.Page.Text = doc.TabLabel;
@@ -144,7 +149,8 @@ public sealed class DocumentManager
     private void OnTabKeyDown(object? sender, KeyEventArgs e)
     {
         // タブ列にフォーカスがある状態で Enter を押したらエディタへ移って編集を開始する
-        // （Ctrl+Tab で SR がファイル名を読む→Enter で本文へ、という流れ）。
+        // (I-5 以降は Ctrl+Tab/Ctrl+1..9 で直接エディタへ遷移するため、この救済路は
+        // Alt+Tab 等で直接タブ列にフォーカスが渡った場合のフォールバック)。
         //
         // 重要: TabControl.ProcessKeyPreview は子孫（エディタ）にフォーカスがある編集中でも
         // プレビュー経路でこの KeyDown を発火させる。_tabs.Focused でタブ列自身がフォーカスを

@@ -352,6 +352,8 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     /// 実装は「一旦 LF に正規化 → 目的 EOL に置換」の 2 段階=CRLF/CR/LF 混在を安全に扱える。
     /// no-op fast-path(=すでに目的 EOL で統一されている場合)では ReplaceSource による
     /// キャレット/選択/スクロールリセット・UIA TextChanged 発火を回避する(EolMode だけ更新)。
+    /// non fast-path でも「行 index + 改行文字以外の相対 offset」の対で caret/anchor/topLine/
+    /// scrollX を保存→復元する(P6 レビュー I-2: Save 毎に caret が先頭へ飛ぶ退行を回避)。
     /// </remarks>
     public void ConvertEols(LineEnding eol)
     {
@@ -368,8 +370,39 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         string normalized = src.Replace("\r\n", "\n").Replace("\r", "\n");
         string converted = target == "\n" ? normalized : normalized.Replace("\n", target);
         if (converted == src) { EolMode = eol; return; }   // no-op fast path
+        // 変換前の caret/anchor を「改行以外の文字数+改行数」で分解=変換後も同じ論理位置を再構成できる。
+        var (caretM, caretK) = CountNonBreakAndBreaks(src, _caret);
+        var (anchorM, anchorK) = CountNonBreakAndBreaks(src, _anchor);
+        int savedTopLine = _topLine;
+        int savedScrollX = _scrollX;
         ReplaceSource(TextBuffer.FromString(converted));
+        int total = _buffer!.Current.CharLength;
+        _caret = Math.Min(caretM + caretK * target.Length, total);
+        _anchor = Math.Min(anchorM + anchorK * target.Length, total);
+        TopLine = savedTopLine;    // setter でクランプ+VScrollBar 同期
+        ScrollX = savedScrollX;    // 同上
         EolMode = eol;
+    }
+
+    /// <summary>
+    /// <paramref name="s"/> の [0, <paramref name="pos"/>) に含まれる「改行以外の文字数」と
+    /// 「改行数」を返す。CRLF は 1 改行として数える(<paramref name="pos"/> が CRLF の LF を指す
+    /// ケースは \r 単独 + LF 単独として分けて数える=境界を跨がない安全側)。
+    /// ConvertEols で char 位置を EOL 変換前後にマップし直すために使う。
+    /// </summary>
+    private static (int NonBreakChars, int Breaks) CountNonBreakAndBreaks(string s, int pos)
+    {
+        int m = 0, k = 0;
+        int i = 0;
+        int p = Math.Min(pos, s.Length);
+        while (i < p)
+        {
+            char c = s[i];
+            if (c == '\r' && i + 1 < p && s[i + 1] == '\n') { k++; i += 2; }
+            else if (c == '\r' || c == '\n') { k++; i++; }
+            else { m++; i++; }
+        }
+        return (m, k);
     }
 
     /// <summary>行の高さ(px)。<see cref="ICharMetrics.LineHeightPx"/> の透過。</summary>
@@ -979,14 +1012,17 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextChangedEvent);
         if (RaiseUiaSelectionEvents)
             RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
-        // P6 Task 4: Modified 遷移(false→true)で SavePointLeft、常時 UpdateUI を発火。
-        // state-first-then-fire で SetSavePoint / ReplaceSource と揃え、handler 内での
-        // 再入(SavePointLeft ハンドラが Undo 等で AfterEdit を再呼び出しするケース)でも
-        // SavePointLeft を二重発火させない(§0 設計)。
+        // P6 Task 4: Modified 遷移(false→true=SavePointLeft / true→false=SavePointReached)を
+        // 両方向で発火・常時 UpdateUI を発火。state-first-then-fire で SetSavePoint / ReplaceSource と
+        // 揃え、handler 内での再入(SavePointLeft ハンドラが Undo 等で AfterEdit を再呼び出しするケース)
+        // でも二重発火させない(§0 設計)。Undo で保存点へ戻る経路も本メソッドが呼ばれるため、
+        // SavePointReached を対称に発火しないとタブラベル「*」が消えない実挙動退行(P6 レビュー I-1)。
         bool nowModified = Modified;
-        bool shouldFireLeft = !_wasModified && nowModified;
+        bool shouldFireLeft    = !_wasModified && nowModified;
+        bool shouldFireReached =  _wasModified && !nowModified;
         _wasModified = nowModified;
-        if (shouldFireLeft) SavePointLeft?.Invoke(this, EventArgs.Empty);
+        if (shouldFireLeft)    SavePointLeft?.Invoke(this, EventArgs.Empty);
+        if (shouldFireReached) SavePointReached?.Invoke(this, EventArgs.Empty);
         UpdateUI?.Invoke(this, EventArgs.Empty);
     }
 

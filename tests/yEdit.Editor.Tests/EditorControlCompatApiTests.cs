@@ -148,6 +148,25 @@ public class EditorControlCompatApiTests
         });
     }
 
+    // P6 レビュー I-1 回帰: Undo で保存点へ戻ると SavePointReached が発火する
+    [Fact]
+    public void SavePointReached_Fires_WhenUndoReturnsToSavePoint()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("hello"));
+            ctrl.SetSavePoint();                  // 保存点=空編集履歴
+            int reachedFires = 0;
+            ctrl.SavePointReached += (_, _) => reachedFires++;
+            ctrl.ReplaceCharRange(0, 5, "xxx");   // Modified true → タブ「*」表示
+            Assert.True(ctrl.Modified);
+            ctrl.Undo();                          // 保存点=Modified false へ戻る
+            Assert.False(ctrl.Modified);
+            Assert.Equal(1, reachedFires);        // タブラベル「*」を消せる
+        });
+    }
+
     // -------- Task 10: CurrentBuffer --------
 
     [Fact]

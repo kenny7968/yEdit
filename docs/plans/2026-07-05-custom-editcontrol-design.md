@@ -381,6 +381,54 @@ SR側の癖に起因するため新コントロールへ移植する:
 - **DoD**: build 0警告+Core全緑+全機能手動チェックリスト
 - **申し送り(BackupCoordinator の大容量チャンク書き=P6 Task 12)**: 現状の `BackupCoordinator` は `doc.Editor.SnapshotText`(全文 string 化)を経由してバックアップレコード(`BackupRecord.Content: string`)を構築する。EditorControl 側の `SnapshotText` は non-null 保証で機械的に通り、Task 12 の型置換はゼロ変更で完了(build 通過確認済)。ただし 1GB 級ファイルでは バックアップ tick(既定 300 秒)ごとに 2GB(UTF-16 で 32bit×charLen)近い string 生成が発生する=真の OOM 回避は P7 送り。P7 で `BackupStore.WriteChunked(TextSnapshot)` を追加し `BackupRecord.Content` を `TextSnapshot`/ストリーム API 化する方向(§2-8「バックアップはチャンク直書き」の完全実装)。それまでの回避策として、閾値超ファイルに対して「保存済み(=Modified=false)以外は自動バックアップを一時 skip する」オプションを設定側で用意する余地あり(P6 では未実装)。
 
+#### P6 実装記録(2026-07-12・**自動 DoD 全達成**)
+
+Task 1〜18 の実施結果:
+
+| Task | 内容 | commit | 変更ファイル | 備考 |
+|---|---|---|---|---|
+| 1 | `Text`プロパティ + `ReplaceSource` | (P5 内) | EditorControl.cs | P5 で先出し済み |
+| 2 | `SnapshotText`+`SelectCharRange(len)`+`MoveCaretCharOffset` エイリアス | (P5 内) | 同上 | 同上 |
+| 3 | `LineCount`+`GoToLine(int)`+`CurrentPosition` | (P5 内) | 同上 | 同上 |
+| 4 | `SavePointLeft`/`SavePointReached`/`UpdateUI` イベント | (P5 内) | 同上 | 同上 |
+| 5 | `ConvertEols(LineEnding)` | `a72e78a`+`a2fb229` 相当 | 同上 | P5 完了時点で先出し |
+| 6 | EncodingCatalog/Detector から UTF-16 削除 | `a75a281`+`6a2cf2d` | EncodingCatalog.cs / EncodingDetector.cs / GrepService.cs | UTF-16 3種のみ削除・SJIS fallback |
+| 7 | TextFileService の Stream I/O 化 | `f0f4ba4`+`b9b61a7` | TextFileService.cs / LoadedBuffer.cs | LoadAsBuffer + Save(TextBuffer)・チャンク境界 |
+| 8+9 | Document.Editor 型 + MainForm.CreateEditor 置換 | `bbdc08e`+`e3610d0` | Document.cs / MainForm.cs / DocumentManager.cs / CsvController.cs / CsvCellEditor.cs / SearchController.cs / EditorAppearance.cs / FileController.cs | App 層一発差替の核 |
+| 10 | FileController を Stream I/O + ReplaceSource | `8363205`+`d733d37` | FileController.cs / EditorControl.cs(`CurrentBuffer`+`SetOrReplaceSource`) | 1GB 級 OOM 回避 |
+| 11 | SearchController 64MB 閾値二層化 | `74e55e9`+`198c7ac` | SnapshotSearcher.cs(新)/ SearchController.cs / SnapshotSearcherTests.cs | 窓照合+行単位 regex |
+| 12 | BackupCoordinator 動作確認+申し送り | `6e4870b` | 設計書のみ | 型置換ゼロ変更・大容量申し送り |
+| 13 | CsvController + CsvCellEditor 配線 | `e1773c6` | Document.cs / CsvController.cs / CsvCellEditor.cs | FocusTarget=Editor 固定・CsvFocusSink 生成のみ残す |
+| 14 | 禁則/MD/行ジャンプ/文字情報 API 適合 | `dc5ee94` | MainForm.cs | EditorGotFocus シンク退避残骸撤去+コメント整理 |
+| 15 | `SrContext.UseNativeReading` false 固定 | `66d2b82` | SrContext.cs | SR 二系統機構の実質死 |
+| 16 | App 層 Announcer に WordNavigated + CaretEnteredEmptyLine 配線 | `2606d5b` | DocumentManager.cs / MainForm.cs | PC-Talker 単語ナビ補完の実挙動化 |
+| 17 | Scintilla5.NET / ScintillaHost.cs / Sci.cs / v1 用 tools 一括撤去 | `d115f54` | yEdit.Editor.csproj / word-sim.ps1 + 4 ファイル削除 | publish 出力にネイティブ DLL なし |
+| 18 | 手動チェックリスト + 別エージェント最終レビュー + 設計書追記 | (本コミット) | 本ファイル+ manual-checklist.md +メモリ | ユーザー実機実施は P6 中間検証として別途 |
+
+**自動 DoD 達成状況**:
+- build 0 警告 / 0 エラー
+- Core.Tests 581 全緑(P5 の 540 → UTF-16 テスト削除 +11 = 551、+Task 11 SnapshotSearcher テスト 23 追加、+Task 7 LoadAsBuffer/Save テスト、+Task 10 CurrentBuffer 系、Task 6 fallback 差替 = 実測 581)
+- Editor.Tests 210 全緑(P5 の 182 → Text setter/SelectCharRange 系テスト P5 で先出し、+P6 実測差分 = 210)
+- publish 出力に `Scintilla.dll` / `Lexilla.dll` なし(WebView2Loader.dll のみ・Markdown プレビュー用で Scintilla 非依存)
+- `Scintilla5.NET` PackageReference が csproj から削除済
+- App 層に `Scintilla` / `ScintillaHost` / `SciNET` の実コード参照ゼロ(残るのはコメント言及のみ)
+- 撤退安全性: `SrRoute.Nvda` enum / `CsvFocusSink` クラス / v1 UIA 4 ファイル / UiaProbe プロジェクトが残っている(P7 で完全撤去)
+
+**申し送り**:
+- BackupCoordinator の大容量チャンク書き(上記 Task 12 の申し送り)
+- Task 11 SnapshotSearcher の追加最適化(Materialize キャッシュ・M-2 / 上位経路 WholeWord の Unicode \b vs ASCII \w 不整合・M-5 等)は 32M chars 以下の通常経路では影響なし=P7 送り
+- CsvFocusSink 完全撤去(§0-8 猶予)は P7 実機総合検証後
+- v1 UIA コード(IUiaTextHostLegacy / TextControlProvider / TextProviderImpl / TextRangeProvider / TextNavigation / UiaTextControl)の撤去も P7
+- **P6 レビュー I-3(Save 経路の Stream I/O 未完)**: Task 10 は Load 側の 1GB OOM を回避したが、Save 側 `TextFileService.Save(TextBuffer)` は `buffer.Current.GetText(0, CharLength)` で全文化してから string 版 Save に委譲=3-4 コピー。`ConvertEols` も非 fast-path で `SnapshotText`+Replace の 2 バッファを介するため保存時ピークは 5GB 級。1GB 級ファイルの実 Save は現状 OOM リスク=P7 で `Save(TextBuffer)` を chunk write に置換し `ConvertEols` を in-place TextBuffer 変換に切替(§2-2 の Save 側完成)。
+- **P6 レビュー I-4(SJIS/EUC-JP Load が ReadToEnd で全文化)**: `TextFileService.LoadAsBuffer` は UTF-8 のみ `TextBufferBuilder.Add(byte[])` チャンク経路。SJIS/EUC-JP は `StreamReader.ReadToEnd` で全文 char[] を作ってから `TextBuffer.FromString` へ渡す=数百 MB 級で 2x メモリ。P7 で `StreamReader.Read(char[], 0, len)` チャンクループ+`Encoding.UTF8.GetBytes(chunk).AsSpan()` を `TextBufferBuilder.Add` へ流す設計に統一(§2-2 の Load 側完成)。
+- **P6 レビュー I-5(SnapshotSearcher regex アンカー行内化)**: 閾値超 regex は `_inner.FindNext/FindPrev/ReplaceInRange` を行単位で呼ぶため、`^` / `$` / `\A` / `\Z` / `\G` が「文書の先頭/末尾」ではなく「行の先頭/末尾」に anchor される差異が閾値以下と閾値超で発生する。`SnapshotSearcher` の「壊れる契約」docstring は「改行を跨ぐパターンは絶対にヒットしない」のみ明記=aチャー差異も追記すべき。P7 で docstring 修正+回帰テスト 1 件追加(30 秒コスト)。
+
+#### P6 実機中間検証(**ユーザー実施予定**)
+
+- 手動チェックリスト: `docs/plans/2026-07-06-p6-manual-checklist.md`(A〜P の 90+ 項目)
+- 実施記録欄はユーザーが記入・結果を本節にリンク追記する予定
+- **判定=保留**(実機実施待ち)。合格したら P7 へ進む
+
 ### P7: 実機SR総合検証+撤去+リリース整備(第3ゲート)
 - ユーザー実機フルマトリクス(3 SR × 主要全機能+復帰フォーカス+空行+タブ切替)
 - 合格後: NVDA経路・CsvFocusSink・ServeUiaProvider完全撤去、HANDOFF/説明書更新、リリースCI調整(ネイティブDLL同梱削除)

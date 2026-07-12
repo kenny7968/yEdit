@@ -32,7 +32,7 @@ public sealed partial class MainForm : Form
     private readonly string _settingsPath = SettingsStore.DefaultPath;
     private AppSettings _settings = new();
     // Alt 等でメニューがアクティブな間は CSV の素キー横取りを止め、矢印/文字キーをメニュー操作へ通す。
-    // メニューモードに入っても本文（Scintilla）はフォーカスを保持するため ContainsFocus では判別できず、
+    // メニューモードに入っても本文(EditorControl)はフォーカスを保持するため ContainsFocus では判別できず、
     // MenuStrip の Activate/Deactivate イベントで明示的に追跡する。
     private bool _menuActive;
 
@@ -68,17 +68,10 @@ public sealed partial class MainForm : Form
         _announcer = AnnouncerFactory.Create(_announceLabel);
         _csv = new CsvController(_docs, _announcer);
         _docs.BeforeActiveChange = () => _csv.AbortEdit(); // タブ切替直前に F2 編集を中断（焦点の引き戻し防止）
-        // CSVモード中に Scintilla がフォーカスを得たら（メニュー閉塞後の復帰・マウスクリック等）
-        // シンクへ即時退避する。NVDA のネイティブ読み（フォーカス駆動）を Scintilla に向けない。
-        // BeginInvoke は GotFocus 中の再入 Focus() を避けるため必須。ToggleMode OFF は
-        // CsvMode=false を先に立ててから Editor.Focus() するため、このガードで素通りする。
-        // 退避は遅延実行時点でも Scintilla がフォーカスを保持しているときだけ行う
-        // （コールバックはモーダルポンプ中にも走るため、ダイアログからフォーカスを奪わない）。
-        _docs.EditorGotFocus += doc =>
-        {
-            if (!doc.State.CsvMode || _csv.IsEditing) return;
-            BeginInvoke(() => { if (doc.State.CsvMode && !_csv.IsEditing && doc.Editor.ContainsFocus) doc.CsvSink.Focus(); });
-        };
+        // P6 で編集エンジンが自作 EditorControl (v2 UIA 単一経路) に統一されたため、
+        // CSVモード中に Editor がフォーカスを得た瞬間にシンクへ強制退避していた仕組みは撤去。
+        // 誤読み抑止は CsvController.TryEnterMode の RaiseUiaSelectionEvents=false が担う。
+        // _docs.EditorGotFocus 自体は §0-8 の撤退安全性のため残す(購読ゼロで実質死・P7 で撤去)。
 
         var menu = BuildMenu();
         var status = BuildStatusBar();
@@ -187,7 +180,7 @@ public sealed partial class MainForm : Form
 
     // ==================== キー操作（タブ切替・クローズ） ====================
 
-    // Ctrl+Tab / Ctrl+Shift+Tab / Ctrl+1..9 は子の Scintilla に食われないよう
+    // Ctrl+Tab / Ctrl+Shift+Tab / Ctrl+1..9 は子の EditorControl に食われないよう
     // フォームの ProcessCmdKey で横取りする。Ctrl+W はメニューのショートカットで処理。
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
@@ -512,7 +505,7 @@ public sealed partial class MainForm : Form
             eol, _settings.TabWidth);   // タブ幅は表示設定と連動（画面の見た目どおりに整形する。従来は既定 8 固定）
 
         if (formatted == target) { _announcer.Say("変更なし"); return; }
-        ed.ReplaceCharRange(start, len, formatted);   // SCI_REPLACETARGET = 1 アンドゥ
+        ed.ReplaceCharRange(start, len, formatted);   // 1 Undo で置換
         // 部分選択なら変化箇所を選択して提示。全文整形では全選択を避け、先頭へキャレットを置く。
         if (whole) ed.SelectCharRange(0, 0);
         else ed.SelectCharRange(start, formatted.Length);

@@ -13,8 +13,9 @@ namespace yEdit.Editor;
 /// <summary>
 /// P2 で導入する自作エディットコントロール。P1 の <see cref="TextBuffer"/>/<see cref="TextSnapshot"/>
 /// をソースに、Layout 層(<c>ViewportLayout</c>/<c>FrameBuilder</c>)が組み立てた <see cref="Frame"/> を
-/// GDI 呼び出しに置換して描画する。P6 で <c>ScintillaHost</c> を置換する予定・現状は並行運用。
-/// UI スレッド専用(<see cref="GdiCharMetrics"/>・<c>SetSource</c> は 1 度だけ)。
+/// GDI 呼び出しで描画する。P6 で ScintillaHost を完全置換・P7 で並行運用終了(NVDA が Scintilla クラス名を
+/// 特別扱いする問題を回避する v2 UIA 単一経路の本命実装)。UI スレッド専用
+/// (<see cref="GdiCharMetrics"/>・<c>SetSource</c> は 1 度だけ)。
 /// </summary>
 public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
 {

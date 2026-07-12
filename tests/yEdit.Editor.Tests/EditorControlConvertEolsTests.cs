@@ -136,4 +136,37 @@ public class EditorControlConvertEolsTests
             Assert.Equal((5, 8), (s1, e1));
         });
     }
+
+    // P7 I-3 Task 3: chunk 境界(=TextBufferBuilder.TargetChunkBytes 近傍)で
+    // CRLF が別チャンクへ跨っても LF に正しく統一される(byte 単位走査+pendingCr 吸収の回帰)。
+    [Fact]
+    public void ConvertEols_Utf8_LargeContent_ChunkBoundary_CrlfSpansChunks()
+    {
+        Sta.Run(() =>
+        {
+            // 4MB(TextBufferBuilder.TargetChunkBytes)近傍で CRLF が切れるように文字列を組む
+            // ASCII のみで 4MB - 1 バイトのフィラー + "\r\n" を境界に置く
+            int fill = 4 * 1024 * 1024 - 1;
+            string body = new string('a', fill) + "\r\n" + "tail\n";
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString(body));
+            ctrl.ConvertEols(LineEnding.Lf);
+            string result = ctrl.SnapshotText;
+            Assert.Equal(new string('a', fill) + "\n" + "tail\n", result);
+        });
+    }
+
+    // P7 I-3 Task 3: 混在 EOL(CRLF/CR/LF)が一括で target=CRLF に統一される(fast-path 非適用パス)。
+    [Fact]
+    public void ConvertEols_Utf8_MixedEols_AllConvertedToTarget()
+    {
+        Sta.Run(() =>
+        {
+            string body = "a\r\nb\rc\nd\r\ne";
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString(body));
+            ctrl.ConvertEols(LineEnding.Crlf);
+            Assert.Equal("a\r\nb\r\nc\r\nd\r\ne", ctrl.SnapshotText);
+        });
+    }
 }

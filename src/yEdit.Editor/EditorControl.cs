@@ -358,50 +358,218 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     public void ConvertEols(LineEnding eol)
     {
         if (_buffer is null) return;
-        string src = SnapshotText;
-        string target = eol switch
+        byte[] targetBytes = eol switch
         {
-            LineEnding.Crlf => "\r\n",
-            LineEnding.Lf => "\n",
-            LineEnding.Cr => "\r",
-            _ => "\n",
+            LineEnding.Crlf => new byte[] { 0x0D, 0x0A },
+            LineEnding.Lf => new byte[] { 0x0A },
+            LineEnding.Cr => new byte[] { 0x0D },
+            _ => new byte[] { 0x0A },
         };
-        // 一旦 LF に正規化してから target に置換=CRLF/CR/LF 混在を統一処理
-        string normalized = src.Replace("\r\n", "\n").Replace("\r", "\n");
-        string converted = target == "\n" ? normalized : normalized.Replace("\n", target);
-        if (converted == src) { EolMode = eol; return; }   // no-op fast path
+        int targetCharLen = targetBytes.Length;  // ASCII のみ=byte 数 = char 数
+        var snap = _buffer.Current;
+
+        // P7 I-3 Task 3: SnapshotText 全文化を撤廃=byte スキャンで fast-path 判定。
+        // すでに全 EOL が target で統一されていれば ReplaceSource(キャレット/選択/スクロールリセット
+        // + UIA TextChanged 発火)を回避し、EolMode だけ更新して抜ける。
+        if (IsEolAlreadyUniform(snap, targetBytes))
+        {
+            EolMode = eol;
+            return;
+        }
+
         // 変換前の caret/anchor を「改行以外の文字数+改行数」で分解=変換後も同じ論理位置を再構成できる。
-        var (caretM, caretK) = CountNonBreakAndBreaks(src, _caret);
-        var (anchorM, anchorK) = CountNonBreakAndBreaks(src, _anchor);
+        // SnapshotReader で chunked 走査(旧実装は SnapshotText 全文化=1GB 級 peak を招いていた)。
+        var (caretM, caretK) = CountNonBreakAndBreaksInSnapshot(snap, _caret);
+        var (anchorM, anchorK) = CountNonBreakAndBreaksInSnapshot(snap, _anchor);
         int savedTopLine = _topLine;
         int savedScrollX = _scrollX;
-        ReplaceSource(TextBuffer.FromString(converted));
+
+        // ピース単位に UTF-8 byte を走査し、EOL(0x0D/0x0A)を target に置換しつつ
+        // TextBufferBuilder にストリーム流し込みで新スナップショットを構築。
+        // CRLF がピース境界に跨るケースは 1 バイト carry(pendingCr)で吸収。
+        var builder = new TextBufferBuilder();
+        byte[] outBuf = new byte[64 * 1024];
+        int outLen = 0;
+        bool pendingCr = false;
+
+        foreach (var piece in PieceTree.Enumerate(snap.Root))
+        {
+            var span = piece.Chunk.Span.Slice(piece.ByteStart, piece.ByteLen);
+            for (int i = 0; i < span.Length; i++)
+            {
+                byte b = span[i];
+                if (pendingCr)
+                {
+                    // 前ピース末尾の CR を持ち越し中。今の byte が LF なら CRLF として 1 改行、
+                    // それ以外なら CR 単独として 1 改行を吐いてから今の byte を通常処理へ進める。
+                    pendingCr = false;
+                    if (b == 0x0A)
+                    {
+                        EmitEol(targetBytes, ref outBuf, ref outLen, builder);
+                        continue;
+                    }
+                    EmitEol(targetBytes, ref outBuf, ref outLen, builder);
+                }
+                if (b == 0x0D)
+                {
+                    if (i + 1 < span.Length && span[i + 1] == 0x0A)
+                    {
+                        // ピース内 CRLF
+                        EmitEol(targetBytes, ref outBuf, ref outLen, builder);
+                        i++;
+                    }
+                    else if (i + 1 < span.Length)
+                    {
+                        // ピース内 CR 単独(次 byte が LF 以外)
+                        EmitEol(targetBytes, ref outBuf, ref outLen, builder);
+                    }
+                    else
+                    {
+                        // ピース末尾 CR=次ピース先頭を確認しないと CRLF/CR 単独が判別不能。持ち越す。
+                        pendingCr = true;
+                    }
+                }
+                else if (b == 0x0A)
+                {
+                    EmitEol(targetBytes, ref outBuf, ref outLen, builder);
+                }
+                else
+                {
+                    // Check-before-write: 直前 EmitEol が outLen==outBuf.Length のまま抜けたケース
+                    // (EmitEol の flush 判定は `outLen + eol.Length > outBuf.Length` で = のときは flush しない)
+                    // に備えて先に flush する=安全側に統一。
+                    if (outLen == outBuf.Length) FlushBuf(ref outBuf, ref outLen, builder);
+                    outBuf[outLen++] = b;
+                }
+            }
+        }
+        if (pendingCr) EmitEol(targetBytes, ref outBuf, ref outLen, builder);
+        if (outLen > 0) FlushBuf(ref outBuf, ref outLen, builder);
+
+        ReplaceSource(builder.Build());
         int total = _buffer!.Current.CharLength;
-        _caret = Math.Min(caretM + caretK * target.Length, total);
-        _anchor = Math.Min(anchorM + anchorK * target.Length, total);
+        _caret = Math.Min(caretM + caretK * targetCharLen, total);
+        _anchor = Math.Min(anchorM + anchorK * targetCharLen, total);
         TopLine = savedTopLine;    // setter でクランプ+VScrollBar 同期
         ScrollX = savedScrollX;    // 同上
         EolMode = eol;
     }
 
     /// <summary>
-    /// <paramref name="s"/> の [0, <paramref name="pos"/>) に含まれる「改行以外の文字数」と
-    /// 「改行数」を返す。CRLF は 1 改行として数える(<paramref name="pos"/> が CRLF の LF を指す
-    /// ケースは \r 単独 + LF 単独として分けて数える=境界を跨がない安全側)。
-    /// ConvertEols で char 位置を EOL 変換前後にマップし直すために使う。
+    /// P7 I-3 Task 3: <paramref name="eol"/> バイト列を出力バッファへ書き足す。バッファ溢れ時は
+    /// TextBufferBuilder へフラッシュしてから追記する(bare append より 1 分岐多いだけの hot path)。
     /// </summary>
-    private static (int NonBreakChars, int Breaks) CountNonBreakAndBreaks(string s, int pos)
+    private static void EmitEol(byte[] eol, ref byte[] outBuf, ref int outLen, TextBufferBuilder builder)
+    {
+        if (outLen + eol.Length > outBuf.Length) FlushBuf(ref outBuf, ref outLen, builder);
+        for (int i = 0; i < eol.Length; i++) outBuf[outLen++] = eol[i];
+    }
+
+    /// <summary>
+    /// P7 I-3 Task 3: 出力バッファを TextBufferBuilder に流し込み、outLen をリセット。空なら no-op。
+    /// </summary>
+    private static void FlushBuf(ref byte[] outBuf, ref int outLen, TextBufferBuilder builder)
+    {
+        if (outLen == 0) return;
+        builder.Add(new ReadOnlySpan<byte>(outBuf, 0, outLen));
+        outLen = 0;
+    }
+
+    /// <summary>
+    /// P7 I-3 Task 3: Snapshot 全 EOL がターゲット EOL と一致するかを byte スキャンで判定
+    /// (fast-path 判定用=SnapshotText 全文化を回避)。CRLF/CR/LF 混在(target と異なる EOL が
+    /// 1 つでも存在する)なら false=非 fast-path 経路で統一が必要。CR がピース境界に跨るケースは
+    /// pendingCr で持ち越す(次ピース先頭が LF なら CRLF、そうでなければ CR 単独)。
+    /// </summary>
+    private static bool IsEolAlreadyUniform(TextSnapshot snap, byte[] targetBytes)
+    {
+        bool pendingCr = false;
+        foreach (var piece in PieceTree.Enumerate(snap.Root))
+        {
+            var span = piece.Chunk.Span.Slice(piece.ByteStart, piece.ByteLen);
+            for (int i = 0; i < span.Length; i++)
+            {
+                byte b = span[i];
+                if (pendingCr)
+                {
+                    pendingCr = false;
+                    if (b == 0x0A)
+                    {
+                        // 前ピース末尾 CR + 当ピース先頭 LF=CRLF。target が CRLF でなければ NG。
+                        if (!(targetBytes.Length == 2 && targetBytes[0] == 0x0D && targetBytes[1] == 0x0A)) return false;
+                        continue;
+                    }
+                    // CR 単独。target が CR でなければ NG。今の byte は落とさず後段で処理継続。
+                    if (!(targetBytes.Length == 1 && targetBytes[0] == 0x0D)) return false;
+                }
+                if (b == 0x0D)
+                {
+                    if (i + 1 < span.Length && span[i + 1] == 0x0A)
+                    {
+                        if (!(targetBytes.Length == 2 && targetBytes[0] == 0x0D && targetBytes[1] == 0x0A)) return false;
+                        i++;
+                    }
+                    else if (i + 1 < span.Length)
+                    {
+                        if (!(targetBytes.Length == 1 && targetBytes[0] == 0x0D)) return false;
+                    }
+                    else pendingCr = true;
+                }
+                else if (b == 0x0A)
+                {
+                    if (!(targetBytes.Length == 1 && targetBytes[0] == 0x0A)) return false;
+                }
+            }
+        }
+        if (pendingCr)
+        {
+            // 全 span 走査後に残った CR は文書末尾の単独 CR。target が CR でなければ NG。
+            if (!(targetBytes.Length == 1 && targetBytes[0] == 0x0D)) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// P7 I-3 Task 3: [0, <paramref name="pos"/>) に含まれる「改行以外の文字数」と「改行数」を
+    /// SnapshotReader(chunked TextReader)で走査して返す。CRLF は 1 改行として数える(旧
+    /// <c>CountNonBreakAndBreaks(string, int)</c> と等価)。ConvertEols で char 位置を EOL
+    /// 変換前後にマップし直すために使う。8192 char バッファ境界で '\r' が末尾に来るケースは carry で持ち越す。
+    /// pos が CRLF の LF を指す(=接頭辞末尾が CR)ケースは \r 単独として 1 改行を計上(境界を跨がない安全側)。
+    /// </summary>
+    private static (int NonBreakChars, int Breaks) CountNonBreakAndBreaksInSnapshot(TextSnapshot snap, int pos)
     {
         int m = 0, k = 0;
-        int i = 0;
-        int p = Math.Min(pos, s.Length);
-        while (i < p)
+        int p = Math.Min(pos, snap.CharLength);
+        if (p == 0) return (0, 0);
+        using var reader = snap.CreateReader();
+        char[] buf = new char[8192];
+        int consumed = 0;
+        int carry = -1; // 前ブロック末尾の '\r' を持ち越し
+        while (consumed < p)
         {
-            char c = s[i];
-            if (c == '\r' && i + 1 < p && s[i + 1] == '\n') { k++; i += 2; }
-            else if (c == '\r' || c == '\n') { k++; i++; }
-            else { m++; i++; }
+            int want = Math.Min(buf.Length, p - consumed);
+            int n = reader.Read(buf, 0, want);
+            if (n == 0) break;
+            for (int j = 0; j < n; j++)
+            {
+                char c = buf[j];
+                if (carry >= 0)
+                {
+                    // 前ブロック末尾の CR。今の char が LF なら CRLF=1 改行、そうでなければ CR 単独=1 改行。
+                    if (c == '\n') { k++; consumed++; carry = -1; continue; }
+                    k++; carry = -1;
+                }
+                if (c == '\r')
+                {
+                    if (j + 1 < n && buf[j + 1] == '\n') { k++; j++; consumed += 2; }
+                    else if (j + 1 == n) { carry = '\r'; consumed++; }
+                    else { k++; consumed++; }
+                }
+                else if (c == '\n') { k++; consumed++; }
+                else { m++; consumed++; }
+            }
         }
+        if (carry >= 0) k++;
         return (m, k);
     }
 

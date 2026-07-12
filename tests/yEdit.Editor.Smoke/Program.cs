@@ -42,6 +42,83 @@ if (args.Length > 0 && args[0] == "--uia")
     return 0;
 }
 
+// P7 I-3 Task 4: --gen-1gb <path>=1GB UTF-8 ASCII ダミーファイル生成(手動 bench 用)。
+// 1MB block を 1024 回書き出す=1,073,741,824 bytes ちょうど。64 char ごとに '\n' を混ぜて
+// EOL rebuild 経路(ConvertEols)も踏むようにしておく(単一巨大行を避けるため=行分割コスト実測)。
+if (args.Length >= 2 && args[0] == "--gen-1gb")
+{
+    string outPath = args[1];
+    byte[] block = new byte[1024 * 1024];  // 1MB
+    for (int i = 0; i < block.Length; i++) block[i] = (byte)('a' + (i % 26));
+    for (int i = 63; i < block.Length; i += 64) block[i] = (byte)'\n';
+    using var fs = File.Create(outPath);
+    for (int i = 0; i < 1024; i++) fs.Write(block, 0, block.Length);
+    fs.Flush();
+    Console.WriteLine($"generated {outPath} = {new FileInfo(outPath).Length:N0} bytes");
+    return 0;
+}
+
+// P7 I-3 Task 4: --bench-save <path>=Load→ConvertEols→Save のメモリ peak/時間実測。
+// I-3 で「1GB 級 Save で 5GB peak」を chunk 化して O(text) 化した効能を数値で確認する用途。
+// 自動テストは 1GB を扱わない=手動 smoke で 1 回計測して設計書に控えるだけ。
+if (args.Length >= 2 && args[0] == "--bench-save")
+{
+    string inPath = args[1];
+    string outPath = Path.Combine(Path.GetTempPath(), "yedit-bench-save-" + Path.GetRandomFileName() + ".txt");
+    try
+    {
+        // ベースライン(GC 強制回収後の peak)
+        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+        long peak0 = GC.GetTotalMemory(forceFullCollection: false);
+
+        // Load(Stream I/O・UTF-8 は TextBufferBuilder チャンク経路)
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var loaded = TextFileService.LoadAsBufferAuto(inPath);
+        long loadMs = sw.ElapsedMilliseconds;
+        long peakLoad = GC.GetTotalMemory(forceFullCollection: false);
+
+        // EditorControl.SetSource は Handle 作成(CreateCaret/Invalidate)を発火し得る。
+        // WinForms Control のハンドル作成は STA 前提=直接 MTA スレッドで呼ぶと落ちる可能性がある。
+        // 安全側で STA スレッドを立てて Set/ConvertEols/Save をその中で回す。
+        long peakConvert = 0, peakSave = 0, convertMs = 0, saveMs = 0;
+        Exception? threadEx = null;
+        var thread = new System.Threading.Thread(() =>
+        {
+            try
+            {
+                var ctrl = new yEdit.Editor.EditorControl();
+                ctrl.SetSource(loaded.Buffer);
+                ctrl.EolMode = loaded.LineEnding;
+
+                var sw2 = System.Diagnostics.Stopwatch.StartNew();
+                ctrl.ConvertEols(loaded.LineEnding);
+                convertMs = sw2.ElapsedMilliseconds;
+                peakConvert = GC.GetTotalMemory(forceFullCollection: false);
+
+                sw2.Restart();
+                TextFileService.Save(outPath, ctrl.CurrentBuffer, loaded.Encoding, loaded.HasBom);
+                saveMs = sw2.ElapsedMilliseconds;
+                peakSave = GC.GetTotalMemory(forceFullCollection: false);
+            }
+            catch (Exception ex) { threadEx = ex; }
+        });
+        thread.SetApartmentState(System.Threading.ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (threadEx is not null) throw threadEx;
+
+        long inSize = new FileInfo(inPath).Length;
+        long outSize = new FileInfo(outPath).Length;
+        Console.WriteLine($"in={inSize:N0} B  out={outSize:N0} B  match={(inSize == outSize)}");
+        Console.WriteLine($"peak0     ={peak0:N0} B");
+        Console.WriteLine($"peakLoad  ={peakLoad:N0} B  (delta={(peakLoad - peak0):N0})  loadMs={loadMs}");
+        Console.WriteLine($"peakConvert={peakConvert:N0} B  (delta={(peakConvert - peakLoad):N0})  convertMs={convertMs}");
+        Console.WriteLine($"peakSave  ={peakSave:N0} B  (delta={(peakSave - peakConvert):N0})  saveMs={saveMs}");
+    }
+    finally { if (File.Exists(outPath)) File.Delete(outPath); }
+    return 0;
+}
+
 ApplicationConfiguration.Initialize();
 Application.Run(new MainForm(args.FirstOrDefault()));
 return 0;

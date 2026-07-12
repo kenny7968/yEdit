@@ -434,6 +434,14 @@ Task 1〜18 の実施結果:
 - 合格後: NVDA経路・CsvFocusSink・ServeUiaProvider完全撤去、HANDOFF/説明書更新、リリースCI調整(ネイティブDLL同梱削除)
 - **DoD**: 実機OK+撤去後全緑+リリースzip起動確認 → mainへno-ffマージ
 
+#### P7 実装記録
+
+- P7 Task 4 bench(1GB UTF-8 ASCII / Intel Core i9-9900KF @ 3.6GHz / RAM 64GB / Win11 Pro / Release build):
+  - peak0=61,920 B / peakLoad=1,079,282,152 B(delta≈1.005 GB) loadMs=2,386
+  - peakConvert=1,079,338,048 B(delta≈55 KB) convertMs=744
+  - peakSave=1,079,338,048 B(delta=0) saveMs=390
+  - **判定**: peak がおよそ O(text)=I-3 の効能確認。Load 常駐 ≈ 本文サイズ(1.005 GB、目標 ≦1.3 GB クリア)。ConvertEols は `--gen-1gb` が LF を書く=検出 EOL=Lf=`ConvertEols(Lf)` が uniform fast-path を踏み rebuild 経路の一時割当ゼロ(byte スキャンのみ・目標 ≦1.3 GB を大幅クリア)。Save は `WriteTo(Stream)` の変換ゼロチャンク直書きで追加割当 0 バイト(目標 ≦100 MB クリア)。in=out=1,073,741,824 B・match=True で内容も正しくラウンドトリップ。
+
 ### 運用
 - 各フェーズ完了時に別エージェントのコードレビュー→ブランチへコミット。**全フェーズを本ブランチ(feature/custom-editcontrol-design・ワークツリー)に閉じて積み、P7合格後に一括で main へ no-ff マージ**(ユーザー指示 2026-07-05: プロジェクト完了まで main には触れない。当初の「P0/P1は随時mainへマージ」は撤回)
 - 実機SR検証はすべてユーザー実施(チェックリストと再現手順を毎回提供。SrDiagLog方式のログ判別を踏襲)

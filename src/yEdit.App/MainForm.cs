@@ -217,6 +217,7 @@ public sealed partial class MainForm : Form
         {
             case Keys.Control | Keys.Tab: _docs.SelectNext(+1); return true;
             case Keys.Control | Keys.Shift | Keys.Tab: _docs.SelectNext(-1); return true;
+            case Keys.Control | Keys.Shift | Keys.S: _file.SaveAs(); return true; // C-2: Ctrl+Shift+S
             case Keys.F3: _search.FindNext(); return true;
             case Keys.Shift | Keys.F3: _search.FindPrev(); return true;
             case Keys.Control | Keys.Alt | Keys.P: AnnouncePosition(); return true;
@@ -253,7 +254,7 @@ public sealed partial class MainForm : Form
         file.DropDownItems.Add(_recentMenu);
         file.DropDownItems.Add(new ToolStripSeparator());
         AddMenuItem(file, "上書き保存(&S)", (_, _) => _file.Save(), Keys.Control | Keys.S);
-        AddMenuItem(file, "名前を付けて保存(&A)...", (_, _) => _file.SaveAs());
+        AddMenuItem(file, "名前を付けて保存(&A)...", (_, _) => _file.SaveAs(), Keys.Control | Keys.Shift | Keys.S);
         file.DropDownItems.Add(new ToolStripSeparator());
         AddMenuItem(file, "タブを閉じる(&W)", (_, _) => CloseActiveTab(), Keys.Control | Keys.W);
         AddMenuItem(file, "終了(&X)", (_, _) => Close());

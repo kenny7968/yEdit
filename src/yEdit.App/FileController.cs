@@ -186,17 +186,26 @@ public sealed class FileController
     public bool SaveDocument(Document doc)
         => doc.State.Path is null ? SaveAsDocument(doc) : WriteToPath(doc, doc.State.Path);
 
-    /// <summary>指定ドキュメントを名前を付けて保存。成功で State.Path とラベルを更新する。</summary>
+    /// <summary>指定ドキュメントを名前を付けて保存。成功で State.Path/Encoding/LineEnding とラベルを更新する。</summary>
     private bool SaveAsDocument(Document doc)
     {
-        using var dlg = new SaveFileDialog { Filter = "テキスト ファイル (*.txt)|*.txt|マークダウン ファイル (*.md)|*.md|CSV ファイル (*.csv)|*.csv|すべてのファイル (*.*)|*.*" };
-        if (doc.State.Path is not null) dlg.FileName = System.IO.Path.GetFileName(doc.State.Path);
+        using var dlg = new SaveAsDialog(doc.State.Path, doc.State.Encoding.CodePage, doc.State.LineEnding);
         if (dlg.ShowDialog(_owner) != DialogResult.OK) return false;
-        if (!WriteToPath(doc, dlg.FileName)) return false;
-        doc.State.Path = dlg.FileName;
+        if (string.IsNullOrWhiteSpace(dlg.SelectedPath))
+        {
+            MessageBox.Show("ファイル名を指定してください。", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
+        }
+
+        // 新エンコード/改行を State に反映してから WriteToPath へ(既存 WriteToPath は State を参照する)。
+        doc.State.Encoding = EncodingCatalog.Get(dlg.SelectedCodePage);
+        doc.State.LineEnding = dlg.SelectedLineEnding;
+
+        if (!WriteToPath(doc, dlg.SelectedPath)) return false;
+        doc.State.Path = dlg.SelectedPath;
         _docs.UpdateLabel(doc);
         _metaChanged();
-        RegisterRecent(dlg.FileName); // 保存先も最近のファイルへ
+        RegisterRecent(dlg.SelectedPath); // 保存先も最近のファイルへ
         return true;
     }
 

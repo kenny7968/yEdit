@@ -434,7 +434,7 @@ Task 1〜18 の実施結果:
 - 合格後: NVDA経路・CsvFocusSink・ServeUiaProvider完全撤去、HANDOFF/説明書更新、リリースCI調整(ネイティブDLL同梱削除)
 - **DoD**: 実機OK+撤去後全緑+リリースzip起動確認 → mainへno-ffマージ
 
-#### P7 実装記録
+#### P7 実装記録(2026-07-12・Part A(I-3/I-4/I-5)進行中・撤去/検証は継続中)
 
 - P7 Task 4 bench(1GB UTF-8 ASCII / Intel Core i9-9900KF @ 3.6GHz / RAM 64GB / Win11 Pro / Release build):
   - peak0=61,920 B / peakLoad=1,079,282,152 B(delta≈1.005 GB) loadMs=2,386

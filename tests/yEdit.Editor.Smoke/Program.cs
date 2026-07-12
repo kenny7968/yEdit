@@ -44,7 +44,9 @@ if (args.Length > 0 && args[0] == "--uia")
 
 // P7 I-3 Task 4: --gen-1gb <path>=1GB UTF-8 ASCII ダミーファイル生成(手動 bench 用)。
 // 1MB block を 1024 回書き出す=1,073,741,824 bytes ちょうど。64 char ごとに '\n' を混ぜて
-// EOL rebuild 経路(ConvertEols)も踏むようにしておく(単一巨大行を避けるため=行分割コスト実測)。
+// 単一巨大行を回避=Load 側の LineEndingDetector / TextBufferBuilder 行分割経路を踏む。
+// 注意: 検出 EOL=Lf のため `ConvertEols(Lf)` は fast-path 判定で rebuild 未実行。
+// rebuild 経路(LF→CRLF 等)の 1GB bench が要る場合は別サブコマンドで CRLF 統一する必要あり=P7 申し送り。
 if (args.Length >= 2 && args[0] == "--gen-1gb")
 {
     string outPath = args[1];

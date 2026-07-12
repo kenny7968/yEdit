@@ -283,22 +283,72 @@ public static partial class TextFileService
     }
 
     /// <summary>
-    /// P6 Task 7: <see cref="TextBuffer"/> をファイルに保存する(Stream I/O 経路のオーバーロード)。
-    /// 現行の string 版と同一の原子書込み(<see cref="IO.AtomicFile"/>)/共有違反フォールバック契約を維持。
-    /// EOL 変換は事前に <c>yEdit.Editor.EditorControl.ConvertEols</c> 済み前提=ここは既存本文をそのまま保存。
+    /// P7 I-3: <see cref="TextBuffer"/> をファイルに保存する(Stream I/O 経路・chunk write)。
+    /// UTF-8 は <see cref="TextSnapshot.WriteTo(Stream)"/> で変換ゼロチャンク直書き。
+    /// SJIS/EUC-JP は <see cref="TextSnapshot.CreateReader"/>(SnapshotReader)経由の
+    /// <see cref="Encoder.Convert"/> チャンクループで char[] → bytes を段階変換=1GB 級でも peak ~O(chunk)。
+    /// AtomicFile.Write(Stream) で原子書込。共有違反時のみ payload を一括ビルドして byte[] 版 Save に委譲
+    /// (in-place 上書きフォールバックの契約温存・fallback は稀=このパスだけ全文化を許容)。
+    /// EOL 変換は事前に <see cref="EditorControl.ConvertEols"/> 済み前提。
     /// </summary>
-    /// <remarks>
-    /// 内部で string 経由(TextBuffer→string→bytes)。真の Stream write ではないが、
-    /// TextBuffer は 4MB チャンク列なので Encoding.GetBytes は 1 バッファに集約される
-    /// (App 層で ConvertEols → Save の順で呼ばれる契約=保存直前に本文全量が確定)。
-    /// 既存 string 版へ委譲することで BOM/AtomicFile/共有違反フォールバックの契約を共有する。
-    /// </remarks>
     public static void Save(string path, TextBuffer buffer, Encoding encoding, bool hasBom)
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(buffer);
         ArgumentNullException.ThrowIfNull(encoding);
-        string text = buffer.Current.GetText(0, buffer.Current.CharLength);
-        Save(path, text, encoding, hasBom);
+        EncodingCatalog.EnsureRegistered();
+
+        var snap = buffer.Current;
+
+        try
+        {
+            IO.AtomicFile.Write(path, stream =>
+            {
+                if (encoding.CodePage == 65001)
+                {
+                    if (hasBom)
+                        stream.Write(new byte[] { 0xEF, 0xBB, 0xBF }, 0, 3);
+                    snap.WriteTo(stream);
+                }
+                else
+                {
+                    Encoding enc = Encoding.GetEncoding(encoding.CodePage,
+                        EncoderFallback.ReplacementFallback, DecoderFallback.ReplacementFallback);
+                    if (hasBom)
+                    {
+                        byte[] preamble = enc.GetPreamble();
+                        if (preamble.Length > 0) stream.Write(preamble, 0, preamble.Length);
+                    }
+                    using var reader = snap.CreateReader();
+                    var encoder = enc.GetEncoder();
+                    const int CharBufLen = 8 * 1024;
+                    char[] charBuf = new char[CharBufLen];
+                    byte[] byteBuf = new byte[enc.GetMaxByteCount(CharBufLen)];
+                    int charRead;
+                    while ((charRead = reader.Read(charBuf, 0, CharBufLen)) > 0)
+                    {
+                        int offset = 0;
+                        while (offset < charRead)
+                        {
+                            encoder.Convert(charBuf, offset, charRead - offset,
+                                byteBuf, 0, byteBuf.Length, flush: false,
+                                out int charsUsed, out int bytesUsed, out _);
+                            if (bytesUsed > 0) stream.Write(byteBuf, 0, bytesUsed);
+                            offset += charsUsed;
+                        }
+                    }
+                    // 最終 flush(サロゲート途中終わりは FFFD 化される=既存挙動と等価)
+                    encoder.Convert(Array.Empty<char>(), 0, 0, byteBuf, 0, byteBuf.Length,
+                        flush: true, out _, out int flushBytes, out _);
+                    if (flushBytes > 0) stream.Write(byteBuf, 0, flushBytes);
+                }
+            });
+        }
+        catch (IOException ex) when (IO.AtomicFile.IsShareOrLockViolation(ex))
+        {
+            // 共有違反フォールバック=byte[] 版に委譲(全文化する稀ケース=in-place 上書き契約を温存)。
+            string text = snap.GetText(0, snap.CharLength);
+            Save(path, text, encoding, hasBom);
+        }
     }
 }

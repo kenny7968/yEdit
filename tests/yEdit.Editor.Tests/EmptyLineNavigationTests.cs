@@ -183,7 +183,7 @@ public class EmptyLineNavigationTests
             int fired = 0;
             c.CaretEnteredEmptyLine += (_, _) => fired++;
 
-            // programmatic ジャンプ(検索ジャンプ・GoTo・CsvFocusSink 相当):line2 空行へ。
+            // programmatic ジャンプ(検索ジャンプ・GoTo 相当):line2 空行へ。
             // §0-7 により programmatic 移動自体は CaretEnteredEmptyLine を発火しない。
             c.SetCaretCharOffset(5);
             Assert.Equal(0, fired);

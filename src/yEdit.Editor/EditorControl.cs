@@ -78,7 +78,7 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     // - 公開キャレット/選択 setter(<see cref="SetCaretCharOffset"/> /
     //   <see cref="MoveCaretWithSelection"/> / <see cref="SetSelectionAnchored"/> /
     //   <see cref="SetSelectionCharRange"/>)=App 層 programmatic ジャンプ(検索ジャンプ・
-    //   GoTo・CsvFocusSink 等)で空行に飛んだあと、ユーザーが同位置に留まるキーを押しても
+    //   GoTo 等)で空行に飛んだあと、ユーザーが同位置に留まるキーを押しても
     //   spurious fire しないよう強制同期(Task 13 レビュー I-1)。
     // - <see cref="SetSource"/>=0 初期化
     // 編集経路(OnKeyPress / BackSpace/Delete/Enter/Tab/Undo/Redo/Cut/Paste)からは

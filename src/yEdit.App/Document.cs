@@ -13,23 +13,15 @@ public sealed class Document
     public TabPage Page { get; }
     public DocumentState State { get; } = new();
 
-    /// <summary>CSVモード中のフォーカス退避先(P5 まで)。P6 で EditorControl 単一 SR 経路
-    /// (UIA v2)に統一したため実効的にフォーカスは常に Editor に向かう。CsvSink 生成自体は
-    /// 残し(P7 の CsvFocusSink 完全撤去 Task まで温存=Page.Controls への追加が消えることで
-    /// レイアウトが揺れないようにする)、FocusTarget からは切り離す(§0-8「無効化のみで残す」)。</summary>
-    public CsvFocusSink CsvSink { get; }
-
     /// <summary>「編集領域」へフォーカスを戻すときの正しい行き先。P6 以降は常に Editor
-    /// (旧: P5 まで CSV モード中はシンクへ退避していたが、UIA v2 単一経路への統一に合わせ Editor 固定)。</summary>
+    /// (P5 まで CSV モード中は CsvFocusSink へ退避していたが、UIA v2 単一経路への統一に合わせ Editor 固定・
+    /// P7 で CsvFocusSink 自体を完全撤去=§0-8 猶予を解消)。</summary>
     public Control FocusTarget => Editor;
 
     public Document(EditorControl editor, TabPage page)
     {
         Editor = editor;
         Page = page;
-        CsvSink = new CsvFocusSink();
-        page.Controls.Add(CsvSink);   // editor(Dock=Fill) より後に追加 → Z順で背面
-        CsvSink.SendToBack();         // 呼び出し順に依存せず背面を自己保証
     }
 
     /// <summary>タブに表示するラベル（ファイル名＋変更マーク）。</summary>

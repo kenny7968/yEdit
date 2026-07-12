@@ -3158,17 +3158,16 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         int line = snap.GetLineIndexOfChar(o);
         int logicalStart = snap.GetLineStart(line);
         int logicalEnd = snap.GetLineEnd(line, includeBreak: false);
-        // P8-1c: 折り返し ON の視覚行=次の視覚行の先頭(=現在視覚行の直後)を返す。
-        // 継続セグメント(seg 0 以外)の直前セグメントの end も同じ位置=改行を跨がない。
-        // 論理行最終セグメントのときのみ改行を含めて次論理行先頭 or TextLength を返す(旧挙動維持)。
+        // P8-1c: 折り返し ON の視覚行=次の視覚行の先頭(=現在視覚行の直後)。
+        // 継続セグメント(=論理行末に達しないセグメント)は次 seg 先頭=改行を跨がない。
         var visual = TryFindVisualSegment(snap, line, o - logicalStart);
         if (visual is { } vs)
         {
             int visualEndInLine = vs.OffsetInLine + vs.Length;
-            // 継続セグメント→次視覚行(=次 seg 先頭)を返す=改行なし
-            if (logicalStart + visualEndInLine < logicalEnd) return logicalStart + visualEndInLine;
-            // 論理行最終視覚行=改行を跨いで次論理行先頭 or TextLength
+            if (logicalStart + visualEndInLine < logicalEnd)
+                return logicalStart + visualEndInLine;   // 継続 seg=改行手前で終了
         }
+        // 論理行最終視覚行(または wrap OFF)=改行を含めて次論理行先頭 or TextLength
         if (line + 1 < snap.LineCount) return snap.GetLineStart(line + 1);
         return snap.CharLength;
     }
@@ -3187,13 +3186,36 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     /// <summary>
     /// P8-1c: 論理行 <paramref name="line"/> 内の <paramref name="offsetInLine"/> が属する視覚セグメントを返す。
     /// wrap OFF(<c>_wrapColumns &lt;= 0</c>)または空行のときは null=呼び出し側で論理行フォールバック。
-    /// RPC スレッド安全(volatile <see cref="_bufferSnapshot"/>+ 参照型 <c>_metrics</c>/int <c>_wrapColumns</c> の
-    /// 個別読み取りは torn read しない。ApplyAppearance 中の不整合は SR が次の呼び出しで補正=許容)。
     /// </summary>
+    /// <remarks>
+    /// P8 レビュー Important-1 対応: <see cref="GdiCharMetrics.MeasureRun"/> は非 ASCII(日本語含む)で
+    /// <see cref="TextRenderer.MeasureText"/>(GDI)へ落ちる=UI スレッド専用。UIA RPC スレッドから
+    /// 直接呼ぶと契約違反+<see cref="ApplyAppearance"/> による <see cref="Font"/> 差替時の
+    /// disposed reference レースが発生する。RPC スレッドからは <see cref="Control.Invoke(Delegate)"/> で
+    /// UI スレッドへマーシャリングして両問題を解決する(SR の Line 単位読みは典型的に秒あたり数回=
+    /// Invoke レイテンシ数 ms は許容)。Handle 未生成時(SetSource 前)は null=論理行フォールバック。
+    /// </remarks>
     private yEdit.Core.Layout.WrapSegment? TryFindVisualSegment(TextSnapshot snap, int line, int offsetInLine)
     {
         int wrap = _wrapColumns;
         if (wrap <= 0) return null;
+        if (!IsHandleCreated) return null;   // UI スレッドが束縛されていない=論理行フォールバック
+        if (InvokeRequired)
+        {
+            try
+            {
+                return (yEdit.Core.Layout.WrapSegment?)Invoke(new Func<yEdit.Core.Layout.WrapSegment?>(
+                    () => TryFindVisualSegmentCore(snap, line, offsetInLine, wrap)));
+            }
+            catch (ObjectDisposedException) { return null; }
+            catch (InvalidOperationException) { return null; }   // Handle 破棄との race
+        }
+        return TryFindVisualSegmentCore(snap, line, offsetInLine, wrap);
+    }
+
+    /// <summary>UI スレッド上での視覚セグメント検索本体(<see cref="TryFindVisualSegment"/> から Invoke マーシャリング後)。</summary>
+    private yEdit.Core.Layout.WrapSegment? TryFindVisualSegmentCore(TextSnapshot snap, int line, int offsetInLine, int wrap)
+    {
         var metrics = _metrics;
         int logicalStart = snap.GetLineStart(line);
         int logicalEnd = snap.GetLineEnd(line, includeBreak: false);
@@ -3206,7 +3228,7 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
             int segEnd = segs[i].OffsetInLine + segs[i].Length;
             if (offsetInLine < segEnd || i == segs.Count - 1) return segs[i];
         }
-        return segs[segs.Count - 1];
+        return null;   // 到達不能(LineLayout.Wrap は非空入力で必ず 1 seg 以上返す)
     }
 
     int yEdit.Accessibility.IUiaTextHost.WordStart(int offset)

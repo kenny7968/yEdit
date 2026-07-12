@@ -163,6 +163,75 @@ public class EditorControlUiaHostTests
         });
     }
 
+    // ===== P8 レビュー Important-1 対応: 日本語+RPC 越境の Invoke マーシャリング検証 =====
+
+    [Fact]
+    public void Host_LineStartOf_WithWrap_JapaneseContent_ComputesVisualSegmentStart()
+    {
+        // 日本語は非 ASCII=GdiCharMetrics.MeasureRun が TextRenderer(GDI)へ落ちる=UI スレッド必須。
+        // Invoke マーシャリング済経路でも正しく視覚 seg 先頭が返ることを確認。
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            using var form = new Form { WindowState = FormWindowState.Minimized };
+            form.Controls.Add(ctrl);
+            form.Show();
+            try
+            {
+                var buf = TextBuffer.FromString("あいうえおかきくけこさしすせそたちつてと");
+                ctrl.SetSource(buf);
+                ctrl.WrapColumns = 4;   // 全角 4 col=約 64px=数 seg に分割
+                IUiaTextHost host = ctrl;
+                int startMid = host.LineStartOf(10);
+                int startEnd = host.LineStartOf(18);
+                // 継続 seg=論理行頭(0)ではなく視覚 seg 先頭
+                Assert.True(startMid > 0, $"Japanese wrap mid: got {startMid}, expected visual seg start > 0");
+                Assert.True(startEnd > 0, $"Japanese wrap end: got {startEnd}, expected visual seg start > 0");
+            }
+            finally { form.Close(); }
+        });
+    }
+
+    [Fact]
+    public void Host_LineStartOf_WithWrap_CalledFromNonUiThread_MarshalsSafely()
+    {
+        // UIA RPC スレッド越境の再現: Task.Run から host.LineStartOf を呼ぶ。
+        // Invoke マーシャリングが deadlock/例外なく結果を返すことを検証(Important-1 の根本ケース)。
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            using var form = new Form { WindowState = FormWindowState.Minimized };
+            form.Controls.Add(ctrl);
+            form.Show();
+            try
+            {
+                var buf = TextBuffer.FromString("あいうえおかきくけこ");
+                ctrl.SetSource(buf);
+                ctrl.WrapColumns = 4;
+                IUiaTextHost host = ctrl;
+
+                int? result = null;
+                Exception? ex = null;
+                var task = System.Threading.Tasks.Task.Run(() =>
+                {
+                    try { result = host.LineStartOf(6); }
+                    catch (Exception e) { ex = e; }
+                });
+
+                // UI スレッドで DoEvents ループを回して Invoke を進行させる
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                while (!task.IsCompleted && sw.ElapsedMilliseconds < 3000)
+                    Application.DoEvents();
+                task.Wait(1000);
+
+                Assert.True(task.IsCompleted, "cross-thread host call must complete without deadlock");
+                Assert.Null(ex);
+                Assert.NotNull(result);
+            }
+            finally { form.Close(); }
+        });
+    }
+
     [Fact]
     public void Host_WordStart_UsesCoreWordBoundary()
     {

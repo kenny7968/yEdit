@@ -187,6 +187,37 @@ public class TextFileServiceSaveTextBufferTests
     }
 
     [Fact]
+    public void SaveTextBuffer_Sjis_SurrogatePairSpansCharBufferBoundary_FallsBackToSingleReplacement()
+    {
+        // SJIS/EUC-JP 経路(Encoder.Convert(flush:false)ループ)のサロゲート境界回帰テスト。
+        // U+1F600(😀・SMP)は SJIS 定義域外=EncoderFallback.ReplacementFallback で '?' 1 個に置換される。
+        // ★ Encoder が状態を持ち越さないと、8192 char バッファ境界で分断されたサロゲート対の
+        //    高サロゲート・低サロゲートがそれぞれ「無効」として '?' '?' の 2 個に置換される。
+        // ★ 状態を持ち越して pair 完成後に単一コードポイントとして fallback すると '?' 1 個のみ。
+        // 8191 個の 'a' + '😀' で高サロゲートが CharBufLen=8192 の最後、低サロゲートが次 Read の先頭に来る配置。
+        EncodingCatalog.EnsureRegistered();
+        string body = new string('a', 8191) + "😀" + new string('b', 100);
+        var buffer = TextBuffer.FromString(body);
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            TextFileService.Save(path, buffer, EncodingCatalog.Get(932), hasBom: false);
+            byte[] actual = File.ReadAllBytes(path);
+            // 期待値: 現行 .NET Encoding.GetEncoding(932, EncoderFallback.ReplacementFallback, ...) の
+            // string 経路と同一挙動になるはず(Encoder 状態が正しく持ち越されている場合)。
+            byte[] expected = Encoding.GetEncoding(932,
+                EncoderFallback.ReplacementFallback, DecoderFallback.ReplacementFallback)
+                .GetBytes(body);
+            Assert.Equal(expected, actual);
+            // 追加保証: '?' の個数が期待値と一致(サロゲート対は 1 個の '?' に融合されるべき)
+            int expectedQMark = expected.Count(b => b == (byte)'?');
+            int actualQMark = actual.Count(b => b == (byte)'?');
+            Assert.Equal(expectedQMark, actualQMark);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
     public void SaveTextBuffer_ShareViolation_FallsBackToInPlaceOverwrite()
     {
         // 共有違反 catch 経路(TextBuffer 版 Save → string 版 Save 委譲)が動作することの直接検証。

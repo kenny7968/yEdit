@@ -190,7 +190,7 @@ public sealed class FileController
     /// <summary>指定ドキュメントを名前を付けて保存。成功で State.Path/Encoding/LineEnding とラベルを更新する。</summary>
     private bool SaveAsDocument(Document doc)
     {
-        using var dlg = new SaveAsDialog(doc.State.Path, doc.State.Encoding.CodePage, doc.State.LineEnding);
+        using var dlg = new SaveAsDialog(doc.State.Path, doc.State.Encoding.CodePage, doc.State.HasBom, doc.State.LineEnding);
         if (dlg.ShowDialog(_owner) != DialogResult.OK) return false;
         if (string.IsNullOrWhiteSpace(dlg.SelectedPath))
         {
@@ -210,19 +210,22 @@ public sealed class FileController
             if (result != DialogResult.OK) return false;
         }
 
-        // 新エンコード/改行を State に反映してから WriteToPath へ(既存 WriteToPath は State を参照する)。
-        // C-2 追補 I-1: WriteToPath 失敗時は元の Encoding/LineEnding へロールバック
+        // 新エンコード/改行/BOM を State に反映してから WriteToPath へ(既存 WriteToPath は State を参照する)。
+        // C-2 追補 I-1: WriteToPath 失敗時は元の Encoding/LineEnding/HasBom へロールバック
         // (State だけ更新済で Path が旧のままだと後続の Ctrl+S が元ファイルを別エンコードで
         // サイレント上書きする=データ破損)。
         var oldEncoding = doc.State.Encoding;
         var oldLineEnding = doc.State.LineEnding;
+        var oldHasBom = doc.State.HasBom;
         doc.State.Encoding = newEncoding;
         doc.State.LineEnding = dlg.SelectedLineEnding;
+        doc.State.HasBom = dlg.SelectedHasBom;
 
         if (!WriteToPath(doc, dlg.SelectedPath))
         {
             doc.State.Encoding = oldEncoding;
             doc.State.LineEnding = oldLineEnding;
+            doc.State.HasBom = oldHasBom;
             return false;
         }
         doc.State.Path = dlg.SelectedPath;

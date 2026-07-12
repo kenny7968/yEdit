@@ -48,6 +48,21 @@ public static class EncodingCatalog
         new EncodingOption(51932, "EUC-JP"),
     };
 
+    /// <summary>SaveAs 用の選択肢。UTF-8 のみ BOM 有無で 2 エントリに展開し、
+    /// 他の CodePage はそのまま(BOM 概念が意味を持たないため HasBom=false 固定)。</summary>
+    public readonly record struct SaveAsEncodingOption(int CodePage, bool HasBom, string DisplayName);
+
+    /// <summary>SaveAs で使う文字コード選択肢(表示順)。
+    /// 既存の <see cref="SelectableEncodings"/> は開き直し/設定/ステータス表示で使う BOM 無視の一覧。
+    /// 本一覧は SaveAs 専用で BOM 有無を明示させるため別プロパティで公開する。</summary>
+    public static IReadOnlyList<SaveAsEncodingOption> SaveAsSelectableEncodings { get; } = new[]
+    {
+        new SaveAsEncodingOption(65001, false, "UTF-8 (BOM なし)"),
+        new SaveAsEncodingOption(65001, true,  "UTF-8 (BOM)"),
+        new SaveAsEncodingOption(932,   false, "Shift_JIS"),
+        new SaveAsEncodingOption(51932, false, "EUC-JP"),
+    };
+
     /// <summary>
     /// コードページの基本表示名（BOM 有無は含まない）。未知のコードページは WebName を返す。
     /// "UTF-8 (BOM)" 等の BOM 表記は呼び出し側で付与する。

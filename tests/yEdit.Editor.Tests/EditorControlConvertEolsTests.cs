@@ -169,4 +169,54 @@ public class EditorControlConvertEolsTests
             Assert.Equal("a\r\nb\r\nc\r\nd\r\ne", ctrl.SnapshotText);
         });
     }
+
+    // P7 I-3 Task 3 Minor-2: 文書末尾が孤立 CR = foreach 後の `if (pendingCr) EmitEol` の drain 経路を検証。
+    [Fact]
+    public void ConvertEols_TrailingLoneCr_ToLf_DrainedByPendingCr()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("abc\r"));
+            ctrl.ConvertEols(LineEnding.Lf);
+            Assert.Equal("abc\n", ctrl.SnapshotText);
+        });
+    }
+
+    // P7 I-3 Task 3 Minor-2: CRLF が 4MB ピース境界を跨ぐ +全体 CRLF 統一 +target=CRLF
+    // → IsEolAlreadyUniform が pendingCr で境界跨ぎ CRLF を正しく accept、fast-path で return する。
+    // fast-path 発火の証拠: EolMode だけ更新される(挙動観察=結果本文が完全に不変)。
+    [Fact]
+    public void ConvertEols_FastPath_CrlfSpansChunks_WithTargetCrlf_NoRebuild()
+    {
+        Sta.Run(() =>
+        {
+            int fill = 4 * 1024 * 1024 - 1;
+            string body = new string('a', fill) + "\r\n" + new string('b', 100) + "\r\n";
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString(body));
+            ctrl.ConvertEols(LineEnding.Crlf);
+            // 変換不要=完全不変
+            Assert.Equal(body, ctrl.SnapshotText);
+            Assert.Equal(LineEnding.Crlf, ctrl.EolMode);
+        });
+    }
+
+    // P7 I-3 Task 3 Minor-2: 文書 "a\r\nb"(char length=4)にキャレット=2(CRLF の LF を指す)
+    // → CountNonBreakAndBreaksInSnapshot は「\r 単独 + LF 単独」に分けて数える安全側=(M=1, K=1)
+    // 変換後 "a\nb"(char length=3)にキャレット=1+1*1=2(=同じ論理位置)
+    [Fact]
+    public void ConvertEols_CaretOnLfOfCrlf_ConvertToLf_LogicalPositionPreserved()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("a\r\nb"));
+            ctrl.SetCaretCharOffset(2); // CRLF の LF を指す
+            ctrl.ConvertEols(LineEnding.Lf);
+            Assert.Equal("a\nb", ctrl.SnapshotText);
+            // caret は「a\n」の直後(=位置 2)にあるはず(CRLF→LF で 1 個縮んだ論理位置と一致)
+            Assert.Equal(2, ctrl.CaretCharOffset);
+        });
+    }
 }

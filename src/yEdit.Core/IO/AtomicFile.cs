@@ -46,6 +46,41 @@ public static class AtomicFile
     }
 
     /// <summary>
+    /// P7 I-3: 大容量本文向けの Stream ベース原子書込。writer に tmp ファイルの
+    /// FileStream を渡し、書き終えた後に <see cref="Write(string, byte[])"/> と同じ
+    /// File.Replace / File.Move で差し替える。writer が例外を投げた場合は tmp を
+    /// 掃除して例外を伝播する(原本に一切触れない=byte[] 版と同一契約)。
+    /// </summary>
+    public static void Write(string path, Action<Stream> writer)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        string dir = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        string tmp = Path.Combine(dir, Path.GetFileName(path) + "." + Path.GetRandomFileName() + ".tmp");
+
+        try
+        {
+            using (var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                writer(fs);
+        }
+        catch
+        {
+            TryDelete(tmp);
+            throw;
+        }
+
+        try
+        {
+            if (File.Exists(path)) File.Replace(tmp, path, destinationBackupFileName: null);
+            else File.Move(tmp, path);
+        }
+        catch
+        {
+            TryDelete(tmp);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// ex が Win32 の共有違反/ロック競合か。in-place フォールバックを許してよい唯一の条件
     /// （これ以外＝ディスクフル等でフォールバックすると原本を破壊し得る）の判定に使う。
     /// </summary>

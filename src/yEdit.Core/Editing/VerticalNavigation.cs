@@ -90,14 +90,7 @@ public static class VerticalNavigation
 
     /// <summary>caretInLine を含む視覚セグメントの index を返す。行末位置(=最終 segEnd)は最終セグメント扱い。</summary>
     private static int FindSegIndex(IReadOnlyList<WrapSegment> segs, int caretInLine)
-    {
-        for (int i = 0; i < segs.Count; i++)
-        {
-            int segEnd = segs[i].OffsetInLine + segs[i].Length;
-            if (caretInLine < segEnd || (i == segs.Count - 1 && caretInLine == segEnd)) return i;
-        }
-        return segs.Count - 1;
-    }
+        => VisualSegments.FindContaining(segs, caretInLine).Index;
 
     /// <summary>
     /// 視覚行を deltaRows 分だけ歩き、(論理行, セグメント index) を返す。

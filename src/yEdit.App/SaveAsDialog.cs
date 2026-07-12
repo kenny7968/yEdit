@@ -23,8 +23,8 @@ public sealed class SaveAsDialog : Form
         AccessibleName = "改行コード",
     };
 
-    private static readonly IReadOnlyList<EncodingCatalog.EncodingOption> EncodingChoices
-        = EncodingCatalog.SelectableEncodings;
+    private static readonly IReadOnlyList<EncodingCatalog.SaveAsEncodingOption> EncodingChoices
+        = EncodingCatalog.SaveAsSelectableEncodings;
 
     // 改行の選択肢。表示名/値のペア。
     private static readonly (string Label, LineEnding Value)[] LineEndingChoices = new[]
@@ -36,9 +36,10 @@ public sealed class SaveAsDialog : Form
 
     public string SelectedPath => _path.Text;
     public int SelectedCodePage => EncodingChoices[_encoding.SelectedIndex].CodePage;
+    public bool SelectedHasBom => EncodingChoices[_encoding.SelectedIndex].HasBom;
     public LineEnding SelectedLineEnding => LineEndingChoices[_lineEnding.SelectedIndex].Value;
 
-    public SaveAsDialog(string? initialPath, int currentCodePage, LineEnding currentLineEnding)
+    public SaveAsDialog(string? initialPath, int currentCodePage, bool currentHasBom, LineEnding currentLineEnding)
     {
         Text = "名前を付けて保存";
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -54,8 +55,11 @@ public sealed class SaveAsDialog : Form
         int encSel = 0;
         for (int i = 0; i < EncodingChoices.Count; i++)
         {
-            _encoding.Items.Add(EncodingChoices[i].DisplayName);
-            if (EncodingChoices[i].CodePage == currentCodePage) encSel = i;
+            var e = EncodingChoices[i];
+            _encoding.Items.Add(e.DisplayName);
+            // (codePage, hasBom) 完全一致の行を初期選択。UTF-8 では BOM 有無で 2 行あるので厳密一致が必要。
+            // 非 UTF-8 は HasBom=false 固定のエントリしか無いので実質 CodePage 一致で決まる。
+            if (e.CodePage == currentCodePage && e.HasBom == currentHasBom) encSel = i;
         }
         _encoding.SelectedIndex = encSel;
 

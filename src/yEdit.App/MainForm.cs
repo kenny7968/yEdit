@@ -50,7 +50,7 @@ public sealed partial class MainForm : Form
 
         _docs = new DocumentManager(CreateEditor);
         _docs.ActiveDocumentChanged += (_, _) => { UpdateTitle(); UpdateStatus(); };
-        _docs.KeyBasedSwitch += doc => _announcer.Say(doc.State.DisplayName);
+        _docs.KeyBasedSwitch += (_, doc) => _announcer.Say(doc.State.DisplayName);
         _docs.ActiveDirtyChanged += (_, _) => UpdateTitle();
         _docs.ActiveCaretChanged += (_, _) => UpdateStatus();
         // 空行着地の能動発声: PC-Talker は UIA の長さ0行を無音にするため、こちらから「空行」を読む。
@@ -77,11 +77,11 @@ public sealed partial class MainForm : Form
         _file = new FileController(_docs, this, () => _settings,
             SaveSettingsSafe, RebuildRecentMenu, () => { UpdateTitle(); UpdateStatus(); },
             AutoEnterCsvMode);
-        _search = new SearchController(_docs, this);
+        _announcer = AnnouncerFactory.Create(_announceLabel);
+        _search = new SearchController(_docs, this, _announcer);
         _grep = new GrepController(_docs, this,
             hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength));
         _backup = new BackupCoordinator(_docs, _settings.BackupEnabled, _settings.BackupIntervalSeconds);
-        _announcer = AnnouncerFactory.Create(_announceLabel);
         _csv = new CsvController(_docs, _announcer);
         _docs.BeforeActiveChange = () => _csv.AbortEdit(); // タブ切替直前に F2 編集を中断（焦点の引き戻し防止）
         // P6 で編集エンジンが自作 EditorControl (v2 UIA 単一経路) に統一されたため、

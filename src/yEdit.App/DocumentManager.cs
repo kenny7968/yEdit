@@ -27,6 +27,8 @@ public sealed class DocumentManager
 
     /// <summary>アクティブタブが切り替わる直前のフック（F2 編集中なら中断させる等）。
     /// マウス操作は Deselecting で、キーボード/プログラム経路は各選択メソッドから発火する。</summary>
+    /// <remarks>P7/P8 申し送り Event 統一: sender/args とも意味を持たないため EventHandler 化せず
+    /// <see cref="Action"/> のまま維持。他の event が EventHandler 系に統一されている中の意図的例外。</remarks>
     public Action? BeforeActiveChange { get; set; }
 
     public Document? Active => _tabs.SelectedTab?.Tag as Document;
@@ -41,10 +43,10 @@ public sealed class DocumentManager
 
     /// <summary>アクティブ Document のエディタが Win32 フォーカスを得た。CSVモード中の
     /// シンク退避判断は上位（MainForm）が行う（_csv.IsEditing を参照できるのが上位のため）。</summary>
-    public event Action<Document>? EditorGotFocus;
+    public event EventHandler<Document>? EditorGotFocus;
 
     /// <summary>キー起因(Ctrl+Tab/Ctrl+1..9)のタブ切替時に発火。MainForm が Announcer でタブ名を読ませる。</summary>
-    public event Action<Document>? KeyBasedSwitch;
+    public event EventHandler<Document>? KeyBasedSwitch;
 
     /// <summary>新しい空タブを生成しアクティブ化する。State の中身は呼び出し側が設定する。</summary>
     public Document CreateNew()
@@ -75,7 +77,7 @@ public sealed class DocumentManager
         };
         editor.GotFocus += (_, _) =>
         {
-            if (ReferenceEquals(doc, Active)) EditorGotFocus?.Invoke(doc);
+            if (ReferenceEquals(doc, Active)) EditorGotFocus?.Invoke(this, doc);
         };
 
         _docs.Add(doc);
@@ -140,7 +142,7 @@ public sealed class DocumentManager
     // SR の発声キューを先取りするのを避け、タブ名が確実に先に読まれるようにする。
     private void AnnounceThenFocus(int prevIndex)
     {
-        if (_tabs.SelectedIndex != prevIndex && Active is { } d) KeyBasedSwitch?.Invoke(d);
+        if (_tabs.SelectedIndex != prevIndex && Active is { } d) KeyBasedSwitch?.Invoke(this, d);
         FocusActiveEditor();
     }
 

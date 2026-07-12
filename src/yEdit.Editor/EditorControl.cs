@@ -112,6 +112,25 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     private readonly object _boundsSync = new();
     private System.Windows.Rect _bounds;
 
+    // P8 Minor-5: SR の Line 単位連続読み(LineStartOf/LineEndNoBreakOf/LineEnd)で
+    // 同一 (snap, logicalLine, wrap) が繰り返されるため単一エントリキャッシュ。
+    // UI スレッド上でのみ更新される(TryFindVisualSegmentCore は Invoke マーシャリング後)。
+    // 無効化ポイント: AfterEdit() / SetSource() / ReplaceSource() / ApplyAppearance() / WrapColumns setter。
+    // 設計原則: _bufferSnapshot を更新するすべての経路で _lastLineSegs も破棄する
+    // (correctness は ReferenceEquals(c.Snap) 判定で守られるが、旧 TextSnapshot の Root
+    //  PieceTree が強参照で pin されて大容量ファイル差替後の GC を阻害するため)。
+    private (yEdit.Core.Buffers.TextSnapshot Snap, int Line, int Wrap,
+             System.Collections.Generic.IReadOnlyList<yEdit.Core.Layout.WrapSegment> Segs)? _lastLineSegs;
+
+    // Editor.Tests から観測するためのヒットカウンタ(internal・テスト以外の呼び出しは想定しない)。
+    internal long TestHook_LastLineSegsHitCount { get; private set; }
+    internal long TestHook_LastLineSegsMissCount { get; private set; }
+    internal void TestHook_ResetLastLineSegsCounters()
+    {
+        TestHook_LastLineSegsHitCount = 0;
+        TestHook_LastLineSegsMissCount = 0;
+    }
+
     // P5 Task 10: 座標 API 用の描画スナップショット + client→screen オフセットキャッシュ。
     // _lastFrame は OnPaint 完了時点の Frame(描画に使われたもの)。BB 計算では直接使わず、
     // 「最新描画のあと」の判定と Task 11 テスト用フックに使う。
@@ -207,6 +226,7 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         // (FromString で生まれるバッファは Modified=false 前提だが、既に Modified=true な
         //  バッファを差し込まれた場合に初回 AfterEdit で SavePointLeft が spurious 発火するのを防ぐ)。
         _wasModified = _buffer.Modified;
+        _lastLineSegs = null; // P8 Minor-5: 全差替でキャッシュ破棄
     }
 
     /// <summary>
@@ -261,6 +281,7 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         }
         Invalidate();
         CacheSnapshot();  // P5 RPC スレッド用スナップショット更新
+        _lastLineSegs = null; // P8 Minor-5: 全差替でキャッシュ破棄(SetSource と同旨)
         // P6 Task 4: 差し替え後のバッファ状態で SavePointLeft 検出用の直前状態を同期
         // (SetSource と同旨=バッファが Modified=true でも初回 AfterEdit で spurious 発火しないよう)
         _wasModified = buffer.Modified;
@@ -620,6 +641,7 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
             int clamped = Math.Max(0, value);
             if (_wrapColumns == clamped) return;
             _wrapColumns = clamped;
+            _lastLineSegs = null; // P8 Minor-5: wrap 値変化でキャッシュ破棄
             _scrollX = 0;
             UpdateHorizontalScrollbar();
             PositionCaret();
@@ -1181,6 +1203,7 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         Invalidate();
         // P5 Task 5: 編集後に RPC スレッド用スナップショットを更新
         CacheSnapshot();
+        _lastLineSegs = null; // P8 Minor-5: 編集で snapshot が更新されたのでキャッシュ破棄
         // P5 Task 8: UIA イベント発火(TextChanged は編集経路の唯一の発火点)。
         // 編集は同時に選択位置も動くため TextSelectionChanged も併せて発火。
         RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextChangedEvent);
@@ -2994,6 +3017,7 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         Invalidate();
         // Task 12: フォント変更後に IME へ未確定文字列用フォントを再通知(本文と候補窓のメトリクス整合)。
         NotifyCompositionFont();
+        _lastLineSegs = null; // P8 Minor-5: metrics/wrap 変化でキャッシュ破棄
     }
 
     /// <summary>
@@ -3216,19 +3240,28 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     /// <summary>UI スレッド上での視覚セグメント検索本体(<see cref="TryFindVisualSegment"/> から Invoke マーシャリング後)。</summary>
     private yEdit.Core.Layout.WrapSegment? TryFindVisualSegmentCore(TextSnapshot snap, int line, int offsetInLine, int wrap)
     {
-        var metrics = _metrics;
-        int logicalStart = snap.GetLineStart(line);
-        int logicalEnd = snap.GetLineEnd(line, includeBreak: false);
-        if (logicalStart == logicalEnd) return null;
-        string lineText = snap.GetText(logicalStart, logicalEnd - logicalStart);
-        int maxWidthPx = wrap * metrics.MeasureRun("0".AsSpan());
-        var segs = yEdit.Core.Layout.LineLayout.Wrap(lineText.AsSpan(), maxWidthPx, metrics);
-        for (int i = 0; i < segs.Count; i++)
+        System.Collections.Generic.IReadOnlyList<yEdit.Core.Layout.WrapSegment> segs;
+
+        if (_lastLineSegs is { } c &&
+            ReferenceEquals(c.Snap, snap) && c.Line == line && c.Wrap == wrap)
         {
-            int segEnd = segs[i].OffsetInLine + segs[i].Length;
-            if (offsetInLine < segEnd || i == segs.Count - 1) return segs[i];
+            segs = c.Segs;
+            TestHook_LastLineSegsHitCount++;
         }
-        return null;   // 到達不能(LineLayout.Wrap は非空入力で必ず 1 seg 以上返す)
+        else
+        {
+            var metrics = _metrics;
+            int logicalStart = snap.GetLineStart(line);
+            int logicalEnd = snap.GetLineEnd(line, includeBreak: false);
+            if (logicalStart == logicalEnd) return null;
+            string lineText = snap.GetText(logicalStart, logicalEnd - logicalStart);
+            int maxWidthPx = wrap * metrics.MeasureRun("0".AsSpan());
+            segs = yEdit.Core.Layout.LineLayout.Wrap(lineText.AsSpan(), maxWidthPx, metrics);
+            _lastLineSegs = (snap, line, wrap, segs);
+            TestHook_LastLineSegsMissCount++;
+        }
+
+        return yEdit.Core.Layout.VisualSegments.FindContaining(segs, offsetInLine).Segment;
     }
 
     int yEdit.Accessibility.IUiaTextHost.WordStart(int offset)

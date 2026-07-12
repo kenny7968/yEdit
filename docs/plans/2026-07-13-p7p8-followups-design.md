@@ -98,7 +98,7 @@ public static class VisualSegments
 // P8 Minor-5: SR の Line 単位連続読み(LineStartOf/LineEndNoBreakOf/LineEnd)で
 // 同一 (snap, logicalLine) が繰り返されるため単一エントリキャッシュ。
 // UI スレッド上でのみ更新される(TryFindVisualSegmentCore は Invoke マーシャリング後)。
-private (TextSnapshot Snap, int Line, int Wrap, IReadOnlyList<WrapSegment> Segs, string LineText)? _lastLineSegs;
+private (TextSnapshot Snap, int Line, int Wrap, IReadOnlyList<WrapSegment> Segs)? _lastLineSegs;
 ```
 
 `TryFindVisualSegmentCore` は次のように改修する:
@@ -108,23 +108,21 @@ private WrapSegment? TryFindVisualSegmentCore(TextSnapshot snap, int line, int o
 {
     var metrics = _metrics;
     IReadOnlyList<WrapSegment> segs;
-    string lineText;
 
     if (_lastLineSegs is { } c &&
         ReferenceEquals(c.Snap, snap) && c.Line == line && c.Wrap == wrap)
     {
         segs = c.Segs;
-        lineText = c.LineText;
     }
     else
     {
         int ls = snap.GetLineStart(line);
         int le = snap.GetLineEnd(line, includeBreak: false);
         if (ls == le) return null;
-        lineText = snap.GetText(ls, le - ls);
+        string lineText = snap.GetText(ls, le - ls);
         int maxWidthPx = wrap * metrics.MeasureRun("0".AsSpan());
         segs = LineLayout.Wrap(lineText.AsSpan(), maxWidthPx, metrics);
-        _lastLineSegs = (snap, line, wrap, segs, lineText);
+        _lastLineSegs = (snap, line, wrap, segs);
     }
 
     var (_, seg) = VisualSegments.FindContaining(segs, offsetInLine);
@@ -134,9 +132,16 @@ private WrapSegment? TryFindVisualSegmentCore(TextSnapshot snap, int line, int o
 
 **無効化ポイント**(既存メソッド末尾で `_lastLineSegs = null` を追加):
 - `AfterEdit()` — 本文/スナップショット変化
-- `SetSource()` — 全差し替え
+- `SetSource()` — 全差し替え(初回ロード)
+- `ReplaceSource()` — 全差し替え(開き直し/復元/ConvertEols)
 - `ApplyAppearance(AppSettings)` — フォント/メトリクス変化
 - `WrapColumns` setter — `wrap` 値変化(既存 setter 内で `_lastLineSegs = null;`)
+
+**設計原則**: `_bufferSnapshot` を更新するすべての経路で `_lastLineSegs` も破棄する。
+新たなバッファ差替 API を追加する際は `CacheSnapshot()` の呼び出しと同じ場所で
+`_lastLineSegs = null;` を打つこと。correctness は `ReferenceEquals(c.Snap)` 判定で
+守られるが、旧 TextSnapshot の Root PieceTree が強参照で pin されて大容量ファイル
+差替後の GC を阻害するため。
 
 **スレッド安全性**: `TryFindVisualSegment` は RPC 経路では `Control.Invoke` でマーシャリングするため
 キャッシュ更新は UI スレッドに閉じる。無効化ポイントも UI スレッドで発火。したがって lock 不要。
@@ -286,8 +291,8 @@ BasicSettingsTab=既定エンコード)は BOM 概念が意味を持たない場
 ## 6. リスクと撤退
 
 - **Minor-5 キャッシュ**: 無効化漏れがあると "編集後に古い segs で SR が読む" 状態になる。
-  無効化ポイント 4 つ (`AfterEdit`/`SetSource`/`ApplyAppearance`/`WrapColumns` setter) を明示リストで
-  管理。追加ケースが判明したら該当メソッド末尾で `_lastLineSegs = null;` するだけ。
+  無効化ポイント 5 つ (`AfterEdit`/`SetSource`/`ReplaceSource`/`ApplyAppearance`/`WrapColumns` setter)
+  を明示リストで管理。追加ケースが判明したら該当メソッド末尾で `_lastLineSegs = null;` するだけ。
 - **F3 経路**: 現状 `_dialog.RaiseNotification` 経由でも発声する=撤退時は SearchController の
   `Announce` を元に戻すだけ。
 - **BOM UI**: 4 エントリ列挙のみ=撤退時は `SaveAsSelectableEncodings` の追加分を消し、

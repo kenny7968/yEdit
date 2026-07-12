@@ -115,10 +115,12 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     // P8 Minor-5: SR の Line 単位連続読み(LineStartOf/LineEndNoBreakOf/LineEnd)で
     // 同一 (snap, logicalLine, wrap) が繰り返されるため単一エントリキャッシュ。
     // UI スレッド上でのみ更新される(TryFindVisualSegmentCore は Invoke マーシャリング後)。
-    // 無効化ポイント: AfterEdit() / SetSource() / ApplyAppearance() / WrapColumns setter。
+    // 無効化ポイント: AfterEdit() / SetSource() / ReplaceSource() / ApplyAppearance() / WrapColumns setter。
+    // 設計原則: _bufferSnapshot を更新するすべての経路で _lastLineSegs も破棄する
+    // (correctness は ReferenceEquals(c.Snap) 判定で守られるが、旧 TextSnapshot の Root
+    //  PieceTree が強参照で pin されて大容量ファイル差替後の GC を阻害するため)。
     private (yEdit.Core.Buffers.TextSnapshot Snap, int Line, int Wrap,
-             System.Collections.Generic.IReadOnlyList<yEdit.Core.Layout.WrapSegment> Segs,
-             string LineText)? _lastLineSegs;
+             System.Collections.Generic.IReadOnlyList<yEdit.Core.Layout.WrapSegment> Segs)? _lastLineSegs;
 
     // Editor.Tests から観測するためのヒットカウンタ(internal・テスト以外の呼び出しは想定しない)。
     internal long TestHook_LastLineSegsHitCount { get; private set; }
@@ -279,6 +281,7 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         }
         Invalidate();
         CacheSnapshot();  // P5 RPC スレッド用スナップショット更新
+        _lastLineSegs = null; // P8 Minor-5: 全差替でキャッシュ破棄(SetSource と同旨)
         // P6 Task 4: 差し替え後のバッファ状態で SavePointLeft 検出用の直前状態を同期
         // (SetSource と同旨=バッファが Modified=true でも初回 AfterEdit で spurious 発火しないよう)
         _wasModified = buffer.Modified;
@@ -3254,7 +3257,7 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
             string lineText = snap.GetText(logicalStart, logicalEnd - logicalStart);
             int maxWidthPx = wrap * metrics.MeasureRun("0".AsSpan());
             segs = yEdit.Core.Layout.LineLayout.Wrap(lineText.AsSpan(), maxWidthPx, metrics);
-            _lastLineSegs = (snap, line, wrap, segs, lineText);
+            _lastLineSegs = (snap, line, wrap, segs);
             TestHook_LastLineSegsMissCount++;
         }
 

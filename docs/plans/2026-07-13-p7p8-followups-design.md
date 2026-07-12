@@ -246,7 +246,10 @@ BasicSettingsTab=既定エンコード)は BOM 概念が意味を持たない場
 - `tests/yEdit.Core.Tests/Text/SaveAsSelectableEncodingsTests.cs`(新規):
   - 4 エントリ列挙・順序・UTF-8 のみ 2 種
   - DisplayName にコードページごとの期待文字列
-- SaveAsDialog は UI コンストラクタ動作のみ凍結(Editor.Tests に軽い smoke = new SaveAsDialog(null, 65001, false).SelectedHasBom == false を確認)
+- SaveAsDialog 自体の UI コンストラクタ動作凍結は **§7 スコープ外の App 層テスト基盤に集約**:
+  Editor.Tests は yEdit.Editor 参照のみで yEdit.App(SaveAsDialog 所在)を参照できず、
+  `tests/yEdit.App.Tests` 新設が前提となるため。呼び出し元(FileController)は 1 箇所しか
+  ないため ctor シグネチャ変更はコンパイル時に確実に検出される。
 
 ## 4. ブランチ運用とコミット順
 

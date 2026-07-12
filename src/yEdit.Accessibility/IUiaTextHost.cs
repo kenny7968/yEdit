@@ -3,50 +3,91 @@ using System.Windows;
 namespace yEdit.Accessibility;
 
 /// <summary>
-/// 自作テキストコントロールが実装し、UIA プロバイダ層が読み書きに使う抽象シーム。
-/// 本番エディタでは、この実装を差し替えるだけでプロバイダ層をそのまま流用できる。
+/// 自作 EditorControl が実装する UIA プロバイダのバックエンド抽象(v2・範囲ベース化)。
+/// 旧 v1(P7 で撤去)は全文 string 経路だったのに対し、v2 は
+/// 位置歩き + 範囲テキスト + 座標 API を持つ。
 ///
-/// 注意: ここのメンバは UI スレッド外（UIA の RPC スレッド）から呼ばれ得る。
-/// 実装側はスナップショット（不変文字列参照）／キャッシュ値で安全に応答すること。
+/// スレッド: RPC スレッドから呼ばれ得る。実装側は不変スナップショット参照 +
+/// キャッシュ値で応答すること(<see cref="SetSelection"/> / <see cref="SetFocus"/> のみ UI マーシャリング)。
 /// </summary>
 public interface IUiaTextHost
 {
-    /// <summary>本文全体のスナップショット。呼び出しごとに不変な文字列を返すこと。</summary>
-    string GetText();
+    // ---------- テキスト(範囲ベース) ----------
 
-    /// <summary>本文長（UTF-16 コード単位）。</summary>
+    /// <summary>[start, start+length) の UTF-16 部分文字列。範囲外は clamp。RPC スレッド安全。</summary>
+    string GetTextRange(int start, int length);
+
+    /// <summary>本文長(UTF-16 コード単位)。</summary>
     int TextLength { get; }
 
-    /// <summary>現在の選択（Start &lt;= End、End は排他）。キャレットのみのときは Start==End。</summary>
+    // ---------- 選択 ----------
+
+    /// <summary>現在の選択(Start &lt;= End、End 排他)。キャレットのみのときは Start==End。</summary>
     (int Start, int End) GetSelection();
 
-    /// <summary>選択／キャレットを設定する（実装は UI スレッドへマーシャリングして適用）。</summary>
+    /// <summary>選択/キャレットを設定(実装は UI スレッドへマーシャリング)。</summary>
     void SetSelection(int start, int end);
 
-    /// <summary>コントロール全体のスクリーン座標矩形（UI スレッドで更新したキャッシュ値）。</summary>
-    Rect BoundingRectangle { get; }
+    // ---------- 位置歩き(全て純関数=RPC スレッド安全) ----------
+
+    /// <summary>offset の次の code-point 位置(サロゲート考慮)。EOF なら TextLength。</summary>
+    int NextChar(int offset);
+
+    /// <summary>offset の前の code-point 位置(サロゲート考慮)。BOF なら 0。</summary>
+    int PrevChar(int offset);
+
+    /// <summary>offset を含む行の開始位置(P8-1c: 折り返し ON なら視覚行=折り返し行の先頭・OFF なら論理行先頭)。</summary>
+    int LineStartOf(int offset);
+
+    /// <summary>offset を含む行の終端(改行を含まない・P8-1c: 折り返し ON なら視覚行末=折り返し境界)。空行では LineStartOf と一致し len=0。</summary>
+    int LineEndNoBreakOf(int offset);
 
     /// <summary>
-    /// [start,end) のスクリーン座標矩形を UIA 形式の double 配列 (x,y,w,h, x,y,w,h, ...) で返す。
-    /// 無いときは長さ0配列。RPC スレッドから呼ばれるためキャッシュ値で安全に応答すること。
+    /// offset を含む行の終端(次視覚行の開始・P8-1c)。継続セグメントは改行を跨がない=次 seg 先頭。
+    /// 論理行の最終視覚行のみ改行を含めて次論理行の開始 or TextLength を返す。
     /// </summary>
+    int LineEnd(int offset);
+
+    /// <summary>offset を含む単語の左端(Core WordBoundary 委譲)。</summary>
+    int WordStart(int offset);
+
+    /// <summary>offset を含む単語の右端(Core WordBoundary 委譲)。</summary>
+    int WordEnd(int offset);
+
+    /// <summary>Ctrl+→ 相当の「次の単語の先頭」。EOF なら TextLength。</summary>
+    int NextWordStart(int offset);
+
+    /// <summary>Ctrl+← 相当の「前の単語の先頭」。BOF なら 0。</summary>
+    int PrevWordStart(int offset);
+
+    // ---------- 座標 ----------
+
+    /// <summary>コントロール全体のスクリーン座標矩形(UI スレッドで更新したキャッシュ値)。</summary>
+    Rect BoundingRectangle { get; }
+
+    /// <summary>[start, end) の各行スクリーン矩形を UIA 形式 (x,y,w,h, ...) で返す。空なら長さ 0。</summary>
     double[] GetBoundingRectangles(int start, int end);
 
-    /// <summary>ウィンドウハンドル（キャッシュ値）。</summary>
+    /// <summary>スクリーン座標 (x, y) 直下の文字オフセット(HitTest 相当)。範囲外は clamp。</summary>
+    int OffsetFromScreenPoint(double x, double y);
+
+    // ---------- 属性 ----------
+
+    /// <summary>ウィンドウハンドル(キャッシュ値)。</summary>
     nint Handle { get; }
 
-    /// <summary>フォーカス状態（キャッシュ値）。</summary>
+    /// <summary>フォーカス状態(キャッシュ値)。</summary>
     bool HasFocus { get; }
 
-    /// <summary>報告する ControlType の Id（本番は Document）。</summary>
+    /// <summary>報告する ControlType Id(本番は Document=P0 で確定)。</summary>
     int ControlTypeId { get; }
 
-    /// <summary>UIA の Name プロパティ（SR がフォーカス時などに読む名前）。</summary>
+    /// <summary>UIA の Name プロパティ("本文")。</summary>
     string Name { get; }
 
-    /// <summary>UIA の AutomationId プロパティ（自動化ツール向け識別子・読み上げ対象外）。</summary>
+    /// <summary>UIA の AutomationId プロパティ("editor")。</summary>
     string AutomationId { get; }
 
-    /// <summary>コントロールにフォーカスを与える（UI スレッドへマーシャリング）。</summary>
+    /// <summary>コントロールにフォーカスを与える(UI スレッドへマーシャリング)。</summary>
     void SetFocus();
 }

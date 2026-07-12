@@ -5,17 +5,17 @@ using yEdit.Editor;
 namespace yEdit.App;
 
 /// <summary>
-/// 新CSVモード（グリッド型ナビゲーション）の配線。CSVモード中は ScintillaHost.ReadOnly=true で
+/// 新CSVモード（グリッド型ナビゲーション）の配線。CSVモード中は EditorControl.ReadOnly=true で
 /// 本文を編集不可にし、素キーのコマンドでセル移動・読み上げを行う。現在セルは
 /// DocumentState.CsvRow/CsvCol を真実源にする。
-/// 目的: NVDA はネイティブ Scintilla 統合（クラス名 "Scintilla"・UIA 非依存）で、OS の
-/// フォーカス獲得・キャレット移動・選択変更に反応して生バッファを読み上げる。これは
-/// アプリ側では抑止できないため、CSVモード中はフォーカス自体を Document.CsvSink
-/// （1×1px のフォーカスシンク）へ退避して全経路を遮断し、読み上げを Announcer に一本化する。
+/// 【P6 変更】: 編集エンジンが自作 EditorControl(v2 UIA 単一経路)に統一されたため、
+/// P5 まで CSV モード中にフォーカスを Document.CsvSink(1×1px シンク)へ退避していた仕組みを
+/// 撤去し、フォーカスは常に EditorControl(=Document.FocusTarget)へ向かう。CsvSink 自体は
+/// §0-8「無効化のみで残す」に従い生成のみ残す(P7 で完全撤去)。読み上げは Announcer に一本化。
 /// システムキャレットも動かさない（可視域スクロールはキャレット無移動の
 /// EnsureVisibleCharRange）。RaiseUiaSelectionEvents=false は PC-Talker（UIA 経路）向けの
-/// 防御（シンクへ移る遷移の一瞬に OnGotFocus の明示イベントで読まれるのを防ぐ）。
-/// F2 は CsvCellEditor に委譲し、終了時の復帰先もシンクにする。
+/// 防御（EditorControl OnGotFocus の明示 SelectionChangedEvent で行を読まれるのを防ぐ）。
+/// F2 は CsvCellEditor に委譲し、終了時の復帰先は FocusTarget(=Editor)。
 /// </summary>
 public sealed class CsvController
 {
@@ -60,13 +60,13 @@ public sealed class CsvController
         }
         doc.State.CsvMode = true;
         doc.Editor.ReadOnly = true;
-        // PC-Talker（UIA経路）向け防御: シンクへ移る遷移の一瞬にエディタがフォーカスを
-        // 得た際、OnGotFocus の明示 TextSelectionChangedEvent で行を読まれるのを防ぐ。
+        // PC-Talker（UIA経路）向け防御: モード遷移中の EditorControl OnGotFocus で
+        // 明示 TextSelectionChangedEvent を出して行を読まれるのを防ぐ。
         doc.Editor.RaiseUiaSelectionEvents = false;
         if (csv.Rows.Count == 0)
         {
             doc.Editor.ClearHighlight();
-            doc.CsvSink.Focus();               // データ無しでもフォーカスはシンクへ退避する
+            doc.FocusTarget.Focus();           // データ無しでもフォーカスは編集領域(P6=Editor)へ
             _announcer.Say(CsvAnnounceFormatter.ModeOn);
             return true;
         }
@@ -176,7 +176,7 @@ public sealed class CsvController
 
         var doc = _docs.Active!;   // TryContext 成功時は Active 非 null。タブ切替は AbortEdit が
                                    // 先に走るため、確定/取消コールバック時点でも同一文書が対象。
-        _editor.Begin(ed, f, doc.CsvSink,
+        _editor.Begin(ed, f, doc.FocusTarget,   // P6: 復帰先は FocusTarget=Editor(旧: CsvSink)
             onCommit: text =>
             {
                 string serialized = CsvWriter.EscapeField(text);
@@ -200,7 +200,7 @@ public sealed class CsvController
     /// <summary>パースして現在 (row,col) を得る。CSVでない/解析不可/データ無しは読み上げて false。
     /// (row,col) は DocumentState を真実源とし、パース結果の行列数へクランプする（本文編集で
     /// 行/列が減っても範囲外を指さないように補正）。</summary>
-    private bool TryContext(out ScintillaHost ed, out CsvDocument csv, out int row, out int col)
+    private bool TryContext(out EditorControl ed, out CsvDocument csv, out int row, out int col)
     {
         ed = null!; csv = null!; row = 0; col = 0;
         if (_editor.IsEditing) return false;   // F2 編集中はメニュー経由のナビ/読み上げを抑止（マウス経路の保護）
@@ -226,7 +226,7 @@ public sealed class CsvController
         return c < 0 ? 0 : (c >= w ? w - 1 : c);
     }
 
-    private void ApplyTarget(ScintillaHost ed, CsvDocument csv, (int row, int col)? t)
+    private void ApplyTarget(EditorControl ed, CsvDocument csv, (int row, int col)? t)
     {
         if (t is null) { _announcer.Say(CsvAnnounceFormatter.CannotMove); return; }
         ApplyCell(ed, csv, t.Value.row, t.Value.col, announce: true);
@@ -234,8 +234,8 @@ public sealed class CsvController
 
     /// <summary>(row,col) のセルへ ハイライト＋可視域スクロール＋DocumentState 更新＋必要なら読み上げ。
     /// システムキャレットは動かさない（SR の自動読み上げ発火を避け、Announcer 一本に集約する）。
-    /// フォーカスはフォーカスシンクに退避したまま維持する（FocusTarget 経由）。</summary>
-    private void ApplyCell(ScintillaHost ed, CsvDocument csv, int row, int col, bool announce)
+    /// フォーカスは FocusTarget(=P6 では常に Editor)に保つ。</summary>
+    private void ApplyCell(EditorControl ed, CsvDocument csv, int row, int col, bool announce)
     {
         var f = csv.GetField(row, col);
         if (f is null) { _announcer.Say(CsvAnnounceFormatter.CannotMove); return; }
@@ -246,7 +246,7 @@ public sealed class CsvController
         {
             doc.State.CsvRow = row;
             doc.State.CsvCol = col;
-            doc.FocusTarget.Focus();   // CSVモード中はシンク（Scintilla に SR のフォーカス読みを向けない）
+            doc.FocusTarget.Focus();   // P6: FocusTarget=Editor 固定(RaiseUiaSelectionEvents=false で SR 誤読み抑止)
         }
         if (announce) _announcer.Say(CsvAnnounceFormatter.Cell(f.Value, row + 1, col + 1));
     }

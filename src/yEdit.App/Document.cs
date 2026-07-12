@@ -5,31 +5,23 @@ namespace yEdit.App;
 
 /// <summary>
 /// 開いている1ドキュメント。独立した編集コントロール・タブ面・メタ状態を束ねる。
-/// 変更フラグは Editor.Modified（Scintilla のセーブポイント）を唯一の真実とする。
+/// 変更フラグは Editor.Modified（TextBuffer のセーブポイント）を唯一の真実とする。
 /// </summary>
 public sealed class Document
 {
-    public ScintillaHost Editor { get; }
+    public EditorControl Editor { get; }
     public TabPage Page { get; }
     public DocumentState State { get; } = new();
 
-    /// <summary>CSVモード中のフォーカス退避先。生成時に Page へ追加され、
-    /// Dock=Fill のエディタの背面に隠れる（視覚影響なし）。</summary>
-    public CsvFocusSink CsvSink { get; }
+    /// <summary>「編集領域」へフォーカスを戻すときの正しい行き先。P6 以降は常に Editor
+    /// (P5 まで CSV モード中は CsvFocusSink へ退避していたが、UIA v2 単一経路への統一に合わせ Editor 固定・
+    /// P7 で CsvFocusSink 自体を完全撤去=§0-8 猶予を解消)。</summary>
+    public Control FocusTarget => Editor;
 
-    /// <summary>「編集領域」へフォーカスを戻すときの正しい行き先。CSVモード中はシンク、
-    /// 通常時はエディタ。編集領域への Focus() 呼び出しは必ずこれを経由すること。
-    /// モード遷移の内部（CsvController.ToggleMode）と F2 編集の復帰先注入（CsvCellEditor.Begin）は
-    /// 行き先を明示するため直接指定する。</summary>
-    public Control FocusTarget => State.CsvMode ? CsvSink : Editor;
-
-    public Document(ScintillaHost editor, TabPage page)
+    public Document(EditorControl editor, TabPage page)
     {
         Editor = editor;
         Page = page;
-        CsvSink = new CsvFocusSink();
-        page.Controls.Add(CsvSink);   // editor(Dock=Fill) より後に追加 → Z順で背面
-        CsvSink.SendToBack();         // 呼び出し順に依存せず背面を自己保証
     }
 
     /// <summary>タブに表示するラベル（ファイル名＋変更マーク）。</summary>

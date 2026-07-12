@@ -42,11 +42,19 @@ public class EncodingDetectorTests
     }
 
     [Fact]
-    public void Detects_utf16_le_bom()
+    public void Utf16_le_bom_no_longer_detected_as_utf16()
     {
+        // P6 Task 6: UTF-16 は非対応=BOM も検出しない。fallback 経路(UTF-8 strict → charset detect → SJIS)へ落ちる。
         var r = EncodingDetector.Detect(Encoding.Unicode.GetPreamble().Concat(Encoding.Unicode.GetBytes(Jp)).ToArray());
-        Assert.Equal(1200, r.CodePage);
-        Assert.True(r.HasBom);
+        Assert.Equal(932, r.CodePage); // fallback = SJIS(§P6 Task 6 レビュー M-3)
+    }
+
+    [Fact]
+    public void Utf16_be_bom_no_longer_detected_as_utf16()
+    {
+        // P6 Task 6: UTF-16 BE も検出しない=fallback 経路(strict UTF-8 失敗→charset detect→SJIS)へ落ちる。
+        var r = EncodingDetector.Detect(Encoding.BigEndianUnicode.GetPreamble().Concat(Encoding.BigEndianUnicode.GetBytes(Jp)).ToArray());
+        Assert.Equal(932, r.CodePage); // fallback = SJIS(§P6 Task 6 レビュー M-3)
     }
 
     [Fact]

@@ -3,7 +3,6 @@ using yEdit.App.Speech;
 using yEdit.Core.Csv;
 using yEdit.Core.Reading;
 using yEdit.Core.Settings;
-using yEdit.Core.Speech;
 using yEdit.Core.Text;
 using yEdit.Editor;
 
@@ -27,18 +26,22 @@ public sealed partial class MainForm : Form
         Dock = DockStyle.Bottom, Height = 22, AutoSize = false,
         TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "通知",
     };
-    private IAnnouncer _announcer = null!; // AnnouncerFactory で生成（起動時モード確定）
+    private IAnnouncer _announcer = null!; // 起動時に PC-Talker 稼働で選択（下記コンストラクタ参照）
+    // 起動時に PC-Talker が稼働しているか（起動時確定方針・PC-Talker 起動/終了には追従しない）。
+    // PC-Talker 経路では UIA の長さ0行が無音になる等の欠落を「空行」能動発声等で補うため、
+    // 経路別の分岐（空行発声・単語ナビの能動発声）判定にこの1値を使う。
+    private readonly bool _isPcTalker = PcTalkerSpeech.IsRunning();
     private ToolStripMenuItem _recentMenu = null!; // BuildMenu で生成
     private readonly string _settingsPath = SettingsStore.DefaultPath;
     private AppSettings _settings = new();
     // Alt 等でメニューがアクティブな間は CSV の素キー横取りを止め、矢印/文字キーをメニュー操作へ通す。
-    // メニューモードに入っても本文（Scintilla）はフォーカスを保持するため ContainsFocus では判別できず、
+    // メニューモードに入っても本文(EditorControl)はフォーカスを保持するため ContainsFocus では判別できず、
     // MenuStrip の Activate/Deactivate イベントで明示的に追跡する。
     private bool _menuActive;
 
     public MainForm(AppSettings settings)
     {
-        _settings = settings;   // Program.Main が読込済み（優先 SR を SR 判定へ渡すため先読みしている）
+        _settings = settings;   // Program.Main が読込済み
 
         Text = "yEdit";
         Width = _settings.WindowWidth;
@@ -50,12 +53,24 @@ public sealed partial class MainForm : Form
         _docs.ActiveDirtyChanged += (_, _) => UpdateTitle();
         _docs.ActiveCaretChanged += (_, _) => UpdateStatus();
         // 空行着地の能動発声: PC-Talker は UIA の長さ0行を無音にするため、こちらから「空行」を読む。
-        // NVDA はネイティブに「ブランク」を読むため対象外（発声モードは起動時に確定済み）。
+        // NVDA はネイティブに「ブランク」を読むため対象外（起動時に判定済み）。
         // CSVモード中はセル読み体系（CsvController）が担うため発声しない。
         _docs.ActiveCaretEnteredEmptyLine += (_, _) =>
         {
-            if (SrContext.Mode == SpeechMode.PcTalker && _docs.Active?.State.CsvMode != true)
+            if (_isPcTalker && _docs.Active?.State.CsvMode != true)
                 _announcer.Say("空行");
+        };
+        // 単語ナビ(Ctrl+←→)の PC-Talker 補完: UIA の選択変更通知だけでは単語スパンが
+        // 発声されないため、EditorControl.WordNavigated を購読して単語文字列を能動発声する。
+        // NVDA/汎用ナレーターは UIA v2 の選択イベントで自力で読めるため対象外(空行と同構造)。
+        // CSVモード中はセル読み体系が担うため発声しない。
+        _docs.ActiveWordNavigated += (_, e) =>
+        {
+            if (!_isPcTalker) return;
+            var doc = _docs.Active;
+            if (doc is null || doc.State.CsvMode) return;
+            string span = ((yEdit.Accessibility.IUiaTextHost)doc.Editor).GetTextRange(e.WordStart, e.WordEnd - e.WordStart);
+            if (!string.IsNullOrWhiteSpace(span)) _announcer.Say(span.Trim());
         };
         // 設定は OpenSettings で参照が差し替わるため Func で都度解決させる。
         _file = new FileController(_docs, this, () => _settings,
@@ -68,17 +83,10 @@ public sealed partial class MainForm : Form
         _announcer = AnnouncerFactory.Create(_announceLabel);
         _csv = new CsvController(_docs, _announcer);
         _docs.BeforeActiveChange = () => _csv.AbortEdit(); // タブ切替直前に F2 編集を中断（焦点の引き戻し防止）
-        // CSVモード中に Scintilla がフォーカスを得たら（メニュー閉塞後の復帰・マウスクリック等）
-        // シンクへ即時退避する。NVDA のネイティブ読み（フォーカス駆動）を Scintilla に向けない。
-        // BeginInvoke は GotFocus 中の再入 Focus() を避けるため必須。ToggleMode OFF は
-        // CsvMode=false を先に立ててから Editor.Focus() するため、このガードで素通りする。
-        // 退避は遅延実行時点でも Scintilla がフォーカスを保持しているときだけ行う
-        // （コールバックはモーダルポンプ中にも走るため、ダイアログからフォーカスを奪わない）。
-        _docs.EditorGotFocus += doc =>
-        {
-            if (!doc.State.CsvMode || _csv.IsEditing) return;
-            BeginInvoke(() => { if (doc.State.CsvMode && !_csv.IsEditing && doc.Editor.ContainsFocus) doc.CsvSink.Focus(); });
-        };
+        // P6 で編集エンジンが自作 EditorControl (v2 UIA 単一経路) に統一されたため、
+        // CSVモード中に Editor がフォーカスを得た瞬間にシンクへ強制退避していた仕組みは撤去。
+        // 誤読み抑止は CsvController.TryEnterMode の RaiseUiaSelectionEvents=false が担う。
+        // _docs.EditorGotFocus 自体は §0-8 の撤退安全性のため残す(購読ゼロで実質死・P7 で撤去)。
 
         var menu = BuildMenu();
         var status = BuildStatusBar();
@@ -92,12 +100,11 @@ public sealed partial class MainForm : Form
         _file.NewFile(); // 起動時の無題タブ1つ（Q1=B：常に新規タブ）
     }
 
-    /// <summary>タブ毎の ScintillaHost を生成する。SR 適応はハンドル生成前に確定させる（M1 と同順）。</summary>
-    private ScintillaHost CreateEditor()
+    /// <summary>タブ毎の EditorControl を生成する。受動読みは EditorControl 単一経路（UIA v2）に一本化済み。</summary>
+    private EditorControl CreateEditor()
     {
-        var e = new ScintillaHost { Dock = DockStyle.Fill };
-        e.ApplySrAdaptation(useNativeReading: SrContext.UseNativeReading); // ハンドル生成前に起動時確定の SR 適応を反映
-        EditorAppearance.Apply(e, _settings);  // フォント＋配色テーマを適用（M7）
+        var e = new EditorControl { Dock = DockStyle.Fill };
+        EditorAppearance.Apply(e, _settings);  // フォント＋配色テーマ＋表示設定を EditorControl.ApplyAppearance へ委譲
         return e;
     }
 
@@ -186,20 +193,19 @@ public sealed partial class MainForm : Form
 
     // ==================== キー操作（タブ切替・クローズ） ====================
 
-    // Ctrl+Tab / Ctrl+Shift+Tab / Ctrl+1..9 は子の Scintilla に食われないよう
+    // Ctrl+Tab / Ctrl+Shift+Tab / Ctrl+1..9 は子の EditorControl に食われないよう
     // フォームの ProcessCmdKey で横取りする。Ctrl+W はメニューのショートカットで処理。
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         // CSVモードのアクティブタブのみ、素のキーをグリッドナビ用に横取りする。
         // F2 編集オーバーレイ表示中（_csv.IsEditing）は素通しし、TextBox に通常編集させる。
-        // 横取りはフォーカスシンクにフォーカスがある時に行う（CSVモード中は通常シンクが
-        // フォーカスを保持する）。エディタ側の条件も残すのは、シンクへ移る遷移瞬間の
-        // 取りこぼし防止。タブ列（Ctrl+Tab でフォーカスが移る）に居るときは矢印/Home/End 等を
-        // タブ操作へ通す。メニューがアクティブ（Alt 等）な間は横取りせず、矢印/文字キーを
-        // メニュー操作へ通す。
+        // P7 で CsvFocusSink を撤去し FocusTarget=Editor 固定になったため、
+        // 横取り条件は Editor へのフォーカス保持のみで判定する。タブ列（Ctrl+Tab でフォーカスが移る）
+        // に居るときは矢印/Home/End 等をタブ操作へ通す。メニューがアクティブ（Alt 等）な間は
+        // 横取りせず、矢印/文字キーをメニュー操作へ通す。
         var activeDoc = _docs.Active;
         if (activeDoc?.State.CsvMode == true && !_csv.IsEditing && !_menuActive &&
-            (activeDoc.Editor.ContainsFocus || activeDoc.CsvSink.Focused) &&
+            activeDoc.Editor.ContainsFocus &&
             CsvCommands.ByKey.TryGetValue(keyData, out var csvCmd))
         {
             csvCmd(_csv);
@@ -391,19 +397,16 @@ public sealed partial class MainForm : Form
     }
 
     /// <summary>設定ダイアログを開き、OK なら全タブへ外観適用＋バックアップ設定の即時反映＋永続化する。
-    /// 項目→コントロールの対応はダイアログに閉じ、ここは Result を差し替えるだけにする。
-    /// 優先 SR の変更だけは再起動後有効のため、変更時にその旨を能動通知する。</summary>
+    /// 項目→コントロールの対応はダイアログに閉じ、ここは Result を差し替えるだけにする。</summary>
     private void OpenSettings()
     {
         using var dlg = new SettingsDialog(_settings);
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        var result = dlg.Result;   // Result は取得のたびに組み立てるため一度だけ読む
-        bool srChanged = result.PreferredScreenReader != _settings.PreferredScreenReader;
-        _settings = result;
+        _settings = dlg.Result;   // Result は取得のたびに組み立てるため一度だけ読む
         foreach (var doc in _docs.Documents) EditorAppearance.Apply(doc.Editor, _settings);
         _backup.UpdateSettings(_settings.BackupEnabled, _settings.BackupIntervalSeconds);
         SaveSettingsSafe();
-        _announcer.Say(srChanged ? "設定を適用しました 読み上げ設定は再起動後に有効になります" : "設定を適用しました");
+        _announcer.Say("設定を適用しました");
     }
 
     /// <summary>
@@ -430,7 +433,7 @@ public sealed partial class MainForm : Form
         var ed = _docs.Active?.Editor;
         if (ed is null) return;
         int line = ed.CurrentLine + 1;
-        int totalLines = ed.Lines.Count;
+        int totalLines = ed.LineCount;
         int column = ed.GetColumn(ed.CurrentPosition) + 1;
         var (s, e) = ed.GetSelectionCharRange();
         _announcer.Say(PositionFormatter.Format(line, totalLines, column, ed.SnapshotText.Length, e - s, ed.Overtype));
@@ -454,11 +457,11 @@ public sealed partial class MainForm : Form
         if (_docs.Active?.State.CsvMode == true) { _csv.GoToCell(); return; }
         var ed = _docs.Active?.Editor;
         if (ed is null) return;
-        int max = ed.Lines.Count;
+        int max = ed.LineCount;
         using var dlg = new GoToLineDialog(ed.CurrentLine + 1, max);
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
         int target = Math.Clamp(dlg.LineNumber, 1, max);
-        ed.Lines[target - 1].Goto();
+        ed.GoToLine(target - 1);
         ed.Focus();
         _announcer.Say($"行 {target}");
     }
@@ -511,7 +514,7 @@ public sealed partial class MainForm : Form
             eol, _settings.TabWidth);   // タブ幅は表示設定と連動（画面の見た目どおりに整形する。従来は既定 8 固定）
 
         if (formatted == target) { _announcer.Say("変更なし"); return; }
-        ed.ReplaceCharRange(start, len, formatted);   // SCI_REPLACETARGET = 1 アンドゥ
+        ed.ReplaceCharRange(start, len, formatted);   // 1 Undo で置換
         // 部分選択なら変化箇所を選択して提示。全文整形では全選択を避け、先頭へキャレットを置く。
         if (whole) ed.SelectCharRange(0, 0);
         else ed.SelectCharRange(start, formatted.Length);

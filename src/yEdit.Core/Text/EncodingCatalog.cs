@@ -30,8 +30,6 @@ public static class EncodingCatalog
         return codePage switch
         {
             65001 => new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-            1200 => Encoding.Unicode,
-            1201 => Encoding.BigEndianUnicode,
             _ => Encoding.GetEncoding(codePage),
         };
     }
@@ -48,8 +46,6 @@ public static class EncodingCatalog
         new EncodingOption(65001, "UTF-8"),
         new EncodingOption(932, "Shift_JIS"),
         new EncodingOption(51932, "EUC-JP"),
-        new EncodingOption(1200, "UTF-16 LE"),
-        new EncodingOption(1201, "UTF-16 BE"),
     };
 
     /// <summary>

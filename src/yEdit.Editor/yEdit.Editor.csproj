@@ -7,13 +7,21 @@
     <UseWindowsForms>true</UseWindowsForms>
     <!-- UIA イベント発火・System.Windows.Rect のため UseWPF も有効化 -->
     <UseWPF>true</UseWPF>
+    <!-- P4 Task 12: LOGFONT を Font.ToLogFont で pin できる blittable struct にするため
+         (`fixed char lfFaceName[32]`)。NativeMethods.LOGFONT 以外では unsafe を使わない。 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- desjarlais フォーク。lib/net8.0-windows7.0 + runtimes/win-*/native/{Scintilla,Lexilla}.dll -->
-    <PackageReference Include="Scintilla5.NET" Version="6.1.2" />
     <ProjectReference Include="..\yEdit.Accessibility\yEdit.Accessibility.csproj" />
     <ProjectReference Include="..\yEdit.Core\yEdit.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- P2 Task 14 で追加予定の smoke 起動器から EditorControl の internal メンバに触れられるように -->
+    <InternalsVisibleTo Include="yEdit.Editor.Smoke" />
+    <!-- P3 Task 8: テストから internal 診断 API (GetText) を叩けるようにする -->
+    <InternalsVisibleTo Include="yEdit.Editor.Tests" />
   </ItemGroup>
 
 </Project>

@@ -1,10 +1,12 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net9.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- P5 Task 2: Accessibility (net9.0-windows / UseWPF) を参照して契約テストを Core.Tests に置くため -->
+    <UseWPF>true</UseWPF>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,10 +18,14 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <!-- P5 Task 2: net9.0-windows は既定 ImplicitUsings に System.IO を含まないため明示追加
+         (既存 Search / Settings テストが using System.IO なしで Path/File を使っているため) -->
+    <Using Include="System.IO" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\yEdit.Core\yEdit.Core.csproj" />
+    <ProjectReference Include="..\..\src\yEdit.Accessibility\yEdit.Accessibility.csproj" />
   </ItemGroup>
 
 </Project>

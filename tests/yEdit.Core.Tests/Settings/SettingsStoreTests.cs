@@ -166,24 +166,26 @@ public class SettingsStoreTests
         try
         {
             File.WriteAllText(path,
-                "{\"TabWidth\":0,\"CaretWidth\":99,\"PreferredScreenReader\":\"jaws\"}");
+                "{\"TabWidth\":0,\"CaretWidth\":99}");
             var s = SettingsStore.Load(path);
             Assert.Equal(4, s.TabWidth);                    // 範囲外→既定
             Assert.Equal(1, s.CaretWidth);                  // 範囲外→既定
-            Assert.Equal("nvda", s.PreferredScreenReader);  // 未知値→既定
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
 
     [Fact]
-    public void Load_normalizes_null_preferred_screen_reader()
+    public void Load_ignores_unknown_removed_keys()
     {
+        // P7 撤去: PreferredScreenReader は削除済み。settings.json に残っていても
+        // System.Text.Json の既定挙動で未知プロパティは無視され起動失敗しない（前方互換）。
         string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
         try
         {
-            File.WriteAllText(path, "{\"PreferredScreenReader\":null}");
+            File.WriteAllText(path,
+                "{\"PreferredScreenReader\":\"pctalker\",\"TabWidth\":8}");
             var s = SettingsStore.Load(path);
-            Assert.Equal("nvda", s.PreferredScreenReader);  // 明示 null→既定
+            Assert.Equal(8, s.TabWidth);   // 既知キーは通常通り反映
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
@@ -195,13 +197,12 @@ public class SettingsStoreTests
         try
         {
             File.WriteAllText(path,
-                "{\"TabWidth\":8,\"CaretWidth\":5,\"PreferredScreenReader\":\"pctalker\"," +
+                "{\"TabWidth\":8,\"CaretWidth\":5," +
                 "\"CsvAutoModeOnOpen\":true,\"TabsToSpaces\":true,\"ShowLineNumbers\":true," +
                 "\"HighlightCurrentLine\":true,\"ShowWhitespace\":true,\"ConfirmRestoreOnStartup\":false}");
             var s = SettingsStore.Load(path);
             Assert.Equal(8, s.TabWidth);
             Assert.Equal(5, s.CaretWidth);
-            Assert.Equal("pctalker", s.PreferredScreenReader);
             Assert.True(s.CsvAutoModeOnOpen);
             Assert.True(s.TabsToSpaces);
             Assert.True(s.ShowLineNumbers);

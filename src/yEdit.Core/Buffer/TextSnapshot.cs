@@ -1,0 +1,126 @@
+using System.Text;
+
+namespace yEdit.Core.Buffers;
+
+/// <summary>
+/// 不変のテキストスナップショット(永続ピース木のルート参照を包むファサード)。
+/// 位置・長さはすべてUTF-16コード単位。取得後の編集の影響を受けない。
+/// </summary>
+public sealed class TextSnapshot
+{
+    internal static readonly TextSnapshot Empty = new(null);
+
+    private readonly PieceTree.Node? _root;
+
+    internal TextSnapshot(PieceTree.Node? root) => _root = root;
+
+    internal PieceTree.Node? Root => _root;
+
+    public int CharLength => PieceTree.SumOf(_root).CharLen;
+
+    /// <summary>行数 = breaks + 1(空文書=1行)。</summary>
+    public int LineCount => PieceTree.SumOf(_root).Breaks + 1;
+
+    /// <summary>診断用(テスト・ベンチ)。</summary>
+    internal int PieceCount => PieceTree.Enumerate(_root).Count();
+
+    /// <summary>[start, start+length) の文字列。両端はサロゲート中間でもよい(UIA/描画は任意窓を切るため)。</summary>
+    public string GetText(int start, int length)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(start);
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+        if ((long)start + length > CharLength)
+            throw new ArgumentOutOfRangeException(nameof(length), length, "範囲が文書末尾を超えています。");
+        if (length == 0) return string.Empty;
+        var sb = new StringBuilder(length);
+        AppendRange(_root, start, start + length, sb);
+        return sb.ToString();
+    }
+
+    public char GetChar(int pos)
+    {
+        if (pos < 0 || pos >= CharLength)
+            throw new ArgumentOutOfRangeException(nameof(pos));
+        return GetText(pos, 1)[0];
+    }
+
+    public int GetLineStart(int line)
+    {
+        if (line < 0 || line >= LineCount)
+            throw new ArgumentOutOfRangeException(nameof(line));
+        return line == 0 ? 0 : PieceTree.NthBreakEnd(_root!, line, followedByLf: false) + 1;
+    }
+
+    /// <summary>行末。includeBreak=false なら行のbreak開始位置(CRLF行なら\rの位置)。最終行は CharLength。</summary>
+    public int GetLineEnd(int line, bool includeBreak)
+    {
+        if (line < 0 || line >= LineCount)
+            throw new ArgumentOutOfRangeException(nameof(line));
+        if (line == LineCount - 1) return CharLength;
+        int breakEnd = PieceTree.NthBreakEnd(_root!, line + 1, followedByLf: false);
+        if (includeBreak) return breakEnd + 1;
+        return breakEnd - (breakEnd > 0 && GetChar(breakEnd) == '\n' && GetChar(breakEnd - 1) == '\r' ? 1 : 0);
+    }
+
+    /// <summary>pos が属する行番号。pos == CharLength は最終行(キャレットがEOF位置に立つため)。</summary>
+    public int GetLineIndexOfChar(int pos)
+    {
+        if (pos < 0 || pos > CharLength)
+            throw new ArgumentOutOfRangeException(nameof(pos));
+        var prefix = PieceTree.PrefixStats(_root, pos);
+        int breaks = prefix.Breaks;
+        // CRLFの途中(pos-1がCR かつ posがLF)= breakはまだ完了していない。
+        // 接頭辞末尾がCRのときだけ pos のLF判定を行う(通常経路は追加走査なし)
+        if (prefix.LastIsCr && pos < CharLength && IsLfAt(pos)) breaks--;
+        return breaks;
+    }
+
+    /// <summary>pos の文字がLFか(バイト1点照会・stringデコードなし)。pos &lt; CharLength 前提。</summary>
+    private bool IsLfAt(int pos)
+    {
+        var t = _root;
+        while (true)
+        {
+            int leftChars = PieceTree.SumOf(t!.Left).CharLen;
+            if (pos < leftChars) { t = t.Left; continue; }
+            pos -= leftChars;
+            if (pos < t.Piece.CharLen)
+            {
+                if (pos == 0) return t.Piece.Stats.FirstIsLf;
+                int b = t.Piece.Chunk.CharToByte(t.Piece.ByteStart, t.Piece.ByteLen, pos);
+                return t.Piece.Chunk.Span[b] == (byte)'\n';
+            }
+            pos -= t.Piece.CharLen;
+            t = t.Right;
+        }
+    }
+
+    /// <summary>全文を供給する TextReader(全文string非実体化・Markdig/regex行適用向け)。</summary>
+    public TextReader CreateReader() => new SnapshotReader(_root);
+
+    /// <summary>UTF-8チャンクをストリームへ直書き(変換ゼロ・全文string化しない)。</summary>
+    public void WriteTo(Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        foreach (var p in PieceTree.Enumerate(_root))
+            stream.Write(p.Chunk.Span.Slice(p.ByteStart, p.ByteLen));
+    }
+
+    /// <summary>ノードの文字区間 [from, to) を sb へ追記。ピース全域は直接デコード、端はスナップ切り出し。</summary>
+    private static void AppendRange(PieceTree.Node? t, int from, int to, StringBuilder sb)
+    {
+        if (t is null || from >= to) return;
+        int leftChars = PieceTree.SumOf(t.Left).CharLen;
+        if (from < leftChars) AppendRange(t.Left, from, Math.Min(to, leftChars), sb);
+        int ps = leftChars, pe = leftChars + t.Piece.CharLen;
+        if (to > ps && from < pe && t.Piece.CharLen > 0)
+        {
+            int f = Math.Max(from, ps) - ps, e = Math.Min(to, pe) - ps;
+            var p = t.Piece;
+            sb.Append(f == 0 && e == p.CharLen
+                ? p.Chunk.GetString(p.ByteStart, p.ByteLen)
+                : p.Chunk.GetSubstring(p.ByteStart, p.ByteLen, f, e));
+        }
+        if (to > pe) AppendRange(t.Right, Math.Max(from, pe) - pe, to - pe, sb);
+    }
+}

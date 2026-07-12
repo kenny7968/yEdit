@@ -6,7 +6,7 @@ using yEdit.Editor;
 namespace yEdit.App;
 
 /// <summary>
-/// 検索・置換の統括。Core 照合と ScintillaHost の選択/置換を仲介し、結果を
+/// 検索・置換の統括。Core 照合と EditorControl の選択/置換を仲介し、結果を
 /// ダイアログのステータス＋UIA 通知で SR に伝える。対象はアクティブ文書を毎回解決する。
 /// </summary>
 public sealed class SearchController
@@ -29,7 +29,7 @@ public sealed class SearchController
         };
     }
 
-    private ScintillaHost? ActiveEditor => _docs.Active?.Editor;
+    private EditorControl? ActiveEditor => _docs.Active?.Editor;
 
     // CSVモード中は本文が読取専用で置換が無反映になるため、置換系を抑止して誤成功通知を防ぐ。
     private bool IsCsvModeActive => _docs.Active?.State.CsvMode == true;
@@ -61,12 +61,15 @@ public sealed class SearchController
         if (d is null) return;
         var opts = CurrentOptions();
         if (opts is null) { d.SetStatus(""); return; }
-        var searcher = new TextSearcher(opts);
+        var searcher = new SnapshotSearcher(opts);
         if (!searcher.IsValid) { d.SetStatus("正規表現が正しくありません"); return; }
-        string text = ActiveEditor?.SnapshotText ?? "";
+        // P6 Task 11: SnapshotText 経由の全文 string 化を回避し、64MB 閾値二層化(閾値超は窓/行照合)。
+        // CurrentBuffer は non-null 保証(SetSource 前も静的空 TextBuffer=Task 10 M-2)。
+        // ActiveEditor が null(文書なし)なら "見つかりません" 相当。
+        var snap = ActiveEditor?.CurrentBuffer.Current;
         try
         {
-            int n = searcher.Count(text);
+            int n = snap is null ? 0 : searcher.Count(snap);
             d.SetStatus(n == 0 ? "見つかりません" : $"{n} 件");
         }
         catch (RegexMatchTimeoutException) { d.SetStatus("検索式が複雑すぎます"); }
@@ -80,10 +83,11 @@ public sealed class SearchController
         var ed = ActiveEditor;
         var opts = CurrentOptions();
         if (ed is null || opts is null) return;
-        var searcher = new TextSearcher(opts);
+        var searcher = new SnapshotSearcher(opts);
         if (!searcher.IsValid) { Announce("正規表現が正しくありません"); return; }
 
-        string text = ed.SnapshotText;
+        // P6 Task 11: 全文 string 化を避け、TextSnapshot を直接渡す(閾値超は窓/行照合に自動切替)。
+        var snap = ed.CurrentBuffer.Current;
         var (selStart, selEnd) = ed.GetSelectionCharRange();
         try
         {
@@ -93,14 +97,14 @@ public sealed class SearchController
                 int from = (_lastHit is { } h && selStart == h.Start && selEnd == h.End)
                     ? h.Start + Math.Max(1, h.Length)   // 直前ヒットの次へ（ゼロ幅でも前進）
                     : selEnd;
-                hit = searcher.FindNext(text, from);
+                hit = searcher.FindNext(snap, from);
             }
             else
             {
                 int before = (_lastHit is { } h && selStart == h.Start && selEnd == h.End)
                     ? h.Start
                     : selStart;
-                hit = searcher.FindPrev(text, before);
+                hit = searcher.FindPrev(snap, before);
             }
 
             if (hit is null)
@@ -112,7 +116,7 @@ public sealed class SearchController
 
             ed.SelectCharRange(hit.Value.Start, hit.Value.Length);
             _lastHit = hit;
-            var loc = searcher.Locate(text, hit.Value);
+            var loc = searcher.Locate(snap, hit.Value);
             // 位置不明（Locate 失敗）時は空メッセージ＝ステータスのクリアのみ（発声なし）。
             Announce(loc is { } l ? $"{l.Total} 件中 {l.Ordinal} 件目" : "");
         }
@@ -130,23 +134,24 @@ public sealed class SearchController
         var d = _dialog;
         if (ed is null || opts is null || d is null) return;
         if (IsCsvModeActive) { Announce(CsvAnnounceFormatter.BlockedInCsvMode); return; }
-        var searcher = new TextSearcher(opts);
+        var searcher = new SnapshotSearcher(opts);
         if (!searcher.IsValid) { Announce("正規表現が正しくありません"); return; }
 
         try
         {
-            string text = ed.SnapshotText;
+            // P6 Task 11: 現在バッファの Snapshot を直接渡す(閾値超は窓/行照合に自動切替)。
+            var snap = ed.CurrentBuffer.Current;
             var (selStart, selEnd) = ed.GetSelectionCharRange();
             var span = new MatchSpan(selStart, selEnd - selStart);
-            string? repl = selEnd > selStart ? searcher.ReplacementAt(text, span, d.Replacement) : null;
+            string? repl = selEnd > selStart ? searcher.ReplacementAt(snap, span, d.Replacement) : null;
 
             if (repl is null) { Find(forward: true); return; } // まだヒット未選択 → 次を検索
 
             ed.ReplaceCharRange(span.Start, span.Length, repl);
-            string text2 = ed.SnapshotText;
+            var snap2 = ed.CurrentBuffer.Current;
             // repl が non-null＝マッチ長>0 が保証されるため Max(1,…) は不要。空置換（削除）
             // のとき +1 すると置換直後の隣接ヒットを取りこぼすので素の repl.Length（0含む）で前進する。
-            var next = searcher.FindNext(text2, span.Start + repl.Length);
+            var next = searcher.FindNext(snap2, span.Start + repl.Length);
             if (next is null)
             {
                 _lastHit = null;
@@ -155,7 +160,7 @@ public sealed class SearchController
             }
             ed.SelectCharRange(next.Value.Start, next.Value.Length);
             _lastHit = next;
-            var loc = searcher.Locate(text2, next.Value);
+            var loc = searcher.Locate(snap2, next.Value);
             Announce(loc is { } l ? $"置換しました。{l.Total} 件中 {l.Ordinal} 件目" : "置換しました");
         }
         catch (RegexMatchTimeoutException)
@@ -187,12 +192,13 @@ public sealed class SearchController
         var d = _dialog;
         if (ed is null || opts is null || d is null) return;
         if (IsCsvModeActive) { Announce(CsvAnnounceFormatter.BlockedInCsvMode); return; }
-        var searcher = new TextSearcher(opts);
+        var searcher = new SnapshotSearcher(opts);
         if (!searcher.IsValid) { Announce("正規表現が正しくありません"); return; }
 
         try
         {
-            string text = ed.SnapshotText;
+            // P6 Task 11: 全文 string 化を避け Snapshot を直接渡す(閾値超は窓/行照合に自動切替)。
+            var snap = ed.CurrentBuffer.Current;
             int rangeStart, rangeLen;
             if (d.InSelection)
             {
@@ -203,9 +209,9 @@ public sealed class SearchController
                 }
                 rangeStart = scope.Start; rangeLen = scope.End - scope.Start;
             }
-            else { rangeStart = 0; rangeLen = text.Length; }
+            else { rangeStart = 0; rangeLen = snap.CharLength; }
 
-            var (fragment, count) = searcher.ReplaceInRange(text, rangeStart, rangeLen, d.Replacement);
+            var (fragment, count) = searcher.ReplaceInRange(snap, rangeStart, rangeLen, d.Replacement);
             if (count == 0) { Announce("見つかりません"); return; }
             ed.ReplaceCharRange(rangeStart, rangeLen, fragment);
             _lastHit = null;

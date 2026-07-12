@@ -4,7 +4,7 @@ using yEdit.Editor;
 namespace yEdit.App;
 
 /// <summary>
-/// タブ（TabControl）と複数 Document の管理。各 Document は独立した ScintillaHost を持つ。
+/// タブ（TabControl）と複数 Document の管理。各 Document は独立した EditorControl を持つ。
 /// アクティブ由来のイベントのみ上位（MainForm）へ転送し、どのタブでも変更状態は
 /// そのタブのラベルへ反映する。
 /// </summary>
@@ -12,9 +12,9 @@ public sealed class DocumentManager
 {
     private readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
     private readonly List<Document> _docs = new();
-    private readonly Func<ScintillaHost> _editorFactory;
+    private readonly Func<EditorControl> _editorFactory;
 
-    public DocumentManager(Func<ScintillaHost> editorFactory)
+    public DocumentManager(Func<EditorControl> editorFactory)
     {
         _editorFactory = editorFactory;
         _tabs.Selected += (_, _) => OnSelectedTabChanged();
@@ -37,6 +37,7 @@ public sealed class DocumentManager
     public event EventHandler? ActiveDirtyChanged;    // アクティブの変更状態（タイトル更新）
     public event EventHandler? ActiveCaretChanged;    // アクティブの UpdateUI（行・桁更新）
     public event EventHandler? ActiveCaretEnteredEmptyLine; // アクティブの空行着地（PC-Talker 能動発声）
+    public event EventHandler<WordNavigatedEventArgs>? ActiveWordNavigated; // Ctrl+←→ 単語ナビ（PC-Talker 単語スパン補完）
 
     /// <summary>アクティブ Document のエディタが Win32 フォーカスを得た。CSVモード中の
     /// シンク退避判断は上位（MainForm）が行う（_csv.IsEditing を参照できるのが上位のため）。</summary>
@@ -64,6 +65,10 @@ public sealed class DocumentManager
         editor.CaretEnteredEmptyLine += (_, _) =>
         {
             if (ReferenceEquals(doc, Active)) ActiveCaretEnteredEmptyLine?.Invoke(this, EventArgs.Empty);
+        };
+        editor.WordNavigated += (_, e) =>
+        {
+            if (ReferenceEquals(doc, Active)) ActiveWordNavigated?.Invoke(this, e);
         };
         editor.GotFocus += (_, _) =>
         {

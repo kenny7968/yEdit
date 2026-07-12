@@ -1,4 +1,5 @@
 using yEdit.Core.Backup;
+using yEdit.Core.Buffers;
 using yEdit.Core.Settings;
 using yEdit.Core.Text;
 
@@ -119,7 +120,10 @@ public sealed class FileController
     {
         try
         {
-            var loaded = TextFileService.Load(path, forcedCodePage);
+            // P6 Task 10: Stream I/O 経路で TextBuffer に直接読み込む(1GB 級 UTF-8 の OOM 回避)。
+            // 従来の TextFileService.Load(=byte 全読み + string 全文化)は選択肢から外し、
+            // LoadAsBufferAuto で prefix 検出 → LoadAsBuffer(chunk stream) → LineEnding 検出。
+            var loaded = TextFileService.LoadAsBufferAuto(path, forcedCodePage);
             doc.State.Path = path;
             doc.State.Encoding = loaded.Encoding;
             doc.State.HasBom = loaded.HasBom;
@@ -127,14 +131,16 @@ public sealed class FileController
 
             // CSV モードは自動判定しない（メニューから手動で有効化する）。
             // 既存タブへロードし直す場合に備え、読取専用とハイライトを解除しておく。
-            // Scintilla の Text セッターは読取専用時 no-op のため、Text 代入前に ReadOnly を解除する必要がある。
+            // ReplaceSource は ReadOnly 時 no-op ではないが、旧 CSV モード状態を確実に解除するため事前に落とす。
             doc.State.CsvMode = false;
             doc.ClearCsvCache(); // 旧本文のパース結果を持ち越さない（開き直し経路のメモリ解放）
             doc.Editor.ReadOnly = false;
             doc.Editor.RaiseUiaSelectionEvents = true; // モードON時に落とした UIA 抑止をここで確実に戻す（開き直し経路）
             doc.Editor.ClearHighlight();
 
-            doc.Editor.Text = loaded.Text;
+            // P6 Task 10: TextBuffer をそのまま差し込む(string 全文化を回避)。
+            // 新規タブ(SetSource 前)/開き直し(_buffer あり)の両方を SetOrReplaceSource が振り分け。
+            doc.Editor.SetOrReplaceSource(loaded.Buffer);
             ApplyEol(doc);
             doc.Editor.EmptyUndoBuffer();
             doc.Editor.SetSavePoint();
@@ -207,7 +213,9 @@ public sealed class FileController
             if (wasReadOnly) doc.Editor.ReadOnly = false;
             try { doc.Editor.ConvertEols(doc.Editor.EolMode); }
             finally { if (wasReadOnly) doc.Editor.ReadOnly = true; }
-            TextFileService.Save(path, doc.Editor.Text, doc.State.Encoding, doc.State.HasBom);
+            // P6 Task 10: TextBuffer 版 Save に切替(SnapshotText 経由の string 全文化を回避)。
+            // CurrentBuffer は SetSource 前でも空 TextBuffer を返す=null チェック不要。
+            TextFileService.Save(path, doc.Editor.CurrentBuffer, doc.State.Encoding, doc.State.HasBom);
             doc.Editor.SetSavePoint();
             _docs.UpdateLabel(doc);
             _metaChanged();
@@ -261,7 +269,12 @@ public sealed class FileController
         doc.State.HasBom = rec.HasBom;
         doc.State.LineEnding = (LineEnding)rec.LineEndingId;
 
-        doc.Editor.Text = rec.Content;
+        // P6 Task 10: BackupRecord.Content は string 保存(Task 12 で Stream 化判断)なので、
+        // ここでは TextBuffer.FromString でラップして SetOrReplaceSource に流す(パターン統一)。
+        // 復元は fresh Document への初回差し込みなので実質 SetSource 経路になる。
+        // レビュー M-5: 旧 Text setter は内部で `value ?? string.Empty` していた=null 耐性の
+        // 対称性を戻す(BackupRecord の JSON 破損時に「タブ生成失敗」を避け「空タブ復元」で継続)。
+        doc.Editor.SetOrReplaceSource(TextBuffer.FromString(rec.Content ?? string.Empty));
         ApplyEol(doc);
         doc.Editor.EmptyUndoBuffer();
         // SetSavePoint しない → Modified=true のまま（ユーザーが保存できる）。
@@ -283,5 +296,5 @@ public sealed class FileController
 
     /// <summary>doc.State.LineEnding をそのエディタの EOL モードへ反映する。</summary>
     private static void ApplyEol(Document doc)
-        => doc.Editor.ApplyLineEnding(doc.State.LineEnding);
+        => doc.Editor.EolMode = doc.State.LineEnding;
 }

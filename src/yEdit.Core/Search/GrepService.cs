@@ -66,8 +66,9 @@ public static class GrepService
 
                 byte[] bytes = File.ReadAllBytes(path);
                 var det = EncodingDetector.Detect(bytes);
-                bool wide = det.CodePage is 1200 or 1201; // UTF-16 は NUL を含むためバイナリ判定から除外
-                if (!wide && ContainsNul(bytes)) continue; // バイナリとみなしスキップ
+                // 対応エンコーディング(UTF-8/SJIS/EUC-JP)はいずれも正常な本文に NUL を含まないため、
+                // 先頭 8000B に NUL があればバイナリとみなしてスキップする。
+                if (ContainsNul(bytes)) continue;
 
                 var loaded = TextFileService.DecodeBytes(bytes, det.CodePage);
                 CollectLineHits(path, loaded.Text, searcher, hits);

@@ -32,5 +32,9 @@ desktop.ini
 # Logs / scratch
 *.log
 
+# Test results
+TestResults/
+*.trx
+
 # Git worktrees (isolated workspaces)
 .worktrees/

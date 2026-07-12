@@ -49,8 +49,6 @@ public static class SettingsStore
         if (s.BackupIntervalSeconds < 5) s.BackupIntervalSeconds = def.BackupIntervalSeconds;
         if (s.TabWidth is < 1 or > 16) s.TabWidth = def.TabWidth;
         if (s.CaretWidth is < 1 or > 5) s.CaretWidth = def.CaretWidth;
-        // 未知値・明示 null とも既定へ（"nvda" / "pctalker" のみ有効）。
-        if (s.PreferredScreenReader is not ("nvda" or "pctalker")) s.PreferredScreenReader = def.PreferredScreenReader;
         s.WrapColumn = WrapGeometry.ClampColumns(s.WrapColumn);  // 範囲外/破損値を 10〜1000 へ
         return s;
     }

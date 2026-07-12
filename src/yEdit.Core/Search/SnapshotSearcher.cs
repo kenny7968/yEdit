@@ -17,6 +17,13 @@ namespace yEdit.Core.Search;
 /// <list type="bullet">
 ///   <item>閾値超 &amp; regex は「改行を跨ぐパターンは絶対にヒットしない」
 ///     (行単位で <see cref="TextSearcher"/> に委譲するため)。</item>
+///   <item>P7 I-5 追記: 閾値超 &amp; regex アンカー(<c>^</c> / <c>$</c> /
+///     <c>\A</c> / <c>\Z</c> / <c>\G</c>)は「文書の先頭/末尾」ではなく
+///     「行の先頭/末尾」に anchor される(閾値以下の <see cref="TextSearcher"/>
+///     は文書全体をひとつの入力として扱うため、閾値境界でアンカー挙動が変わる)。
+///     行単位マッチという性質上の必然=呼び出し側が閾値超と閾値以下で厳密に
+///     同一挙動を必要とするなら regex アンカーは使わない設計にすること
+///     (<c>SnapshotSearcherRegexAnchorTests</c> が挙動を凍結)。</item>
 ///   <item>閾値超 &amp; WholeWord はエンジン内蔵の Unicode \b ではなく
 ///     ASCII 単純判定(<see cref="IsWordChar"/>)= 全角英数境界で差異が出うる。</item>
 ///   <item>閾値超 &amp; <see cref="ReplaceInRange"/> は依然として置換後 Fragment を

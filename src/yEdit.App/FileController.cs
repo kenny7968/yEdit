@@ -1,3 +1,4 @@
+using System.Text;
 using yEdit.Core.Backup;
 using yEdit.Core.Buffers;
 using yEdit.Core.Settings;
@@ -186,18 +187,68 @@ public sealed class FileController
     public bool SaveDocument(Document doc)
         => doc.State.Path is null ? SaveAsDocument(doc) : WriteToPath(doc, doc.State.Path);
 
-    /// <summary>指定ドキュメントを名前を付けて保存。成功で State.Path とラベルを更新する。</summary>
+    /// <summary>指定ドキュメントを名前を付けて保存。成功で State.Path/Encoding/LineEnding とラベルを更新する。</summary>
     private bool SaveAsDocument(Document doc)
     {
-        using var dlg = new SaveFileDialog { Filter = "テキスト ファイル (*.txt)|*.txt|マークダウン ファイル (*.md)|*.md|CSV ファイル (*.csv)|*.csv|すべてのファイル (*.*)|*.*" };
-        if (doc.State.Path is not null) dlg.FileName = System.IO.Path.GetFileName(doc.State.Path);
+        using var dlg = new SaveAsDialog(doc.State.Path, doc.State.Encoding.CodePage, doc.State.LineEnding);
         if (dlg.ShowDialog(_owner) != DialogResult.OK) return false;
-        if (!WriteToPath(doc, dlg.FileName)) return false;
-        doc.State.Path = dlg.FileName;
+        if (string.IsNullOrWhiteSpace(dlg.SelectedPath))
+        {
+            MessageBox.Show("ファイル名を指定してください。", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
+        }
+
+        var newEncoding = EncodingCatalog.Get(dlg.SelectedCodePage);
+
+        // C-2 追補 I-2: 選択エンコードで表せない文字があれば警告して続行/中止を選ばせる。
+        // Load 経路の HadReplacementChar 警告と対称。UTF-8(65001) は BMP+astral 全表現可でスキップ。
+        if (dlg.SelectedCodePage != 65001 && !CanEncodeBuffer(doc.Editor.CurrentBuffer, newEncoding))
+        {
+            var result = MessageBox.Show(
+                "選択した文字コードで表せない文字が含まれています。'?' として保存されデータが失われます。続行しますか?",
+                "文字コードの警告", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
+            if (result != DialogResult.OK) return false;
+        }
+
+        // 新エンコード/改行を State に反映してから WriteToPath へ(既存 WriteToPath は State を参照する)。
+        // C-2 追補 I-1: WriteToPath 失敗時は元の Encoding/LineEnding へロールバック
+        // (State だけ更新済で Path が旧のままだと後続の Ctrl+S が元ファイルを別エンコードで
+        // サイレント上書きする=データ破損)。
+        var oldEncoding = doc.State.Encoding;
+        var oldLineEnding = doc.State.LineEnding;
+        doc.State.Encoding = newEncoding;
+        doc.State.LineEnding = dlg.SelectedLineEnding;
+
+        if (!WriteToPath(doc, dlg.SelectedPath))
+        {
+            doc.State.Encoding = oldEncoding;
+            doc.State.LineEnding = oldLineEnding;
+            return false;
+        }
+        doc.State.Path = dlg.SelectedPath;
         _docs.UpdateLabel(doc);
         _metaChanged();
-        RegisterRecent(dlg.FileName); // 保存先も最近のファイルへ
+        RegisterRecent(dlg.SelectedPath); // 保存先も最近のファイルへ
         return true;
+    }
+
+    /// <summary>指定エンコードでバッファ全文が損失なく符号化できるかを事前判定する(SaveAs のダウングレード警告用)。</summary>
+    private static bool CanEncodeBuffer(TextBuffer buffer, Encoding encoding)
+    {
+        try
+        {
+            var probeEnc = Encoding.GetEncoding(encoding.CodePage,
+                EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
+            using var reader = buffer.Current.CreateReader();
+            char[] buf = new char[8 * 1024];
+            int n;
+            while ((n = reader.Read(buf, 0, buf.Length)) > 0)
+            {
+                probeEnc.GetByteCount(buf, 0, n);
+            }
+            return true;
+        }
+        catch (EncoderFallbackException) { return false; }
     }
 
     /// <summary>

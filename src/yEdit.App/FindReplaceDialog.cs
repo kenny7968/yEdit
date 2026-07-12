@@ -24,6 +24,7 @@ public sealed class FindReplaceDialog : Form
     private readonly Button _close = new() { Text = "閉じる(&X)", AutoSize = true };
     private readonly Label _status = new() { AutoSize = true, Text = "" };
     private readonly IAnnouncer _announcer;
+    private bool _isReplaceMode; // G-2: 検索モードでは「次を検索」後にダイアログを Hide
 
     public FindReplaceDialog(SearchController controller)
     {
@@ -39,8 +40,8 @@ public sealed class FindReplaceDialog : Form
         BuildLayout();
         _announcer = AnnouncerFactory.Create(_status);
 
-        _next.Click += (_, _) => _controller.FindNext();
-        _prev.Click += (_, _) => _controller.FindPrev();
+        _next.Click += (_, _) => { if (_controller.FindNext() && !_isReplaceMode) Hide(); };
+        _prev.Click += (_, _) => { if (_controller.FindPrev() && !_isReplaceMode) Hide(); };
         _replaceOne.Click += (_, _) => _controller.ReplaceOne();
         _replaceAll.Click += (_, _) => _controller.ReplaceAll();
         _close.Click += (_, _) => Hide();
@@ -62,6 +63,7 @@ public sealed class FindReplaceDialog : Form
 
     public void SetMode(bool replaceMode)
     {
+        _isReplaceMode = replaceMode;
         Text = replaceMode ? "置換" : "検索";
         _replacementLabel.Visible = replaceMode;
         _replacement.Visible = replaceMode;
@@ -82,7 +84,7 @@ public sealed class FindReplaceDialog : Form
             case Keys.Escape: Hide(); return true;
             case Keys.F3: _controller.FindNext(); return true;
             case Keys.Shift | Keys.F3: _controller.FindPrev(); return true;
-            case Keys.Enter when _pattern.Focused: _controller.FindNext(); return true;
+            case Keys.Enter when _pattern.Focused: if (_controller.FindNext() && !_isReplaceMode) Hide(); return true;
         }
         return base.ProcessCmdKey(ref msg, keyData);
     }

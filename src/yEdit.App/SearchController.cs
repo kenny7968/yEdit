@@ -75,16 +75,18 @@ public sealed class SearchController
         catch (RegexMatchTimeoutException) { d.SetStatus("検索式が複雑すぎます"); }
     }
 
-    public void FindNext() => Find(forward: true);
-    public void FindPrev() => Find(forward: false);
+    /// <summary>次を検索。ヒットして選択を移動できたら true、それ以外(未ヒット/無効式/タイムアウト)は false。</summary>
+    public bool FindNext() => Find(forward: true);
+    /// <summary>前を検索。ヒットして選択を移動できたら true、それ以外(未ヒット/無効式/タイムアウト)は false。</summary>
+    public bool FindPrev() => Find(forward: false);
 
-    private void Find(bool forward)
+    private bool Find(bool forward)
     {
         var ed = ActiveEditor;
         var opts = CurrentOptions();
-        if (ed is null || opts is null) return;
+        if (ed is null || opts is null) return false;
         var searcher = new SnapshotSearcher(opts);
-        if (!searcher.IsValid) { Announce("正規表現が正しくありません"); return; }
+        if (!searcher.IsValid) { Announce("正規表現が正しくありません"); return false; }
 
         // P6 Task 11: 全文 string 化を避け、TextSnapshot を直接渡す(閾値超は窓/行照合に自動切替)。
         var snap = ed.CurrentBuffer.Current;
@@ -111,7 +113,7 @@ public sealed class SearchController
             {
                 _lastHit = null;
                 Announce("これ以上見つかりません");
-                return;
+                return false;
             }
 
             ed.SelectCharRange(hit.Value.Start, hit.Value.Length);
@@ -119,14 +121,16 @@ public sealed class SearchController
             var loc = searcher.Locate(snap, hit.Value);
             // 位置不明（Locate 失敗）時は空メッセージ＝ステータスのクリアのみ（発声なし）。
             Announce(loc is { } l ? $"{l.Total} 件中 {l.Ordinal} 件目" : "");
+            return true;
         }
         catch (RegexMatchTimeoutException)
         {
             Announce("検索式が複雑すぎます");
+            return false;
         }
     }
 
-    /// <summary>現在の選択が今のヒットなら置換し次へ。違えばまず次を検索（標準の置換動作）。</summary>
+    /// <summary>現ヒット未選択なら次を検索して即置換、選択済なら置換して次へ(VSCode 準拠)。</summary>
     public void ReplaceOne()
     {
         var ed = ActiveEditor;
@@ -145,7 +149,19 @@ public sealed class SearchController
             var span = new MatchSpan(selStart, selEnd - selStart);
             string? repl = selEnd > selStart ? searcher.ReplacementAt(snap, span, d.Replacement) : null;
 
-            if (repl is null) { Find(forward: true); return; } // まだヒット未選択 → 次を検索
+            // G-3 修正: 現ヒット未選択なら次を検索してそのまま即置換する(VSCode 準拠)。
+            // 未ヒットの前進先が見つからない場合は Find と同じ「これ以上見つかりません」で終了。
+            if (repl is null)
+            {
+                var next0 = searcher.FindNext(snap, selEnd);
+                if (next0 is null) { Announce("これ以上見つかりません"); return; }
+                var replCand = searcher.ReplacementAt(snap, next0.Value, d.Replacement);
+                // ここは通常到達しない(直前の FindNext ヒットに対して同一 snap/searcher で
+                // ReplacementAt が null を返すのは異常系)。防御としてユーザーへ明示する。
+                if (replCand is null) { Announce("置換できません"); return; }
+                span = next0.Value;
+                repl = replCand;
+            }
 
             ed.ReplaceCharRange(span.Start, span.Length, repl);
             var snap2 = ed.CurrentBuffer.Current;

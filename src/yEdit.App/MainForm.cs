@@ -50,6 +50,7 @@ public sealed partial class MainForm : Form
 
         _docs = new DocumentManager(CreateEditor);
         _docs.ActiveDocumentChanged += (_, _) => { UpdateTitle(); UpdateStatus(); };
+        _docs.KeyBasedSwitch += doc => _announcer.Say(doc.State.DisplayName);
         _docs.ActiveDirtyChanged += (_, _) => UpdateTitle();
         _docs.ActiveCaretChanged += (_, _) => UpdateStatus();
         // 空行着地の能動発声: PC-Talker は UIA の長さ0行を無音にするため、こちらから「空行」を読む。
@@ -219,7 +220,6 @@ public sealed partial class MainForm : Form
             case Keys.F3: _search.FindNext(); return true;
             case Keys.Shift | Keys.F3: _search.FindPrev(); return true;
             case Keys.Control | Keys.Alt | Keys.P: AnnouncePosition(); return true;
-            case Keys.Control | Keys.Alt | Keys.I: AnnounceCharInfo(); return true;
             case Keys.Control | Keys.G: GoToLine(); return true;
             case Keys.Insert: ToggleOvertype(); return true;
         }
@@ -253,7 +253,7 @@ public sealed partial class MainForm : Form
         file.DropDownItems.Add(_recentMenu);
         file.DropDownItems.Add(new ToolStripSeparator());
         AddMenuItem(file, "上書き保存(&S)", (_, _) => _file.Save(), Keys.Control | Keys.S);
-        AddMenuItem(file, "名前を付けて保存(&A)...", (_, _) => _file.SaveAs());
+        AddMenuItem(file, "名前を付けて保存(&A)...", (_, _) => _file.SaveAs(), Keys.Control | Keys.Shift | Keys.S);
         file.DropDownItems.Add(new ToolStripSeparator());
         AddMenuItem(file, "タブを閉じる(&W)", (_, _) => CloseActiveTab(), Keys.Control | Keys.W);
         AddMenuItem(file, "終了(&X)", (_, _) => Close());
@@ -289,8 +289,6 @@ public sealed partial class MainForm : Form
         var read = new ToolStripMenuItem("読み上げ(&R)");
         read.DropDownItems.Add(new ToolStripMenuItem("現在位置(&P)", null, (_, _) => AnnouncePosition())
         { ShortcutKeyDisplayString = "Ctrl+Alt+P" });
-        read.DropDownItems.Add(new ToolStripMenuItem("文字情報(&I)", null, (_, _) => AnnounceCharInfo())
-        { ShortcutKeyDisplayString = "Ctrl+Alt+I" });
         read.DropDownItems.Add(new ToolStripMenuItem("行へ移動(&G)...", null, (_, _) => GoToLine())
         { ShortcutKeyDisplayString = "Ctrl+G" });
 
@@ -437,17 +435,6 @@ public sealed partial class MainForm : Form
         int column = ed.GetColumn(ed.CurrentPosition) + 1;
         var (s, e) = ed.GetSelectionCharRange();
         _announcer.Say(PositionFormatter.Format(line, totalLines, column, ed.SnapshotText.Length, e - s, ed.Overtype));
-    }
-
-    /// <summary>キャレット位置の文字情報（全角/半角空白の区別など）を読み上げる。末尾なら案内する。</summary>
-    private void AnnounceCharInfo()
-    {
-        var ed = _docs.Active?.Editor;
-        if (ed is null) return;
-        string text = ed.SnapshotText;
-        int caret = ed.CaretCharOffset; // 選択端ではなく実キャレット位置の文字を説明する
-        if (caret < 0 || caret >= text.Length) { _announcer.Say("文書の末尾"); return; }
-        _announcer.Say(CharacterDescriber.DescribeAt(text, caret));
     }
 
     /// <summary>行番号を入力して移動する。</summary>

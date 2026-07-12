@@ -161,4 +161,56 @@ public class VerticalNavigationTests
         Assert.Equal(10, t);
         Assert.Equal(48, d);
     }
+
+    // ===== P8-1b: 折り返し行の視覚行単位移動(N-3 検証追加分) =====
+
+    [Fact]
+    public void MoveUp_WithWrap_FromContinuationSeg_GoesToPreviousVisualRowSameLogicalLine()
+    {
+        // "abcdef" wrapColumns=3 → 視覚 [(0,3)="abc",(3,3)="def"]
+        // caret=4('e' in seg 1)から Up → 同論理行の前 seg の col=1='b'=caret=1
+        var s = Snap("abcdef");
+        var (t, d) = VerticalNavigation.MoveUp(s, caret: 4, currentDesiredPx: -1, wrapColumns: 3, M);
+        Assert.Equal(1, t);
+        Assert.Equal(8, d);
+    }
+
+    [Fact]
+    public void MoveDown_WithWrap_FromLastSegOfLogicalLine_GoesToNextLogicalLineFirstSeg()
+    {
+        // 行0: "abcdef" 視覚 [(0,3)="abc",(3,3)="def"]
+        // 行1: "ghijkl" 視覚 [(0,3)="ghi",(3,3)="jkl"]
+        // caret=4('e' in seg 1 of line 0)から Down → 行1 の seg 0 の col=1='h'=caret=8
+        //   (改行分 +1 で行1先頭は 7、seg 0 col=1 → 7+0+1=8)
+        var s = Snap("abcdef\nghijkl");
+        var (t, d) = VerticalNavigation.MoveDown(s, caret: 4, currentDesiredPx: -1, wrapColumns: 3, M);
+        Assert.Equal(8, t);
+        Assert.Equal(8, d);
+    }
+
+    [Fact]
+    public void MoveDown_WithWrap_MultipleVisualSegments_TraversesEachSegOnEachDown()
+    {
+        // "aaaaaaaaa"(9 文字)wrapColumns=3 → 視覚 [(0,3),(3,3),(6,3)]
+        // caret=0 から Down 1 → seg 1 の col=0 = 3
+        var s = Snap("aaaaaaaaa");
+        var (t1, d1) = VerticalNavigation.MoveDown(s, caret: 0, currentDesiredPx: -1, wrapColumns: 3, M);
+        Assert.Equal(3, t1);
+        Assert.Equal(0, d1);
+        // Down 2 → seg 2 の col=0 = 6
+        var (t2, d2) = VerticalNavigation.MoveDown(s, caret: t1, currentDesiredPx: d1, wrapColumns: 3, M);
+        Assert.Equal(6, t2);
+        Assert.Equal(0, d2);
+    }
+
+    [Fact]
+    public void MoveUp_WithWrap_FromFirstSegOfLogicalLine_GoesToPreviousLogicalLineLastSeg()
+    {
+        // 行0: "abcdef" 視覚 [(0,3),(3,3)]、行1: "ghijkl" 視覚 [(0,3),(3,3)]
+        // caret=7('g' in seg 0 of line 1)から Up → 行0 の seg 1(=最後の視覚行)の col=0='d'=caret=3
+        var s = Snap("abcdef\nghijkl");
+        var (t, d) = VerticalNavigation.MoveUp(s, caret: 7, currentDesiredPx: -1, wrapColumns: 3, M);
+        Assert.Equal(3, t);
+        Assert.Equal(0, d);
+    }
 }

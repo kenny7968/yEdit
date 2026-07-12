@@ -379,6 +379,7 @@ SR側の癖に起因するため新コントロールへ移植する:
 - `Document.Editor`型差し替え・EditorAppearance書き換え・FileControllerストリームI/O化(3エンコーディング・UTF-16廃止)・SearchController閾値二層化・CSV/禁則/Markdown/バックアップ/Grep/行ジャンプ/文字情報配線・Scintilla NuGet撤去
 - `SrRoute.Nvda`/`CsvFocusSink` は無効化のみで残す(切り分け用)
 - **DoD**: build 0警告+Core全緑+全機能手動チェックリスト
+- **申し送り(BackupCoordinator の大容量チャンク書き=P6 Task 12)**: 現状の `BackupCoordinator` は `doc.Editor.SnapshotText`(全文 string 化)を経由してバックアップレコード(`BackupRecord.Content: string`)を構築する。EditorControl 側の `SnapshotText` は non-null 保証で機械的に通り、Task 12 の型置換はゼロ変更で完了(build 通過確認済)。ただし 1GB 級ファイルでは バックアップ tick(既定 300 秒)ごとに 2GB(UTF-16 で 32bit×charLen)近い string 生成が発生する=真の OOM 回避は P7 送り。P7 で `BackupStore.WriteChunked(TextSnapshot)` を追加し `BackupRecord.Content` を `TextSnapshot`/ストリーム API 化する方向(§2-8「バックアップはチャンク直書き」の完全実装)。それまでの回避策として、閾値超ファイルに対して「保存済み(=Modified=false)以外は自動バックアップを一時 skip する」オプションを設定側で用意する余地あり(P6 では未実装)。
 
 ### P7: 実機SR総合検証+撤去+リリース整備(第3ゲート)
 - ユーザー実機フルマトリクス(3 SR × 主要全機能+復帰フォーカス+空行+タブ切替)

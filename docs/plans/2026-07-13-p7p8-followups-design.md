@@ -165,8 +165,9 @@ private WrapSegment? TryFindVisualSegmentCore(TextSnapshot snap, int line, int o
 
 - コンストラクタに `IAnnouncer announcer` を追加
 - 現行 `Announce(msg) => _dialog?.RaiseNotification(msg);` を
-  `Announce(msg) => _announcer.Say(msg);` に
-- `FindReplaceDialog.RaiseNotification` は grep/内部通知用途で維持(GrepController がまだ呼ぶ)
+  `Announce(msg) => _announcer.Say(msg);` +「dialog Visible なら `_dialog.SetStatus(msg)`」の複合契約に
+- `FindReplaceDialog.RaiseNotification` および内部 `_announcer` は本 Task で完全に呼び出し元が消えるため撤去する
+  (GrepController が呼ぶのは別クラスの `GrepDialog.RaiseNotification`)
 
 **変更対象**: `src/yEdit.App/MainForm.cs`
 
@@ -175,11 +176,13 @@ private WrapSegment? TryFindVisualSegmentCore(TextSnapshot snap, int line, int o
 **テスト**: SearchController のロジックが Dialog に依存しないことを凍結する軽量テストを Editor.Tests
 に追加(現状 App 層テスト無しのため spike として最小 1 件のみ・本格化は別セッション)。
 
-**注意**: `FindReplaceDialog._announcer`(dialog `_status` Label 束縛)と MainForm
-`_announcer`(底部 `_announceLabel` 束縛)は別インスタンス・別 Label。SR 発声は Label
-非依存なので不変だが、視覚出力先は dialog `_status` → 底部 `_announceLabel` に移動する。
-本 Task で `Announce` を「_announcer.Say + dialog Visible 時 _dialog.SetStatus」の複合契約に
-することで、置換モード(dialog 常時 Visible)の視覚出力が dialog 内で維持される。
+**注意(実装時決定・追補反映済み)**: 当初の想定では「FindReplaceDialog 内部 Announcer と
+MainForm Announcer は同一挙動」と誤認していたが、実際は別 Label 束縛(dialog `_status`
+vs 底部 `_announceLabel`)で、SR 発声は Label 非依存で不変だが視覚出力先が変わる問題があった。
+そのため `Announce` を「`_announcer.Say(msg)` + dialog Visible なら `_dialog.SetStatus(msg)`」の
+複合契約に決着させ、置換モード(dialog 常時 Visible)の視覚出力が dialog 内で維持されるように
+した。SetStatus は発声しない純視覚更新なので二重発声にならない。副作用として
+`FindReplaceDialog._announcer` は呼び出し元ゼロの死コードとなり撤去。
 
 ### 3.4 Event delegate 統一
 

@@ -170,8 +170,11 @@ private WrapSegment? TryFindVisualSegmentCore(TextSnapshot snap, int line, int o
 **テスト**: SearchController のロジックが Dialog に依存しないことを凍結する軽量テストを Editor.Tests
 に追加(現状 App 層テスト無しのため spike として最小 1 件のみ・本格化は別セッション)。
 
-**注意**: 現時点で `FindReplaceDialog.RaiseNotification` の内部 announcer と
-`_announceLabel` 経由の Announcer は同一インスタンス。したがって挙動不変が主目的の整理。
+**注意**: `FindReplaceDialog._announcer`(dialog `_status` Label 束縛)と MainForm
+`_announcer`(底部 `_announceLabel` 束縛)は別インスタンス・別 Label。SR 発声は Label
+非依存なので不変だが、視覚出力先は dialog `_status` → 底部 `_announceLabel` に移動する。
+本 Task で `Announce` を「_announcer.Say + dialog Visible 時 _dialog.SetStatus」の複合契約に
+することで、置換モード(dialog 常時 Visible)の視覚出力が dialog 内で維持される。
 
 ### 3.4 Event delegate 統一
 
@@ -302,5 +305,3 @@ BasicSettingsTab=既定エンコード)は BOM 概念が意味を持たない場
   釣り合わない
 - **SaveAs BOM 以外の UI 拡張**(EOL 明示指定 UI・保存推奨スクリプト等)= YAGNI
 - **Minor-5 の LRU 化**(隣接行 Line 単位読みへの対応)= 単一エントリで実用上十分と判定
-- **`FindReplaceDialog.RaiseNotification` の廃止**(grep 側 GrepController がまだ使用)=
-  今回は SearchController 経路の整理のみ・GrepController 側は別議論

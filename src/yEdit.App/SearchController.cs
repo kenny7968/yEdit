@@ -242,9 +242,14 @@ public sealed class SearchController
         }
     }
 
-    /// <summary>ステータス Label を更新しつつ SR にライブ通知（Say 契約: 空は視覚クリアのみ・発声なし）。
-    /// 視覚だけ更新したい増分カウント等は Announce ではなくダイアログの SetStatus を使う。
+    /// <summary>MainForm 底部の通知 Label へ SR ライブ通知(Say 契約: 空は視覚クリアのみ・発声なし)。
+    /// dialog が表示中なら dialog 内の視覚ステータスも更新して、置換結果の可視表示が
+    /// dialog 内で維持される(晴眼/弱視ユーザーの UX 保持=SetStatus は発声しないので二重発声にならない)。
     /// P7/P8 申し送り: G-2 で「次を検索」後にダイアログを Hide するため、Hidden な _dialog を
-    /// 経由せず MainForm 共有 Announcer 直接発声で経路を整理。実挙動は不変（元々同じ Announcer）。</summary>
-    internal void Announce(string message) => _announcer.Say(message);
+    /// 経由せず MainForm 共有 Announcer 直結で SR 発声を成立させる。</summary>
+    internal void Announce(string message)
+    {
+        _announcer.Say(message);
+        if (_dialog?.Visible == true) _dialog.SetStatus(message);
+    }
 }

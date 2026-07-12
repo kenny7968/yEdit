@@ -434,13 +434,44 @@ Task 1〜18 の実施結果:
 - 合格後: NVDA経路・CsvFocusSink・ServeUiaProvider完全撤去、HANDOFF/説明書更新、リリースCI調整(ネイティブDLL同梱削除)
 - **DoD**: 実機OK+撤去後全緑+リリースzip起動確認 → mainへno-ffマージ
 
-#### P7 実装記録(2026-07-12・Part A(I-3/I-4/I-5)進行中・撤去/検証は継続中)
+#### P7 実装記録(2026-07-12・Part A/B/C 全消化・自動 DoD 全達成・手動チェックリスト実機実施待ち)
 
-- P7 Task 4 bench(1GB UTF-8 ASCII / Intel Core i9-9900KF @ 3.6GHz / RAM 64GB / Win11 Pro / Release build):
-  - peak0=61,920 B / peakLoad=1,079,282,152 B(delta≈1.005 GB) loadMs=2,386
-  - peakConvert=1,079,338,048 B(delta≈55 KB) convertMs=744
-  - peakSave=1,079,338,048 B(delta=0) saveMs=390
-  - **判定**: peak がおよそ O(text)=I-3 の効能確認。Load 常駐 ≈ 本文サイズ(1.005 GB、目標 ≦1.3 GB クリア)。ConvertEols は `--gen-1gb` が LF を書く=検出 EOL=Lf=`ConvertEols(Lf)` が uniform fast-path を踏み rebuild 経路の一時割当ゼロ(byte スキャンのみ・目標 ≦1.3 GB を大幅クリア)。Save は `WriteTo(Stream)` の変換ゼロチャンク直書きで追加割当 0 バイト(目標 ≦100 MB クリア)。in=out=1,073,741,824 B・match=True で内容も正しくラウンドトリップ。
+**自動 DoD 実測**:
+- テスト全緑: **Core 592 + Editor 219 = 811 tests PASS**(P6 795 → +16=I-3 Save chunk 化系 8 / I-4 SJIS chunk read 系 3 / I-5 regex アンカー系 2 / ConvertEols 境界系 3 / 撤去に伴う SR 二系統テスト減 -8=正味 +16)
+- ビルド警告: **0 warning / 0 error**(Release build 実測)
+- publish 出力: **Scintilla/Lexilla ネイティブ DLL ゼロ**(`dotnet publish src/yEdit.App -c Release -r win-x64 --self-contained false` 実測)
+
+**Part A: I-3/I-4/I-5(P6 レビュー申し送り消化・全 6 Task=17 コミット)**:
+- Task 1 (`455d03a`): `AtomicFile.Write(string, Action<Stream>)` オーバーロード追加(TDD・byte[] 版と同一契約)
+- Task 2 (`73094e7`+`9e05288`+`da0a931`): `TextFileService.Save(TextBuffer)` を chunk write 化(UTF-8=`WriteTo(Stream)`/SJIS+EUC-JP=`SnapshotReader`+`Encoder.Convert`・共有違反 fallback のみ全文化)
+- Task 3 (`9cc8fe1`+`1de6d88`): `EditorControl.ConvertEols` を chunk rebuild 化(byte 単位 EOL 置換+`TextBufferBuilder` 再構築・`pendingCr` で境界跨ぎ CRLF 吸収・caret/anchor は `SnapshotReader` で座標復元)
+- Task 4 (`c970921`+`cc96c7f`): smoke に `--gen-1gb`+`--bench-save` 追加(実測: peak Load=1.005 GB / Convert=+55 KB fast-path / Save=+0 B `WriteTo`)
+- Task 5 (`6869f51`+`c4a30b9`): `LoadAsBuffer` SJIS/EUC-JP を chunk read 化(`StreamReader.Read` チャンクループ+UTF-8 変換=ReadToEnd 2x メモリ回避)
+- Task 6 (`9450519`): `SnapshotSearcher` regex アンカー行内化を docstring 明記+挙動凍結テスト
+
+**P7 Task 4 bench 詳細(1GB UTF-8 ASCII / Intel Core i9-9900KF @ 3.6GHz / RAM 64GB / Win11 Pro / Release build)**:
+- peak0=61,920 B / peakLoad=1,079,282,152 B(delta≈1.005 GB) loadMs=2,386
+- peakConvert=1,079,338,048 B(delta≈55 KB) convertMs=744
+- peakSave=1,079,338,048 B(delta=0) saveMs=390
+- **判定**: peak がおよそ O(text)=I-3 の効能確認。Load 常駐 ≈ 本文サイズ(1.005 GB、目標 ≦1.3 GB クリア)。ConvertEols は `--gen-1gb` が LF を書く=検出 EOL=Lf=`ConvertEols(Lf)` が uniform fast-path を踏み rebuild 経路の一時割当ゼロ(byte スキャンのみ・目標 ≦1.3 GB を大幅クリア)。Save は `WriteTo(Stream)` の変換ゼロチャンク直書きで追加割当 0 バイト(目標 ≦100 MB クリア)。in=out=1,073,741,824 B・match=True で内容も正しくラウンドトリップ。
+
+**Part B: 撤去(5 コミット・build 整合性のため Task 7 と Task 10 の順序を計画から入れ替え=UiaProbe 先撤去 → v1 UIA ファイル群)**:
+- Task 7 (`0be7265`+`4c61604`): `yEdit.UiaProbe` プロジェクト削除(6 ファイル・v1 UIA の唯一の呼び出し元を先に消して build 整合性を保つ)+ TestResults gitignore 追加(誤コミットした layout.trx を untrack)
+- Task 8 (`edecf08`): `SrRoute.Nvda`/`SrRouteSelector`/`SrContext`/`SpeechMode` 削除+設定ダイアログの優先SR タブ削除+`AppSettings.PreferredScreenReader` 削除+`AnnouncerFactory` を `PcTalkerSpeech.IsRunning()` 直接判定に簡素化(5 ファイル削除+10 ファイル修正)
+- Task 9 (`397b11b`): `CsvFocusSink` 削除(§0-8 猶予解消・MainForm の `CsvSink.Focused` 判定を `Editor.ContainsFocus` に統一)
+- Task 10 (`09e60a4`): v1 UIA 4 ファイル削除(`IUiaTextHostLegacy`/`TextControlProvider`/`TextProviderImpl`/`TextRangeProvider`)+ `IUiaTextHost` の docstring から legacy 参照除去
+- Task 11 (`7964e25`): tools v1 UIA スクリプト 4 本(`verify-uia.ps1`/`walk-test.ps1`/`dump-uia.ps1`/`selftest-caret.ps1`)+ `docs/HANDOFF-scintilla-uia.md` 削除(v2 用 `verify-uia-editor.ps1`/`walk-test-editor.ps1`/`word-sim.ps1` は温存)
+
+**Part C: リリース整備 + 別エージェント最終レビュー**:
+- Task 12 (`80f1ad0`): `EditorControl` 冒頭 docstring から「P6 で ScintillaHost を置換する予定」の記述を「P6 で完全置換・P7 で並行運用終了」に更新(CI/説明書は Scintilla 記述無く clean=no-op)
+- Task 13 別エージェント最終レビュー: **Critical 0 / Important 2 / Minor 少数**
+  - Important-1: `AnnouncerFactory` の PC-Talker 判定タイミング不一致(MainForm ctor と Dialog 生成時で live 呼び出しが食い違う可能性)→`Lazy<bool>` でプロセス寿命キャッシュ化(`450ebe6`)
+  - Important-2: `ConvertEols` 非 fast-path 経路で TopLine/ScrollX 不変時に PositionCaret 再発火されず system caret が pos 0 に残る潜在バグ→末尾に `if (_hasFocus) PositionCaret();` 明示追加(`450ebe6`)
+  - Minor: 非 fast-path ConvertEols の 1GB bench は Task 4 のフォローとして未計測(申し送り)/ `TextFileService.Save` SJIS/EUC-JP の DecoderFallback は書込経路で発火しない dead argument(シグネチャ要件で残置・コメントで説明済)
+
+**撤退安全性**: Part B の 5 コミット粒度で `git revert` 単位に分割済=手動検証 NG 時に該当機構だけ切り戻し可能。ただし v1 UIA と SR 二系統機構は完全撤去済のため、実機で「v2 UIA が読まない」問題が出た場合は revert では戻せない=v2 プロバイダの根本修正が必要。
+
+**手動チェックリスト**: `docs/plans/2026-07-06-p6-manual-checklist.md`(A〜P・90+ 項目)= ユーザー実機実施待ち。Go 判定後に main へ no-ff マージ(Task 15)。
 
 ### 運用
 - 各フェーズ完了時に別エージェントのコードレビュー→ブランチへコミット。**全フェーズを本ブランチ(feature/custom-editcontrol-design・ワークツリー)に閉じて積み、P7合格後に一括で main へ no-ff マージ**(ユーザー指示 2026-07-05: プロジェクト完了まで main には触れない。当初の「P0/P1は随時mainへマージ」は撤回)

@@ -20,9 +20,12 @@ public static partial class TextFileService
     }
 
     /// <summary>
-    /// P6 Task 7: Stream I/O でファイルを TextBuffer に読み込む(大容量 OOM 回避)。
-    /// UTF-8 は変換ゼロで <see cref="TextBufferBuilder"/> にチャンク流し(4MB 単位・境界は carry で吸収)。
-    /// SJIS/EUC-JP は <see cref="StreamReader"/> で UTF-16 化してから <see cref="TextBuffer.FromString"/>。
+    /// P6 Task 7 + P7 I-4: Stream I/O でファイルを TextBuffer に読み込む(大容量 OOM 回避)。
+    /// UTF-8 は変換ゼロで <see cref="TextBufferBuilder"/> にチャンク流し(64KB 単位・Builder 内 4MB
+    /// チャンク境界は carry で吸収)。SJIS/EUC-JP は <see cref="StreamReader.Read(char[], int, int)"/>
+    /// の 8KB チャンクループで UTF-16 化 → <see cref="Encoding.UTF8.GetBytes(char[], int, int, byte[], int)"/>
+    /// で UTF-8 化 → <see cref="TextBufferBuilder.Add"/>=UTF-8 経路と同じく peak ~1x に抑える
+    /// (旧実装の ReadToEnd による全文 char[] 常駐+Builder UTF-8 常駐の 2x メモリを回避)。
     /// forcedCodePage 版の <see cref="Load"/> と違い、encoding は呼び出し側で確定済み(再オープン/明示指定用)。
     /// </summary>
     /// <param name="path">ファイルパス。</param>
@@ -78,8 +81,10 @@ public static partial class TextFileService
             // DecodeBytes と同じく明示的な DecoderReplacementFallback("�") を差し込む。
             //
             // 注: Encoding.UTF8.GetBytes(char[], 0, n, ...) は stateless 変換(char[] を完全な
-            //     コードポイント列として扱う)だが、StreamReader は内部バッファでコード点境界を
-            //     保証するため char[] 境界でサロゲート対を分断しない=この使い方で安全。
+            //     コードポイント列として扱う)。SJIS/EUC-JP は BMP 外を表現できず、
+            //     DecoderReplacementFallback の U+FFFD も BMP なので、char[] にはサロゲートが
+            //     1 個も現れない=境界分断リスクなし。UTF-16LE/UTF-32 等 SMP を扱う encoding に
+            //     この経路を流用する場合は StreamReader 内部の対分断特性を再検証すること。
             var decoding = Encoding.GetEncoding(encoding.CodePage,
                 EncoderFallback.ReplacementFallback,
                 new DecoderReplacementFallback("�"));
@@ -105,11 +110,10 @@ public static partial class TextFileService
     }
 
     /// <summary>
-    /// P6 Task 10: App 層一発読み(<see cref="LoadInto"/> 相当の統合エントリ)。Stream ベースで
-    /// 検出 → <see cref="LoadAsBuffer"/> → LineEnding 検出を一括で行う。UTF-8 は 64KB チャンク Stream で
-    /// 常駐 ~1x に抑え、1GB 級 UTF-8 の OOM(全文 string ~3GB 常駐)を回避する。
-    /// SJIS/EUC-JP は現行同等(<see cref="StreamReader"/> 経由で string を経由=日本語ファイルは高々
-    /// 数百 MB 想定の許容範囲・<see cref="LoadAsBuffer"/> のドキュメント参照)。
+    /// P6 Task 10 + P7 I-4: App 層一発読み(<see cref="LoadInto"/> 相当の統合エントリ)。Stream ベースで
+    /// 検出 → <see cref="LoadAsBuffer"/> → LineEnding 検出を一括で行う。UTF-8 / SJIS / EUC-JP のいずれも
+    /// chunk stream 経路で常駐 ~1x に抑え、1GB 級の OOM(全文 string ~3GB 常駐)を回避する。
+    /// SJIS/EUC-JP の chunk read 化は P7 I-4 で完成(詳細は <see cref="LoadAsBuffer"/> のドキュメント参照)。
     /// </summary>
     /// <remarks>
     /// エンコーディング検出は先頭 64KB を prefix として <see cref="EncodingDetector.Detect"/> に渡す

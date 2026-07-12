@@ -30,7 +30,6 @@ public sealed class SettingsDialog : Form
             new KinsokuSettingsTab(),
             new DisplaySettingsTab(),
             new BackupSettingsTab(),
-            new SpeechSettingsTab(),
         };
 
         Text = "設定";

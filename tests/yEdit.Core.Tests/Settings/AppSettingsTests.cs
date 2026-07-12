@@ -48,7 +48,6 @@ public class AppSettingsTests
         Assert.True(def.BackupEnabled);
         Assert.Equal(300, def.BackupIntervalSeconds);   // 30→300 へ変更（設計 2026-07-04）
         Assert.True(def.ConfirmRestoreOnStartup);
-        Assert.Equal("nvda", def.PreferredScreenReader);
     }
 
     [Fact]
@@ -58,7 +57,7 @@ public class AppSettingsTests
         {
             CsvAutoModeOnOpen = true, TabWidth = 8, TabsToSpaces = true,
             ShowLineNumbers = true, HighlightCurrentLine = true, CaretWidth = 3,
-            ShowWhitespace = true, ConfirmRestoreOnStartup = false, PreferredScreenReader = "pctalker",
+            ShowWhitespace = true, ConfirmRestoreOnStartup = false,
         };
         var c = s.Clone();
         Assert.True(c.CsvAutoModeOnOpen);
@@ -69,6 +68,5 @@ public class AppSettingsTests
         Assert.Equal(3, c.CaretWidth);
         Assert.True(c.ShowWhitespace);
         Assert.False(c.ConfirmRestoreOnStartup);
-        Assert.Equal("pctalker", c.PreferredScreenReader);
     }
 }

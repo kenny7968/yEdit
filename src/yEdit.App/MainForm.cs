@@ -3,7 +3,6 @@ using yEdit.App.Speech;
 using yEdit.Core.Csv;
 using yEdit.Core.Reading;
 using yEdit.Core.Settings;
-using yEdit.Core.Speech;
 using yEdit.Core.Text;
 using yEdit.Editor;
 
@@ -27,7 +26,11 @@ public sealed partial class MainForm : Form
         Dock = DockStyle.Bottom, Height = 22, AutoSize = false,
         TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "通知",
     };
-    private IAnnouncer _announcer = null!; // AnnouncerFactory で生成（起動時モード確定）
+    private IAnnouncer _announcer = null!; // 起動時に PC-Talker 稼働で選択（下記コンストラクタ参照）
+    // 起動時に PC-Talker が稼働しているか（起動時確定方針・PC-Talker 起動/終了には追従しない）。
+    // PC-Talker 経路では UIA の長さ0行が無音になる等の欠落を「空行」能動発声等で補うため、
+    // 経路別の分岐（空行発声・単語ナビの能動発声）判定にこの1値を使う。
+    private readonly bool _isPcTalker = PcTalkerSpeech.IsRunning();
     private ToolStripMenuItem _recentMenu = null!; // BuildMenu で生成
     private readonly string _settingsPath = SettingsStore.DefaultPath;
     private AppSettings _settings = new();
@@ -38,7 +41,7 @@ public sealed partial class MainForm : Form
 
     public MainForm(AppSettings settings)
     {
-        _settings = settings;   // Program.Main が読込済み（優先 SR を SR 判定へ渡すため先読みしている）
+        _settings = settings;   // Program.Main が読込済み
 
         Text = "yEdit";
         Width = _settings.WindowWidth;
@@ -50,20 +53,20 @@ public sealed partial class MainForm : Form
         _docs.ActiveDirtyChanged += (_, _) => UpdateTitle();
         _docs.ActiveCaretChanged += (_, _) => UpdateStatus();
         // 空行着地の能動発声: PC-Talker は UIA の長さ0行を無音にするため、こちらから「空行」を読む。
-        // NVDA はネイティブに「ブランク」を読むため対象外（発声モードは起動時に確定済み）。
+        // NVDA はネイティブに「ブランク」を読むため対象外（起動時に判定済み）。
         // CSVモード中はセル読み体系（CsvController）が担うため発声しない。
         _docs.ActiveCaretEnteredEmptyLine += (_, _) =>
         {
-            if (SrContext.Mode == SpeechMode.PcTalker && _docs.Active?.State.CsvMode != true)
+            if (_isPcTalker && _docs.Active?.State.CsvMode != true)
                 _announcer.Say("空行");
         };
         // 単語ナビ(Ctrl+←→)の PC-Talker 補完: UIA の選択変更通知だけでは単語スパンが
         // 発声されないため、EditorControl.WordNavigated を購読して単語文字列を能動発声する。
-        // NVDA/汎用ナレーターは UIA v2 の選択イベントで自力で読めるため対象外(SrRoute.PcTalker
-        // 判定・空行と同構造)。CSVモード中はセル読み体系が担うため発声しない。
+        // NVDA/汎用ナレーターは UIA v2 の選択イベントで自力で読めるため対象外(空行と同構造)。
+        // CSVモード中はセル読み体系が担うため発声しない。
         _docs.ActiveWordNavigated += (_, e) =>
         {
-            if (SrContext.Route != SrRoute.PcTalker) return;
+            if (!_isPcTalker) return;
             var doc = _docs.Active;
             if (doc is null || doc.State.CsvMode) return;
             string span = ((yEdit.Accessibility.IUiaTextHost)doc.Editor).GetTextRange(e.WordStart, e.WordEnd - e.WordStart);
@@ -97,9 +100,7 @@ public sealed partial class MainForm : Form
         _file.NewFile(); // 起動時の無題タブ1つ（Q1=B：常に新規タブ）
     }
 
-    /// <summary>タブ毎の EditorControl を生成する。SR 適応は EditorControl 単一経路（UIA v2）に一本化されており、
-    /// 旧 <c>ScintillaHost.ApplySrAdaptation</c> のような SR 二系統の切替は不要（Task 15 で SrContext 側の
-    /// 分岐も除去予定）。</summary>
+    /// <summary>タブ毎の EditorControl を生成する。受動読みは EditorControl 単一経路（UIA v2）に一本化済み。</summary>
     private EditorControl CreateEditor()
     {
         var e = new EditorControl { Dock = DockStyle.Fill };
@@ -397,19 +398,16 @@ public sealed partial class MainForm : Form
     }
 
     /// <summary>設定ダイアログを開き、OK なら全タブへ外観適用＋バックアップ設定の即時反映＋永続化する。
-    /// 項目→コントロールの対応はダイアログに閉じ、ここは Result を差し替えるだけにする。
-    /// 優先 SR の変更だけは再起動後有効のため、変更時にその旨を能動通知する。</summary>
+    /// 項目→コントロールの対応はダイアログに閉じ、ここは Result を差し替えるだけにする。</summary>
     private void OpenSettings()
     {
         using var dlg = new SettingsDialog(_settings);
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        var result = dlg.Result;   // Result は取得のたびに組み立てるため一度だけ読む
-        bool srChanged = result.PreferredScreenReader != _settings.PreferredScreenReader;
-        _settings = result;
+        _settings = dlg.Result;   // Result は取得のたびに組み立てるため一度だけ読む
         foreach (var doc in _docs.Documents) EditorAppearance.Apply(doc.Editor, _settings);
         _backup.UpdateSettings(_settings.BackupEnabled, _settings.BackupIntervalSeconds);
         SaveSettingsSafe();
-        _announcer.Say(srChanged ? "設定を適用しました 読み上げ設定は再起動後に有効になります" : "設定を適用しました");
+        _announcer.Say("設定を適用しました");
     }
 
     /// <summary>

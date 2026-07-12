@@ -13,16 +13,14 @@ public sealed class Document
     public TabPage Page { get; }
     public DocumentState State { get; } = new();
 
-    /// <summary>CSVモード中のフォーカス退避先(P5 まで)。P6 では EditorControl 単一 SR 経路
-    /// (UIA v2)に統一するため、実効的にフォーカスは常に Editor に向かう。CsvSink 生成自体は
-    /// 残し(P7 の完全撤去まで温存=Page.Controls への追加が消えることでレイアウトが揺れない
-    /// ようにする)、FocusTarget からは切り離す(§0-8「無効化のみで残す」)。</summary>
+    /// <summary>CSVモード中のフォーカス退避先(P5 まで)。P6 で EditorControl 単一 SR 経路
+    /// (UIA v2)に統一したため実効的にフォーカスは常に Editor に向かう。CsvSink 生成自体は
+    /// 残し(P7 の CsvFocusSink 完全撤去 Task まで温存=Page.Controls への追加が消えることで
+    /// レイアウトが揺れないようにする)、FocusTarget からは切り離す(§0-8「無効化のみで残す」)。</summary>
     public CsvFocusSink CsvSink { get; }
 
-    /// <summary>「編集領域」へフォーカスを戻すときの正しい行き先。P6 では常に Editor。
-    /// P5 まで CSV モード中はシンクへ退避していたが、Task 15 で UseNativeReading=false 固定に
-    /// 揃えるため、Task 13 の段階で FocusTarget を Editor 固定にしておく(実効的な意味論変更は
-    /// UIA v2 単一経路への統一のみ)。</summary>
+    /// <summary>「編集領域」へフォーカスを戻すときの正しい行き先。P6 以降は常に Editor
+    /// (旧: P5 まで CSV モード中はシンクへ退避していたが、UIA v2 単一経路への統一に合わせ Editor 固定)。</summary>
     public Control FocusTarget => Editor;
 
     public Document(EditorControl editor, TabPage page)

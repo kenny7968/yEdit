@@ -1,6 +1,9 @@
 namespace yEdit.Core.Settings;
 
 /// <summary>永続化するアプリ設定（v0.1 最小キー）。今後マイルストーンで拡張。</summary>
+// P7 撤去: PreferredScreenReader フィールドは削除（SR 二系統機構の実質死・優先 SR タブも削除済み）。
+// 既存 settings.json に該当キーが残っていても System.Text.Json の既定挙動で未知プロパティは
+// 無視されるため、データ移行不要。
 public sealed class AppSettings
 {
     public string FontName { get; set; } = "ＭＳ ゴシック";
@@ -51,9 +54,6 @@ public sealed class AppSettings
 
     /// <summary>起動時にバックアップを復元するか確認する（false なら確認なしで全復元）。</summary>
     public bool ConfirmRestoreOnStartup { get; set; } = true;
-
-    /// <summary>優先するスクリーンリーダー（"nvda" | "pctalker"）。反映は再起動後。</summary>
-    public string PreferredScreenReader { get; set; } = "nvda";
 
     /// <summary>最近開いたファイル（先頭が最新）。</summary>
     public List<string> RecentFiles { get; set; } = new();

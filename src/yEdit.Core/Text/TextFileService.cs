@@ -66,19 +66,41 @@ public static partial class TextFileService
         }
         else
         {
-            // SJIS/EUC-JP は StreamReader で UTF-16 化(日本語ファイルは高々数百 MB 想定=許容)。
+            // P7 I-4: SJIS/EUC-JP も StreamReader.Read(char[], 0, len) チャンクループで
+            // UTF-16 化 → UTF-8 化 → TextBufferBuilder.Add に段階変換する。
+            // 旧実装(ReadToEnd で全文 UTF-16 化 → TextBuffer.FromString)は数百 MB 級で
+            // 「全文 char[] 常駐 + Builder 内 UTF-8 常駐」の 2x メモリ peak になっていた。
+            //
             // detectEncodingFromByteOrderMarks: false = 先頭バイトを BOM 検出に流用せず、
             // 指定エンコーディングで確実にデコードする(SJIS/EUC-JP に BOM は無いが保険)。
             // 既定の Encoding.GetEncoding(cp) は DecoderFallback に PUA U+F8F3 相当を返す挙動があり、
             // 不正バイトが U+FFFD で検出できず「文字コード取り違え」警告が沈黙する。
             // DecodeBytes と同じく明示的な DecoderReplacementFallback("�") を差し込む。
+            //
+            // 注: Encoding.UTF8.GetBytes(char[], 0, n, ...) は stateless 変換(char[] を完全な
+            //     コードポイント列として扱う)だが、StreamReader は内部バッファでコード点境界を
+            //     保証するため char[] 境界でサロゲート対を分断しない=この使い方で安全。
             var decoding = Encoding.GetEncoding(encoding.CodePage,
                 EncoderFallback.ReplacementFallback,
                 new DecoderReplacementFallback("�"));
             using var reader = new StreamReader(stream, decoding, detectEncodingFromByteOrderMarks: false);
-            string content = reader.ReadToEnd();
-            bool hadReplacement = content.Contains('�');
-            return (TextBuffer.FromString(content), hadReplacement);
+            var builder = new TextBufferBuilder();
+            const int CharBufLen = 8 * 1024;
+            char[] charBuf = new char[CharBufLen];
+            byte[] utf8Buf = new byte[Encoding.UTF8.GetMaxByteCount(CharBufLen)];
+            bool hadReplacement = false;
+            int n;
+            while ((n = reader.Read(charBuf, 0, CharBufLen)) > 0)
+            {
+                if (!hadReplacement)
+                {
+                    for (int i = 0; i < n; i++)
+                        if (charBuf[i] == '�') { hadReplacement = true; break; }
+                }
+                int written = Encoding.UTF8.GetBytes(charBuf, 0, n, utf8Buf, 0);
+                builder.Add(new ReadOnlySpan<byte>(utf8Buf, 0, written));
+            }
+            return (builder.Build(), hadReplacement);
         }
     }
 

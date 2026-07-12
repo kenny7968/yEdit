@@ -87,6 +87,66 @@ public class TextFileServiceLoadAsBufferTests
     }
 
     [Fact]
+    public void LoadAsBuffer_Sjis_LargeContent_ChunkedRead()
+    {
+        // P7 I-4: SJIS 経路を chunk read 化した際、TextBufferBuilder の 4MB チャンク境界を跨ぐ
+        // 大容量ファイルでも本文が完全復元されることを固定する(挙動固定テスト=chunk 化前後で PASS)。
+        EncodingCatalog.EnsureRegistered();
+        // TextBufferBuilder の 4MB チャンク境界を跨ぐ SJIS ファイル
+        string body = new string('あ', 3 * 1024 * 1024);  // SJIS 6MB
+        byte[] sjisBytes = Encoding.GetEncoding(932).GetBytes(body);
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            File.WriteAllBytes(path, sjisBytes);
+            var (buf, hadRepl) = TextFileService.LoadAsBuffer(path, EncodingCatalog.Get(932), hasBom: false);
+            Assert.False(hadRepl);
+            Assert.Equal(body.Length, buf.Current.CharLength);
+            Assert.Equal(body.Substring(0, 100), buf.Current.GetText(0, 100));
+            Assert.Equal(body.Substring(body.Length - 100, 100),
+                         buf.Current.GetText(body.Length - 100, 100));
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public void LoadAsBuffer_EucJp_ChunkedRead_PreservesContent()
+    {
+        // P7 I-4: EUC-JP 経路も chunk read 化後に本文が完全復元されることを固定する。
+        EncodingCatalog.EnsureRegistered();
+        string body = "EUC-JP 日本語テスト\nsecond line 日本語\n" + new string('か', 100_000);
+        byte[] eucBytes = Encoding.GetEncoding(51932).GetBytes(body);
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            File.WriteAllBytes(path, eucBytes);
+            var (buf, hadRepl) = TextFileService.LoadAsBuffer(path, EncodingCatalog.Get(51932), hasBom: false);
+            Assert.False(hadRepl);
+            Assert.Equal(body.Length, buf.Current.CharLength);
+            Assert.Equal(body, buf.Current.GetText(0, buf.Current.CharLength));
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public void LoadAsBuffer_Sjis_InvalidBytes_ReportsReplacement()
+    {
+        // P7 I-4: chunk read 経路でも DecoderReplacementFallback("�") が正しく通り、
+        // 不正 SJIS バイトが U+FFFD で埋められて hadReplacement=true が返ることを固定する。
+        EncodingCatalog.EnsureRegistered();
+        // 不正な SJIS バイト(0x81 0x00 = 第2バイト範囲外)
+        byte[] bytes = new byte[] { 0x81, 0x00, 0x82, 0xA0 };
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            File.WriteAllBytes(path, bytes);
+            var (buf, hadRepl) = TextFileService.LoadAsBuffer(path, EncodingCatalog.Get(932), hasBom: false);
+            Assert.True(hadRepl);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
     public void LoadAsBuffer_ShiftJis_InvalidBytes_ReportHadReplacement()
     {
         // P6 Task 7 I-1: SJIS デコード失敗は U+FFFD へ落ちて hadReplacement=true を返す

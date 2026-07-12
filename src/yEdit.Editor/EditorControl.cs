@@ -453,6 +453,11 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         _anchor = Math.Min(anchorM + anchorK * targetCharLen, total);
         TopLine = savedTopLine;    // setter でクランプ+VScrollBar 同期
         ScrollX = savedScrollX;    // 同上
+        // P7 別エージェント最終レビュー Important-2: TopLine/ScrollX の値が不変(小文書で先頭表示中)
+        // だと setter が no-op で PositionCaret 再発火されず、Win32 system caret(SetCaretPos)が
+        // 復元前の pos 0 に残る。UIA v2 単一経路に統一した P7 以降は SR の system caret 追跡依存度が
+        // 上がるため、Save 直後の system caret 位置ずれを避けるべく明示的に再配置する。
+        if (_hasFocus) PositionCaret();
         EolMode = eol;
     }
 

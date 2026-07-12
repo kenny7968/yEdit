@@ -4,11 +4,11 @@ using yEdit.Editor;
 namespace yEdit.App;
 
 /// <summary>
-/// F2 セル編集のオーバーレイ TextBox。Scintilla 本文は読取専用のまま、セル値だけを
+/// F2 セル編集のオーバーレイ TextBox。EditorControl 本文は読取専用のまま、セル値だけを
 /// 通常の EDIT コントロールで編集する（カーソルはセル内のみ＝この TextBox 内のみ）。
 /// 確定文字列の本文反映は呼び出し元（CsvController）が CSV 直列化して行う。本クラスは
 /// TextBox の生成・配置・キー処理（Enter=確定 / Alt+Enter=改行 / Esc=取消）・フォーカス復帰のみ担う。
-/// フォーカスの復帰先は呼び出し元が指定する（CSVモード中はフォーカスシンク）。
+/// フォーカスの復帰先は呼び出し元が指定する(P6: Document.FocusTarget=Editor 固定)。
 /// </summary>
 public sealed class CsvCellEditor
 {
@@ -27,7 +27,7 @@ public sealed class CsvCellEditor
         _refocus = refocusTarget; _onCommit = onCommit; _onCancel = onCancel; _closing = false;
 
         var host = (Control?)ed.Parent ?? ed;                 // 親(TabPage 等)に重ねる
-        var clientPt = ed.PointFromCharOffset(field.Start);   // Scintilla クライアント座標
+        var clientPt = ed.PointFromCharOffset(field.Start);   // EditorControl クライアント座標
         var local = host.PointToClient(ed.PointToScreen(clientPt));
 
         _box = new TextBox

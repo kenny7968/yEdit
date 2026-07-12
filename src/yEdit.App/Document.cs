@@ -13,15 +13,17 @@ public sealed class Document
     public TabPage Page { get; }
     public DocumentState State { get; } = new();
 
-    /// <summary>CSVモード中のフォーカス退避先。生成時に Page へ追加され、
-    /// Dock=Fill のエディタの背面に隠れる（視覚影響なし）。</summary>
+    /// <summary>CSVモード中のフォーカス退避先(P5 まで)。P6 では EditorControl 単一 SR 経路
+    /// (UIA v2)に統一するため、実効的にフォーカスは常に Editor に向かう。CsvSink 生成自体は
+    /// 残し(P7 の完全撤去まで温存=Page.Controls への追加が消えることでレイアウトが揺れない
+    /// ようにする)、FocusTarget からは切り離す(§0-8「無効化のみで残す」)。</summary>
     public CsvFocusSink CsvSink { get; }
 
-    /// <summary>「編集領域」へフォーカスを戻すときの正しい行き先。CSVモード中はシンク、
-    /// 通常時はエディタ。編集領域への Focus() 呼び出しは必ずこれを経由すること。
-    /// モード遷移の内部（CsvController.ToggleMode）と F2 編集の復帰先注入（CsvCellEditor.Begin）は
-    /// 行き先を明示するため直接指定する。</summary>
-    public Control FocusTarget => State.CsvMode ? CsvSink : Editor;
+    /// <summary>「編集領域」へフォーカスを戻すときの正しい行き先。P6 では常に Editor。
+    /// P5 まで CSV モード中はシンクへ退避していたが、Task 15 で UseNativeReading=false 固定に
+    /// 揃えるため、Task 13 の段階で FocusTarget を Editor 固定にしておく(実効的な意味論変更は
+    /// UIA v2 単一経路への統一のみ)。</summary>
+    public Control FocusTarget => Editor;
 
     public Document(EditorControl editor, TabPage page)
     {

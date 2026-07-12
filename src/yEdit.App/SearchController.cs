@@ -130,7 +130,7 @@ public sealed class SearchController
         }
     }
 
-    /// <summary>現在の選択が今のヒットなら置換し次へ。違えばまず次を検索（標準の置換動作）。</summary>
+    /// <summary>現ヒット未選択なら次を検索して即置換、選択済なら置換して次へ(VSCode 準拠)。</summary>
     public void ReplaceOne()
     {
         var ed = ActiveEditor;
@@ -149,7 +149,17 @@ public sealed class SearchController
             var span = new MatchSpan(selStart, selEnd - selStart);
             string? repl = selEnd > selStart ? searcher.ReplacementAt(snap, span, d.Replacement) : null;
 
-            if (repl is null) { Find(forward: true); return; } // まだヒット未選択 → 次を検索
+            // G-3 修正: 現ヒット未選択なら次を検索してそのまま即置換する(VSCode 準拠)。
+            // 未ヒットで見つからない場合のみ「見つかりません」で終了する。
+            if (repl is null)
+            {
+                var next0 = searcher.FindNext(snap, selEnd);
+                if (next0 is null) { Announce("見つかりません"); return; }
+                var replCand = searcher.ReplacementAt(snap, next0.Value, d.Replacement);
+                if (replCand is null) { Announce("見つかりません"); return; }
+                span = next0.Value;
+                repl = replCand;
+            }
 
             ed.ReplaceCharRange(span.Start, span.Length, repl);
             var snap2 = ed.CurrentBuffer.Current;

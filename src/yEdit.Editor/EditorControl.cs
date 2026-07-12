@@ -3143,7 +3143,11 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         if (snap is null) return 0;
         int o = Math.Clamp(offset, 0, snap.CharLength);
         int line = snap.GetLineIndexOfChar(o);
-        return snap.GetLineStart(line);
+        int logicalStart = snap.GetLineStart(line);
+        // P8-1c: 折り返し ON の視覚行=キャレット位置が属する視覚セグメントの先頭を返す。
+        // wrap OFF は論理行先頭(既存挙動)。
+        var visual = TryFindVisualSegment(snap, line, o - logicalStart);
+        return visual is { } vs ? logicalStart + vs.OffsetInLine : logicalStart;
     }
 
     int yEdit.Accessibility.IUiaTextHost.LineEnd(int offset)
@@ -3152,6 +3156,19 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         if (snap is null) return 0;
         int o = Math.Clamp(offset, 0, snap.CharLength);
         int line = snap.GetLineIndexOfChar(o);
+        int logicalStart = snap.GetLineStart(line);
+        int logicalEnd = snap.GetLineEnd(line, includeBreak: false);
+        // P8-1c: 折り返し ON の視覚行=次の視覚行の先頭(=現在視覚行の直後)を返す。
+        // 継続セグメント(seg 0 以外)の直前セグメントの end も同じ位置=改行を跨がない。
+        // 論理行最終セグメントのときのみ改行を含めて次論理行先頭 or TextLength を返す(旧挙動維持)。
+        var visual = TryFindVisualSegment(snap, line, o - logicalStart);
+        if (visual is { } vs)
+        {
+            int visualEndInLine = vs.OffsetInLine + vs.Length;
+            // 継続セグメント→次視覚行(=次 seg 先頭)を返す=改行なし
+            if (logicalStart + visualEndInLine < logicalEnd) return logicalStart + visualEndInLine;
+            // 論理行最終視覚行=改行を跨いで次論理行先頭 or TextLength
+        }
         if (line + 1 < snap.LineCount) return snap.GetLineStart(line + 1);
         return snap.CharLength;
     }
@@ -3161,10 +3178,35 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         var snap = _bufferSnapshot;
         if (snap is null) return 0;
         int e = ((yEdit.Accessibility.IUiaTextHost)this).LineEnd(offset);
-        // CRLF 混在対応: LF → CR の順で剥がす
+        // CRLF 混在対応: LF → CR の順で剥がす(継続セグメントの場合 e は改行前=剥がすものが無いので no-op)
         if (e > 0 && snap.GetChar(e - 1) == '\n') e--;
         if (e > 0 && snap.GetChar(e - 1) == '\r') e--;
         return e;
+    }
+
+    /// <summary>
+    /// P8-1c: 論理行 <paramref name="line"/> 内の <paramref name="offsetInLine"/> が属する視覚セグメントを返す。
+    /// wrap OFF(<c>_wrapColumns &lt;= 0</c>)または空行のときは null=呼び出し側で論理行フォールバック。
+    /// RPC スレッド安全(volatile <see cref="_bufferSnapshot"/>+ 参照型 <c>_metrics</c>/int <c>_wrapColumns</c> の
+    /// 個別読み取りは torn read しない。ApplyAppearance 中の不整合は SR が次の呼び出しで補正=許容)。
+    /// </summary>
+    private yEdit.Core.Layout.WrapSegment? TryFindVisualSegment(TextSnapshot snap, int line, int offsetInLine)
+    {
+        int wrap = _wrapColumns;
+        if (wrap <= 0) return null;
+        var metrics = _metrics;
+        int logicalStart = snap.GetLineStart(line);
+        int logicalEnd = snap.GetLineEnd(line, includeBreak: false);
+        if (logicalStart == logicalEnd) return null;
+        string lineText = snap.GetText(logicalStart, logicalEnd - logicalStart);
+        int maxWidthPx = wrap * metrics.MeasureRun("0".AsSpan());
+        var segs = yEdit.Core.Layout.LineLayout.Wrap(lineText.AsSpan(), maxWidthPx, metrics);
+        for (int i = 0; i < segs.Count; i++)
+        {
+            int segEnd = segs[i].OffsetInLine + segs[i].Length;
+            if (offsetInLine < segEnd || i == segs.Count - 1) return segs[i];
+        }
+        return segs[segs.Count - 1];
     }
 
     int yEdit.Accessibility.IUiaTextHost.WordStart(int offset)

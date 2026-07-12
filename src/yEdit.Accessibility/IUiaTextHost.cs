@@ -36,13 +36,16 @@ public interface IUiaTextHost
     /// <summary>offset の前の code-point 位置(サロゲート考慮)。BOF なら 0。</summary>
     int PrevChar(int offset);
 
-    /// <summary>offset を含む行の開始位置。</summary>
+    /// <summary>offset を含む行の開始位置(P8-1c: 折り返し ON なら視覚行=折り返し行の先頭・OFF なら論理行先頭)。</summary>
     int LineStartOf(int offset);
 
-    /// <summary>offset を含む行の終端(改行を含まない)。空行では LineStartOf と一致し len=0。</summary>
+    /// <summary>offset を含む行の終端(改行を含まない・P8-1c: 折り返し ON なら視覚行末=折り返し境界)。空行では LineStartOf と一致し len=0。</summary>
     int LineEndNoBreakOf(int offset);
 
-    /// <summary>offset を含む行の終端(改行を含む=次行の開始)。末尾なら TextLength。</summary>
+    /// <summary>
+    /// offset を含む行の終端(次視覚行の開始・P8-1c)。継続セグメントは改行を跨がない=次 seg 先頭。
+    /// 論理行の最終視覚行のみ改行を含めて次論理行の開始 or TextLength を返す。
+    /// </summary>
     int LineEnd(int offset);
 
     /// <summary>offset を含む単語の左端(Core WordBoundary 委譲)。</summary>

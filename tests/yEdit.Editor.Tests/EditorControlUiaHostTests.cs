@@ -77,6 +77,92 @@ public class EditorControlUiaHostTests
         });
     }
 
+    // ===== P8-1c: 折り返し ON での視覚行境界(N-3 修正) =====
+
+    [Fact]
+    public void Host_LineStartOf_WithWrap_ReturnsVisualSegmentStart()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            // "abcdefghij" 10 文字を wrapColumns=4 で分割
+            // GDI ASCII 幅は環境依存だが、ASCII は 8px 前後で MonoCharMetrics 相当。ここは実 GDI で計測。
+            var buf = TextBuffer.FromString("abcdefghij");
+            ctrl.SetSource(buf);
+            ctrl.WrapColumns = 4;
+            IUiaTextHost host = ctrl;
+            int startOfMid = host.LineStartOf(6);  // caret 6 の視覚 seg 先頭
+            int startOfEnd = host.LineStartOf(9);  // caret 9 の視覚 seg 先頭
+            // 継続 seg=論理行先頭(0)ではなく視覚 seg の start
+            Assert.True(startOfMid > 0, $"expected visual seg start > 0 for mid caret, got {startOfMid}");
+            Assert.True(startOfEnd > 0, $"expected visual seg start > 0 for end caret, got {startOfEnd}");
+        });
+    }
+
+    [Fact]
+    public void Host_LineStartOf_WithWrap_FirstSegOfLine_ReturnsLogicalStart()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            var buf = TextBuffer.FromString("abcdefghij");
+            ctrl.SetSource(buf);
+            ctrl.WrapColumns = 4;
+            IUiaTextHost host = ctrl;
+            // 第 1 視覚 seg 内(offset 0..3 想定)は論理行先頭 0
+            Assert.Equal(0, host.LineStartOf(0));
+            Assert.Equal(0, host.LineStartOf(1));
+        });
+    }
+
+    [Fact]
+    public void Host_LineEnd_WithWrap_ContinuationSeg_DoesNotCrossBreak()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            var buf = TextBuffer.FromString("abcdefghij\nsecond");
+            ctrl.SetSource(buf);
+            ctrl.WrapColumns = 4;
+            IUiaTextHost host = ctrl;
+            // 第 1 論理行内の継続 seg の LineEnd は次視覚 seg 先頭=改行を跨がない
+            int end = host.LineEnd(2);   // 第 1 論理行の第 1 seg 内
+            Assert.True(end <= 10, $"continuation LineEnd should not cross break (10), got {end}");
+        });
+    }
+
+    [Fact]
+    public void Host_LineEnd_WithWrap_LastSegOfLine_CrossesBreak()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            var buf = TextBuffer.FromString("ab\ncd");
+            ctrl.SetSource(buf);
+            ctrl.WrapColumns = 4;  // 2 文字は 1 視覚 seg に収まる=通常の論理行と同じ
+            IUiaTextHost host = ctrl;
+            // 論理行末最終 seg は改行を含めて次論理行先頭を返す(既存挙動維持)
+            Assert.Equal(3, host.LineEnd(1));  // "ab" の後 = 3(改行含む)
+            Assert.Equal(5, host.LineEnd(4));  // "cd" 末尾 = TextLength
+        });
+    }
+
+    [Fact]
+    public void Host_LineStartOf_WrapOff_UsesLogicalLine()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            var buf = TextBuffer.FromString("aaa\nbbbbbbbbbb");   // wrap OFF なら bbb 側は 1 論理行
+            ctrl.SetSource(buf);
+            // WrapColumns = 0 が既定=wrap OFF
+            IUiaTextHost host = ctrl;
+            // 論理行先頭(0)を返す(P8-1c 前と同じ)
+            Assert.Equal(4, host.LineStartOf(10));
+            Assert.Equal(4, host.LineStartOf(13));
+        });
+    }
+
     [Fact]
     public void Host_WordStart_UsesCoreWordBoundary()
     {

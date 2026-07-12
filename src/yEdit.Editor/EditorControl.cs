@@ -3223,12 +3223,7 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         string lineText = snap.GetText(logicalStart, logicalEnd - logicalStart);
         int maxWidthPx = wrap * metrics.MeasureRun("0".AsSpan());
         var segs = yEdit.Core.Layout.LineLayout.Wrap(lineText.AsSpan(), maxWidthPx, metrics);
-        for (int i = 0; i < segs.Count; i++)
-        {
-            int segEnd = segs[i].OffsetInLine + segs[i].Length;
-            if (offsetInLine < segEnd || i == segs.Count - 1) return segs[i];
-        }
-        return null;   // 到達不能(LineLayout.Wrap は非空入力で必ず 1 seg 以上返す)
+        return yEdit.Core.Layout.VisualSegments.FindContaining(segs, offsetInLine).Segment;
     }
 
     int yEdit.Accessibility.IUiaTextHost.WordStart(int offset)

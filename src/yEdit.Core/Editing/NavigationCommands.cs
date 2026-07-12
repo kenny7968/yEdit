@@ -110,13 +110,7 @@ public static class NavigationCommands
         int caretInLine = caret - lineStart;
 
         // キャレットが属する視覚セグメントを探す(行末位置=最終 seg 扱い)
-        int segIdx = 0;
-        for (int i = 0; i < segs.Count; i++)
-        {
-            int segEnd = segs[i].OffsetInLine + segs[i].Length;
-            if (caretInLine < segEnd || i == segs.Count - 1) { segIdx = i; break; }
-        }
-        var seg = segs[segIdx];
+        var (segIdx, seg) = VisualSegments.FindContaining(segs, caretInLine);
         int visualStart = lineStart + seg.OffsetInLine;
         int visualEnd = lineStart + seg.OffsetInLine + seg.Length;
 

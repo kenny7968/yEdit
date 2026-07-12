@@ -150,13 +150,15 @@ public sealed class SearchController
             string? repl = selEnd > selStart ? searcher.ReplacementAt(snap, span, d.Replacement) : null;
 
             // G-3 修正: 現ヒット未選択なら次を検索してそのまま即置換する(VSCode 準拠)。
-            // 未ヒットで見つからない場合のみ「見つかりません」で終了する。
+            // 未ヒットの前進先が見つからない場合は Find と同じ「これ以上見つかりません」で終了。
             if (repl is null)
             {
                 var next0 = searcher.FindNext(snap, selEnd);
-                if (next0 is null) { Announce("見つかりません"); return; }
+                if (next0 is null) { Announce("これ以上見つかりません"); return; }
                 var replCand = searcher.ReplacementAt(snap, next0.Value, d.Replacement);
-                if (replCand is null) { Announce("見つかりません"); return; }
+                // ここは通常到達しない(直前の FindNext ヒットに対して同一 snap/searcher で
+                // ReplacementAt が null を返すのは異常系)。防御としてユーザーへ明示する。
+                if (replCand is null) { Announce("置換できません"); return; }
                 span = next0.Value;
                 repl = replCand;
             }

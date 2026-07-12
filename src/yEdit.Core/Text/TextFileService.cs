@@ -5,6 +5,10 @@ namespace yEdit.Core.Text;
 
 public static partial class TextFileService
 {
+    /// <summary>UTF-8 BOM(0xEF, 0xBB, 0xBF)= TextBuffer 版 Save の hasBom 分岐で毎呼出しの
+    /// アロケーションを避ける(Minor-2 対応: 静的 readonly に昇格)。</summary>
+    private static readonly byte[] s_utf8Bom = new byte[] { 0xEF, 0xBB, 0xBF };
+
     /// <summary>
     /// ファイルを読み込み本文・文字コード・改行を確定する。
     /// forcedCodePage 指定時は自動判定せずそのコードページで読む（開き直し用）。
@@ -307,11 +311,14 @@ public static partial class TextFileService
                 if (encoding.CodePage == 65001)
                 {
                     if (hasBom)
-                        stream.Write(new byte[] { 0xEF, 0xBB, 0xBF }, 0, 3);
+                        stream.Write(s_utf8Bom, 0, 3);
                     snap.WriteTo(stream);
                 }
                 else
                 {
+                    // Minor-1: DecoderFallback は書込経路では発火しないが、
+                    // Encoding.GetEncoding(int, EncoderFallback, DecoderFallback) は 3 引数版のみで
+                    // DecoderFallback を省略できない=シグネチャ要件で残置(実質デッドコード)。
                     Encoding enc = Encoding.GetEncoding(encoding.CodePage,
                         EncoderFallback.ReplacementFallback, DecoderFallback.ReplacementFallback);
                     if (hasBom)

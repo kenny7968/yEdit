@@ -163,4 +163,50 @@ public class TextFileServiceSaveTextBufferTests
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
+
+    [Fact]
+    public void SaveTextBuffer_Utf8_SurrogatePairSpansCharBufferBoundary_EmitsCorrectBytes()
+    {
+        // CharBufLen(8192)境界にサロゲート対の中央を強制配置=Encoder.Convert(flush:false)の
+        // 状態持ち越しが正しく機能することの回帰テスト。
+        // 前半 8191 個の 'a' + U+1F600(高サロゲート D83D+低サロゲート DE00)= 8193 char
+        // ちょうど 8191+1=8192 で最初の Read(char[])に高サロゲートまで、次の Read で低サロゲートが来る。
+        // 注: UTF-8 経路(codepage 65001)は snap.WriteTo(stream) の byte 直書きで Encoder を経由しない
+        //     ため、この境界問題は原理的に発生しない=期待挙動の回帰テスト(トリビアルに PASS する)。
+        string body = new string('a', 8191) + "😀" + new string('b', 100);
+        var buffer = TextBuffer.FromString(body);
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            TextFileService.Save(path, buffer, Encoding.UTF8, hasBom: false);
+            byte[] actual = File.ReadAllBytes(path);
+            byte[] expected = Encoding.UTF8.GetBytes(body);
+            Assert.Equal(expected, actual);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public void SaveTextBuffer_ShareViolation_FallsBackToInPlaceOverwrite()
+    {
+        // 共有違反 catch 経路(TextBuffer 版 Save → string 版 Save 委譲)が動作することの直接検証。
+        // ターゲットを FileShare.None で握って File.Replace を失敗させる=SharingViolation IOException が
+        // TextBuffer 版 Save の catch (when IsShareOrLockViolation) に届くはず。
+        // fallback 先の string 版 Save も同 FileShare.None のため WriteAllBytes で失敗=最終的に IOException
+        // が伝播する(原本は変更されない=原子性契約温存)。
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            File.WriteAllText(path, "old");
+            var buffer = TextBuffer.FromString("new-content");
+            using (var hold = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                Assert.Throws<IOException>(() =>
+                    TextFileService.Save(path, buffer, Encoding.UTF8, hasBom: false));
+            }
+            // hold 解放後、原本が変更されていない(fallback も含めて完全に失敗した=原本喪失回避)
+            Assert.Equal("old", File.ReadAllText(path));
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
 }

@@ -2291,7 +2291,8 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
                 if (ctrl && !shift) wordNavCandidate = true;
                 break;
             case Keys.Home:
-                target = ctrl ? 0 : NavigationCommands.MoveHomeSmart(snap, _caret);
+                // P8-1a: 折り返し ON では視覚行(折り返し行)の先頭へ(NVDA が視覚行先頭から読むよう App 層挙動を統一)
+                target = ctrl ? 0 : NavigationCommands.MoveHomeSmart(snap, _caret, _wrapColumns, _metrics);
                 resetDesired = true;
                 break;
             case Keys.End:

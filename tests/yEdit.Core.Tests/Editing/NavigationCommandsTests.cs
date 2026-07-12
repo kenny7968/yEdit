@@ -1,11 +1,14 @@
 using yEdit.Core.Buffers;
 using yEdit.Core.Editing;
+using yEdit.Core.Layout;
 
 namespace yEdit.Core.Tests.Editing;
 
 public class NavigationCommandsTests
 {
     private static TextSnapshot Snap(string s) => TextBuffer.FromString(s).Current;
+    // ASCII=8px・全角=16px(視覚行テスト用)
+    private static readonly ICharMetrics M = new MonoCharMetrics(halfWidthPx: 8, lineHeightPx: 20);
 
     [Fact]
     public void MoveLeftChar_SkipsSurrogatePair()
@@ -130,5 +133,59 @@ public class NavigationCommandsTests
         var s = Snap("a\uD83D");
         Assert.Equal(2, s.CharLength);
         Assert.Equal(2, NavigationCommands.MoveRightChar(s, 1));
+    }
+
+    // ===== P8-1a: 視覚行ベース Home キー(wrapColumns/metrics 版) =====
+
+    [Fact]
+    public void MoveHomeSmart_WithWrap_WrapDisabled_SameAsLogicalLine()
+    {
+        // wrapColumns<=0 は既存論理行挙動と同じ=既存 3 パターンを再現
+        var s = Snap("  hello");
+        Assert.Equal(2, NavigationCommands.MoveHomeSmart(s, 4, wrapColumns: 0, M));
+        Assert.Equal(0, NavigationCommands.MoveHomeSmart(s, 2, wrapColumns: 0, M));
+        Assert.Equal(2, NavigationCommands.MoveHomeSmart(s, 0, wrapColumns: 0, M));
+    }
+
+    [Fact]
+    public void MoveHomeSmart_WithWrap_FirstVisualSegment_TogglesFirstNonWsAndLineStart()
+    {
+        // "  hello world"(ASCII 8px×13=104px)を wrapColumns=8(=64px)で折り返し
+        // 視覚 seg 0: [0..8)="  hello "、視覚 seg 1: [8..13)="world"
+        // 第 1 セグメントは既存 smart 挙動(firstNonWs=2 ⇔ lineStart=0)
+        var s = Snap("  hello world");
+        Assert.Equal(2, NavigationCommands.MoveHomeSmart(s, 4, wrapColumns: 8, M));  // 'l'→firstNonWs(2)
+        Assert.Equal(0, NavigationCommands.MoveHomeSmart(s, 2, wrapColumns: 8, M));  // firstNonWs→lineStart(0)
+        Assert.Equal(2, NavigationCommands.MoveHomeSmart(s, 0, wrapColumns: 8, M));  // lineStart→firstNonWs
+    }
+
+    [Fact]
+    public void MoveHomeSmart_WithWrap_SecondVisualSegment_GoesToVisualSegmentStart()
+    {
+        // 継続セグメント(seg 1=[8..13)="world")では常に視覚 seg 先頭へ・トグルなし
+        // 論理行先頭(0)へ行かない=これが N-3 の本質的修正
+        var s = Snap("  hello world");
+        Assert.Equal(8, NavigationCommands.MoveHomeSmart(s, 10, wrapColumns: 8, M));  // 'r'→seg 1 先頭(8)
+        Assert.Equal(8, NavigationCommands.MoveHomeSmart(s, 8, wrapColumns: 8, M));   // 'w'(既に seg 先頭)→動かず
+        Assert.Equal(8, NavigationCommands.MoveHomeSmart(s, 12, wrapColumns: 8, M));  // 末尾直前→seg 1 先頭
+    }
+
+    [Fact]
+    public void MoveHomeSmart_WithWrap_EmptyLine_ReturnsLineStart()
+    {
+        // 空行は視覚セグメントも [(0,0)] 1 個(LineLayout 契約)=lineStart そのまま
+        var s = Snap("abc\n\ndef");
+        Assert.Equal(4, NavigationCommands.MoveHomeSmart(s, 4, wrapColumns: 8, M));  // 空行(line 1)先頭
+    }
+
+    [Fact]
+    public void MoveHomeSmart_WithWrap_ThirdVisualSegment_GoesToVisualSegmentStart()
+    {
+        // 3 セグメント跨ぎ=第 3 セグメントでも同じ挙動を保証
+        // "aaaaaaaabbbbbbbbcccccccc"(24 chars ASCII=192px)を wrapColumns=8(=64px)で
+        // 視覚 seg 0: [0..8)="aaaaaaaa"、seg 1: [8..16)="bbbbbbbb"、seg 2: [16..24)="cccccccc"
+        var s = Snap("aaaaaaaabbbbbbbbcccccccc");
+        Assert.Equal(16, NavigationCommands.MoveHomeSmart(s, 20, wrapColumns: 8, M));  // 'c'→seg 2 先頭
+        Assert.Equal(8, NavigationCommands.MoveHomeSmart(s, 12, wrapColumns: 8, M));   // 'b'→seg 1 先頭
     }
 }

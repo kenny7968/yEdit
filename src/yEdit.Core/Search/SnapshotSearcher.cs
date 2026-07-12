@@ -26,20 +26,33 @@ namespace yEdit.Core.Search;
 /// </summary>
 public sealed class SnapshotSearcher
 {
-    /// <summary>閾値(UTF-16 文字数)。既定=32M chars(≈64MB)。テスト注入用に internal static。</summary>
-    internal static int ThresholdChars = 32 * 1024 * 1024;
+    /// <summary>閾値(UTF-16 文字数)。既定=32M chars(≈64MB)。</summary>
+    public const int DefaultThresholdChars = 32 * 1024 * 1024;
 
-    /// <summary>閾値超リテラル窓照合のウィンドウサイズ(UTF-16 文字数)。既定=4096 chars(≈8KB)。テスト注入用に internal static。</summary>
-    internal static int WindowSize = 4 * 1024;
+    /// <summary>閾値超リテラル窓照合のウィンドウサイズ(UTF-16 文字数)。既定=4096 chars(≈8KB)。</summary>
+    public const int DefaultWindowSize = 4 * 1024;
 
     private readonly SearchOptions _opts;
     private readonly TextSearcher _inner;
+    private readonly int _thresholdChars;
+    private readonly int _windowSize;
 
     /// <summary>照合条件から SnapshotSearcher を構築する。IsValid/Error は内側 <see cref="TextSearcher"/> と同一。</summary>
     public SnapshotSearcher(SearchOptions options)
+        : this(options, DefaultThresholdChars, DefaultWindowSize) { }
+
+    /// <summary>
+    /// 閾値・窓サイズを指定して SnapshotSearcher を構築する(テスト注入用)。
+    /// 本番コードは既定コンストラクタを使う。閾値・窓サイズは正数でなければならない。
+    /// </summary>
+    public SnapshotSearcher(SearchOptions options, int thresholdChars, int windowSize)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(thresholdChars);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(windowSize);
         _opts = options;
         _inner = new TextSearcher(options);
+        _thresholdChars = thresholdChars;
+        _windowSize = windowSize;
     }
 
     /// <summary>照合条件が有効(正規表現を構築できた)か。</summary>
@@ -110,7 +123,7 @@ public sealed class SnapshotSearcher
                               : ReplaceInRangeLiteralWindow(snap, s, end, replacement);
     }
 
-    private bool IsLarge(TextSnapshot snap) => snap.CharLength > ThresholdChars;
+    private bool IsLarge(TextSnapshot snap) => snap.CharLength > _thresholdChars;
 
     private static string Materialize(TextSnapshot snap) => snap.GetText(0, snap.CharLength);
 
@@ -120,9 +133,10 @@ public sealed class SnapshotSearcher
 
     private StringComparison GetLiteralComparison()
     {
-        // TextSearcher は RegexOptions.CultureInvariant を常設・IgnoreCase を条件付き付与するため、
-        // 対応する StringComparison は InvariantCulture 系とする(ASCII 範囲では Ordinal と等価)。
-        return _opts.MatchCase ? StringComparison.InvariantCulture : StringComparison.InvariantCultureIgnoreCase;
+        // TextSearcher は RegexOptions.CultureInvariant + IgnoreCase = char 単位の ToUpperInvariant 折り畳み
+        // (合字折り畳みなし)。これは StringComparison.OrdinalIgnoreCase と等価。InvariantCulture 系は
+        // 合字折り畳み(ß↔ss 等)が発生して既存挙動と食い違うため使わない。
+        return _opts.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
     }
 
     private int CountLiteralWindow(TextSnapshot snap)
@@ -148,7 +162,7 @@ public sealed class SnapshotSearcher
         if (plen == 0 || from >= total) return null;
 
         var cmp = GetLiteralComparison();
-        int windowSize = Math.Max(WindowSize, plen * 2);
+        int windowSize = Math.Max(_windowSize, plen * 2);
         int overlap = Math.Max(0, plen - 1);
         int pos = from;
 
@@ -181,7 +195,7 @@ public sealed class SnapshotSearcher
         if (plen == 0) return null;
 
         var cmp = GetLiteralComparison();
-        int windowSize = Math.Max(WindowSize, plen * 2);
+        int windowSize = Math.Max(_windowSize, plen * 2);
         int overlap = Math.Max(0, plen - 1);
         // ヒット開始が before-1 まで、ヒット終端は before+overlap まで拡張して読み込む必要がある
         int end = Math.Min(before + overlap, snap.CharLength);
@@ -369,20 +383,16 @@ public sealed class SnapshotSearcher
             int le = snap.GetLineEnd(line, includeBreak: false);
             int lineLen = le - ls;
 
-            // 範囲外にある行頭・行末はそのまま出力(=範囲内のヒットだけ置換)
+            // 契約: Fragment は [start, end) の中身のみ(範囲外文字を混入させない)。
+            // 行の範囲内 substring [rangeInLineStart, rangeInLineEnd) を _inner に投げると、
+            // 内部 ReplaceInRange が「行内 substring の中身+範囲内ヒットの置換」だけを返してくれる。
             int rangeInLineStart = Math.Max(0, start - ls);
             int rangeInLineEnd = Math.Min(lineLen, end - ls);
-
-            // 前置(この行の範囲対象外・先頭)
-            if (rangeInLineStart > 0) sb.Append(snap.GetText(ls, rangeInLineStart));
 
             string lineText = snap.GetText(ls, lineLen);
             var (frag, cnt) = _inner.ReplaceInRange(lineText, rangeInLineStart, rangeInLineEnd - rangeInLineStart, replacement);
             sb.Append(frag);
             count += cnt;
-
-            // 後置(この行の範囲対象外・末尾)
-            if (rangeInLineEnd < lineLen) sb.Append(snap.GetText(ls + rangeInLineEnd, lineLen - rangeInLineEnd));
 
             // 行末の改行文字(あれば)を復元(最終行=改行なし)。range が break の途中で
             // 終わるケース(選択終端が CRLF の間など)は end で切り詰める(壊れる契約許容だが安全側)。

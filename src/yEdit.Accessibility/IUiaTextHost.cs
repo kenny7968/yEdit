@@ -4,7 +4,7 @@ namespace yEdit.Accessibility;
 
 /// <summary>
 /// 自作 EditorControl が実装する UIA プロバイダのバックエンド抽象(v2・範囲ベース化)。
-/// v1(<see cref="IUiaTextHostLegacy"/>)は全文 string 経路だったのに対し、v2 は
+/// 旧 v1(P7 で撤去)は全文 string 経路だったのに対し、v2 は
 /// 位置歩き + 範囲テキスト + 座標 API を持つ。
 ///
 /// スレッド: RPC スレッドから呼ばれ得る。実装側は不変スナップショット参照 +

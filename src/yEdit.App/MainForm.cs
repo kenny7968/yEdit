@@ -57,6 +57,18 @@ public sealed partial class MainForm : Form
             if (SrContext.Mode == SpeechMode.PcTalker && _docs.Active?.State.CsvMode != true)
                 _announcer.Say("空行");
         };
+        // 単語ナビ(Ctrl+←→)の PC-Talker 補完: UIA の選択変更通知だけでは単語スパンが
+        // 発声されないため、EditorControl.WordNavigated を購読して単語文字列を能動発声する。
+        // NVDA/汎用ナレーターは UIA v2 の選択イベントで自力で読めるため対象外(SrRoute.PcTalker
+        // 判定・空行と同構造)。CSVモード中はセル読み体系が担うため発声しない。
+        _docs.ActiveWordNavigated += (_, e) =>
+        {
+            if (SrContext.Route != SrRoute.PcTalker) return;
+            var doc = _docs.Active;
+            if (doc is null || doc.State.CsvMode) return;
+            string span = ((yEdit.Accessibility.IUiaTextHost)doc.Editor).GetTextRange(e.WordStart, e.WordEnd - e.WordStart);
+            if (!string.IsNullOrWhiteSpace(span)) _announcer.Say(span.Trim());
+        };
         // 設定は OpenSettings で参照が差し替わるため Func で都度解決させる。
         _file = new FileController(_docs, this, () => _settings,
             SaveSettingsSafe, RebuildRecentMenu, () => { UpdateTitle(); UpdateStatus(); },

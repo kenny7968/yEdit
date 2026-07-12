@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using yEdit.App.Speech;
 using yEdit.Core.Csv;
 using yEdit.Core.Search;
 using yEdit.Editor;
@@ -13,14 +14,16 @@ public sealed class SearchController
 {
     private readonly DocumentManager _docs;
     private readonly Form _owner;
+    private readonly IAnnouncer _announcer;
     private FindReplaceDialog? _dialog;
     private MatchSpan? _lastHit; // 直前に選択したヒット（ゼロ幅でも前進できるよう歩進に使う）
     private (int Start, int End)? _selectionScope; // 「選択範囲のみ」ON 時に捕捉した置換対象範囲
 
-    public SearchController(DocumentManager docs, Form owner)
+    public SearchController(DocumentManager docs, Form owner, IAnnouncer announcer)
     {
         _docs = docs;
         _owner = owner;
+        _announcer = announcer;
         _docs.ActiveDocumentChanged += (_, _) =>
         {
             _lastHit = null;                              // 別文書の歩進状態を持ち越さない
@@ -240,6 +243,8 @@ public sealed class SearchController
     }
 
     /// <summary>ステータス Label を更新しつつ SR にライブ通知（Say 契約: 空は視覚クリアのみ・発声なし）。
-    /// 視覚だけ更新したい増分カウント等は Announce ではなくダイアログの SetStatus を使う。</summary>
-    internal void Announce(string message) => _dialog?.RaiseNotification(message);
+    /// 視覚だけ更新したい増分カウント等は Announce ではなくダイアログの SetStatus を使う。
+    /// P7/P8 申し送り: G-2 で「次を検索」後にダイアログを Hide するため、Hidden な _dialog を
+    /// 経由せず MainForm 共有 Announcer 直接発声で経路を整理。実挙動は不変（元々同じ Announcer）。</summary>
+    internal void Announce(string message) => _announcer.Say(message);
 }

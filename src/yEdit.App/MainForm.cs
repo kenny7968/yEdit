@@ -50,7 +50,7 @@ public sealed partial class MainForm : Form
 
         _docs = new DocumentManager(CreateEditor);
         _docs.ActiveDocumentChanged += (_, _) => { UpdateTitle(); UpdateStatus(); };
-        _docs.KeyBasedSwitch += doc => _announcer.Say(doc.TabLabel);
+        _docs.KeyBasedSwitch += doc => _announcer.Say(doc.State.DisplayName);
         _docs.ActiveDirtyChanged += (_, _) => UpdateTitle();
         _docs.ActiveCaretChanged += (_, _) => UpdateStatus();
         // 空行着地の能動発声: PC-Talker は UIA の長さ0行を無音にするため、こちらから「空行」を読む。

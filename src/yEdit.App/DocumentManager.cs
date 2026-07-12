@@ -119,32 +119,38 @@ public sealed class DocumentManager
     {
         int n = _tabs.TabPages.Count;
         if (n == 0) return;
-        int i = _tabs.SelectedIndex;
+        int prev = _tabs.SelectedIndex;
         BeforeActiveChange?.Invoke();   // 切替前に F2 編集等を後始末（キーボード経路）
-        _tabs.SelectedIndex = ((i + dir) % n + n) % n; // 端は巡回
-        FocusActiveEditor();            // I-5: タブ列を経由せず直接エディタへ
-        if (Active is { } d) KeyBasedSwitch?.Invoke(d); // SR にタブ名を能動発声させる
+        _tabs.SelectedIndex = ((prev + dir) % n + n) % n; // 端は巡回
+        AnnounceThenFocus(prev);        // I-5: 切替が発生した時のみタブ名を発声してからエディタへ遷移
     }
 
     /// <summary>指定位置のタブを選択し、直接エディタへフォーカス。SR には KeyBasedSwitch でタブ名を読ませる(I-5)。</summary>
     public void SelectAt(int index)
     {
         if (index < 0 || index >= _tabs.TabPages.Count) return;
+        int prev = _tabs.SelectedIndex;
         BeforeActiveChange?.Invoke();   // 切替前に F2 編集等を後始末（キーボード経路）
         _tabs.SelectedIndex = index;
-        FocusActiveEditor();            // I-5: タブ列を経由せず直接エディタへ
-        if (Active is { } d) KeyBasedSwitch?.Invoke(d); // SR にタブ名を能動発声させる
+        AnnounceThenFocus(prev);        // I-5: 切替が発生した時のみタブ名を発声してからエディタへ遷移
+    }
+
+    // I-5: SelectedIndex が実際に変化した時だけタブ名を能動発声(単一タブや同一 index の no-op で
+    // 冗長な発声を出さない)。発声→フォーカス遷移の順にすることで、エディタ UIA FocusChanged が
+    // SR の発声キューを先取りするのを避け、タブ名が確実に先に読まれるようにする。
+    private void AnnounceThenFocus(int prevIndex)
+    {
+        if (_tabs.SelectedIndex != prevIndex && Active is { } d) KeyBasedSwitch?.Invoke(d);
+        FocusActiveEditor();
     }
 
     public void UpdateLabel(Document doc) => doc.Page.Text = doc.TabLabel;
 
     // 選択変更そのものはフォーカスを動かさない（フォーカス先は呼び出し側が決める：
-    // 新規/開く/閉じる→エディタ、Ctrl+Tab/番号での切替→タブ列）。UI 更新のみ通知。
+    // 新規/開く/閉じる→エディタ、Ctrl+Tab/番号での切替→エディタ(タブ名は KeyBasedSwitch で発声)）。
     private void OnSelectedTabChanged() => ActiveDocumentChanged?.Invoke(this, EventArgs.Empty);
 
     private void FocusActiveEditor() => Active?.FocusTarget.Focus();
-
-    private void FocusTabStrip() => _tabs.Focus();
 
     private void OnTabKeyDown(object? sender, KeyEventArgs e)
     {

@@ -1,33 +1,20 @@
-# Simulate SR word-navigation call patterns against yEdit.UiaProbe or EditorSmoke (--uia).
+# Simulate SR word-navigation call patterns against EditorSmoke (--uia).
 # Verifies the provider's TextUnit.Word behavior (Expand/Move span/GetSelection/MoveEndpointByUnit).
 # Background: PC-Talker never calls TextUnit.Word (proven by P0 trace); NVDA relies on it.
-# P5 Task 14: -Target で ProbeExe(既定 v1 用) / EditorSmokeExe(v2 用) を切替。
+# P6 Task 17: v1 用 ProbeExe 分岐を撤去。EditorSmokeExe(v2)固定。
 param(
-    [string]$Exe = "",
-    [ValidateSet('ProbeExe','EditorSmokeExe')]
-    [string]$Target = 'ProbeExe'
+    [string]$Exe = ""
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 
-# Target 別のデフォルト設定
-switch ($Target) {
-    'ProbeExe' {
-        if (-not $Exe) { $Exe = "<repo>\src\yEdit.UiaProbe\bin\Debug\net9.0-windows\yEdit.UiaProbe.exe" }
-        $automationId = 'uiaProbeDocument'
-        $extraArgs = @()
-        $tmp = $null
-    }
-    'EditorSmokeExe' {
-        if (-not $Exe) { $Exe = "<repo>\.worktrees\custom-editcontrol-design\tests\yEdit.Editor.Smoke\bin\Debug\net9.0-windows\yEdit.Editor.Smoke.exe" }
-        $automationId = 'editor'
-        # smoke には --uia + ファイルパスを渡す(word-sim が期待する "ABC abc 123" を含むテキストを作る)
-        $tmp = Join-Path $env:TEMP ("yedit-word-sim-{0}.txt" -f ([guid]::NewGuid()))
-        [System.IO.File]::WriteAllText($tmp, "prelude ABC abc 123 tail`nsecond line`n", [System.Text.UTF8Encoding]::new($false))
-        $extraArgs = @("--uia", $tmp)
-    }
-}
+if (-not $Exe) { $Exe = "<repo>\.worktrees\custom-editcontrol-design\tests\yEdit.Editor.Smoke\bin\Debug\net9.0-windows\yEdit.Editor.Smoke.exe" }
+$automationId = 'editor'
+# smoke には --uia + ファイルパスを渡す(word-sim が期待する "ABC abc 123" を含むテキストを作る)
+$tmp = Join-Path $env:TEMP ("yedit-word-sim-{0}.txt" -f ([guid]::NewGuid()))
+[System.IO.File]::WriteAllText($tmp, "prelude ABC abc 123 tail`nsecond line`n", [System.Text.UTF8Encoding]::new($false))
+$extraArgs = @("--uia", $tmp)
 
 $proc = Start-Process -FilePath $Exe -ArgumentList $extraArgs -PassThru
 Start-Sleep -Seconds 2

@@ -40,8 +40,8 @@ public sealed class FindReplaceDialog : Form
         BuildLayout();
         _announcer = AnnouncerFactory.Create(_status);
 
-        _next.Click += (_, _) => { _controller.FindNext(); if (!_isReplaceMode) Hide(); };
-        _prev.Click += (_, _) => { _controller.FindPrev(); if (!_isReplaceMode) Hide(); };
+        _next.Click += (_, _) => { if (_controller.FindNext() && !_isReplaceMode) Hide(); };
+        _prev.Click += (_, _) => { if (_controller.FindPrev() && !_isReplaceMode) Hide(); };
         _replaceOne.Click += (_, _) => _controller.ReplaceOne();
         _replaceAll.Click += (_, _) => _controller.ReplaceAll();
         _close.Click += (_, _) => Hide();
@@ -84,7 +84,7 @@ public sealed class FindReplaceDialog : Form
             case Keys.Escape: Hide(); return true;
             case Keys.F3: _controller.FindNext(); return true;
             case Keys.Shift | Keys.F3: _controller.FindPrev(); return true;
-            case Keys.Enter when _pattern.Focused: _controller.FindNext(); if (!_isReplaceMode) Hide(); return true;
+            case Keys.Enter when _pattern.Focused: if (_controller.FindNext() && !_isReplaceMode) Hide(); return true;
         }
         return base.ProcessCmdKey(ref msg, keyData);
     }

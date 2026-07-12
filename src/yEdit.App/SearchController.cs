@@ -75,16 +75,18 @@ public sealed class SearchController
         catch (RegexMatchTimeoutException) { d.SetStatus("検索式が複雑すぎます"); }
     }
 
-    public void FindNext() => Find(forward: true);
-    public void FindPrev() => Find(forward: false);
+    /// <summary>次を検索。ヒットして選択を移動できたら true、それ以外(未ヒット/無効式/タイムアウト)は false。</summary>
+    public bool FindNext() => Find(forward: true);
+    /// <summary>前を検索。ヒットして選択を移動できたら true、それ以外(未ヒット/無効式/タイムアウト)は false。</summary>
+    public bool FindPrev() => Find(forward: false);
 
-    private void Find(bool forward)
+    private bool Find(bool forward)
     {
         var ed = ActiveEditor;
         var opts = CurrentOptions();
-        if (ed is null || opts is null) return;
+        if (ed is null || opts is null) return false;
         var searcher = new SnapshotSearcher(opts);
-        if (!searcher.IsValid) { Announce("正規表現が正しくありません"); return; }
+        if (!searcher.IsValid) { Announce("正規表現が正しくありません"); return false; }
 
         // P6 Task 11: 全文 string 化を避け、TextSnapshot を直接渡す(閾値超は窓/行照合に自動切替)。
         var snap = ed.CurrentBuffer.Current;
@@ -111,7 +113,7 @@ public sealed class SearchController
             {
                 _lastHit = null;
                 Announce("これ以上見つかりません");
-                return;
+                return false;
             }
 
             ed.SelectCharRange(hit.Value.Start, hit.Value.Length);
@@ -119,10 +121,12 @@ public sealed class SearchController
             var loc = searcher.Locate(snap, hit.Value);
             // 位置不明（Locate 失敗）時は空メッセージ＝ステータスのクリアのみ（発声なし）。
             Announce(loc is { } l ? $"{l.Total} 件中 {l.Ordinal} 件目" : "");
+            return true;
         }
         catch (RegexMatchTimeoutException)
         {
             Announce("検索式が複雑すぎます");
+            return false;
         }
     }
 

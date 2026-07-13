@@ -12,6 +12,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 function Invoke-Step {
     param([string]$Name, [scriptblock]$Body)
     Write-Host "==> $Name" -ForegroundColor Cyan
+    $global:LASTEXITCODE = 0
     & $Body
     if ($LASTEXITCODE -ne 0) {
         Write-Host "NG: $Name (exit $LASTEXITCODE)" -ForegroundColor Red

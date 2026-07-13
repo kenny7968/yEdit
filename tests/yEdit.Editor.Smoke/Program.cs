@@ -29,8 +29,9 @@ if (args.Length > 0 && args[0] == "--ime")
 }
 
 // P5 Task 13: --uia サブコマンド。SR(NVDA/ナレーター)と ATOK 実機検証
-// (docs/plans/2026-07-06-p5-uia-checklist.md)用に、UIA プロバイダを配線した状態で起動する。
-// タイトルバーに [UIA] プレフィックスが付く。
+// (docs/plans/2026-07-06-p5-uia-checklist.md)用の起動モード。
+// UIA プロバイダは EditorControl に常時配線済みのため、--uia の実態は
+// タイトルバーへ [UIA] を付けて起動モードを判別できるようにする目印のみ。
 // 追加引数(パス)があれば openat 起動する。
 if (args.Length > 0 && args[0] == "--uia")
 {

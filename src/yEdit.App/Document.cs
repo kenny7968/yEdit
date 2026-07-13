@@ -24,8 +24,8 @@ public sealed class Document
         Page = page;
     }
 
-    /// <summary>タブに表示するラベル（ファイル名＋変更マーク）。</summary>
-    public string TabLabel => State.DisplayName + (Editor.Modified ? " *" : "");
+    /// <summary>タブに表示するラベル（変更マーク＋ファイル名）。位置はタイトルバーと揃える。</summary>
+    public string TabLabel => (Editor.Modified ? "* " : "") + State.DisplayName;
 
     // ---- CSV パースのメモ化（文書単位） ----
     // コントローラ単位で持つとタブ横断で直近文書の全文＋パース結果が滞留し、

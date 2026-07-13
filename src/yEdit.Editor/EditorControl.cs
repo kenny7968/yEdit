@@ -2445,11 +2445,6 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         }
     }
 
-    // P5 Task 12: OnKeyDown をテストから直接叩くための internal 静的フック
-    // (App 層の入力経路を通さず、Ctrl+←→ 系の分岐だけ検証できる)。
-    internal static void TestHook_SendKey(EditorControl c, Keys keyData)
-        => c.OnKeyDown(new KeyEventArgs(keyData));
-
     /// <summary>
     /// 文字挿入(WM_CHAR)入り口(P3 Task 8 / P4 Task 3 で <see cref="InsertConfirmedText"/> へ委譲)。
     /// 制御文字を弾いてから確定 1 文字を <see cref="InsertConfirmedText"/> に流し

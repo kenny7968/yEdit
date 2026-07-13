@@ -151,3 +151,10 @@ PC-Talker サポート廃止(`docs/plans/2026-07-13-pctalker-removal-design.md`)
 - 排除ブランチのレビュー指摘の持ち込み: `UiaAnnouncer.Raise` は退避呼び出し元(PcTalkerAnnouncer)の消滅で同クラス内からしか呼ばれない=private 化 or Speak へのインライン化を検討。Smoke の `UseUiaAnnouncer` は実態(タイトルに `[UIA]` を付けるだけ)に合わせた改名(例: MarkUiaTitle)を検討。
 - Stage 1 実施記録の追加観点「ActiveCaretEnteredEmptyLine / ActiveWordNavigated の転送テスト」は対象消滅により不要。
 - §3 テスト観点表の「Speech」行・§5 の「Stage 2 は SR 経路に触れるため L5 スポット確認必須」は上記縮小後の内容に読み替える。
+
+### Stage 2(縮小版)実施記録(2026-07-13)
+
+- **完了**: 実装計画=`docs/plans/2026-07-13-test-strategy-phase2-stage2.md`。①Announcer 契約テスト 5 件(AnnouncerBase の視覚無条件/発声は非空のみ・UiaAnnouncer の握りつぶし契約)+`InternalsVisibleTo Include="yEdit.App.Tests"`(`68dbf8f`+レビュー対応 `2abc6e5`) ②AnnouncerFactory 廃止(MainForm/GrepDialog で UiaAnnouncer 直接生成・`36f7c2b`) ③UiaAnnouncer.Raise の Speak へのインライン化(`4220c02`) ④Smoke `UseUiaAnnouncer`→`MarkUiaTitle` 改名+`--uia` コメントの実態追随(`e1a65b3`+`0389a40`)。
+- **テスト数**: 800 → 805(App 14→19)。ゲート全通過(Release 0 警告)。
+- **読み替えの明確化**: 再スコープ文の「FakeAnnouncer による通知配線テスト」は、Stage 2 時点で注入可能な IAnnouncer 消費者が SearchController/CsvController(=Stage 4/6 の責務)のみのため「残存 Speech サブシステムの契約テスト」として実施した。FakeAnnouncer の実使用(通知文言検証)は Stage 4 以降。
+- **レビュー由来の申し送り**: 実装計画の「申し送り」節を参照(空白のみメッセージの特徴付け=Stage 4/`_announcer` の readonly 化=Stage 8/GrepDialog の IAnnouncer 注入化=Stage 7 設計時判断)。

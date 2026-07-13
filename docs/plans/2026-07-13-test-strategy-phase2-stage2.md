@@ -469,3 +469,7 @@ Expected: マージ後ゲート全緑
 
 - 次 Stage: FileController(IUserPrompt/IFileDialogService 導入+SaveAs ロールバック最優先)= Phase 2 設計書 §4 Stage 3。PC-Talker 非依存のため再スコープ不要(排除設計書 §5 で確認済み)。
 - テストユーティリティ共通化(Sta.cs の共有抽出等)は「3 プロジェクト目が現れたら」の判断基準を継続(Stage 1 実施記録)。
+- レビュー由来(いずれも非ブロッカー・実施レビューでの Minor 指摘):
+  - 空白のみメッセージ(`" "`)の特徴付けテスト: `AnnouncerBase.Say` のガードは `IsNullOrEmpty` であり空白のみは表示・発声される。この区別(`IsNullOrWhiteSpace` ではない)を固定するテストを Stage 4(FakeAnnouncer 実使用開始)で再検討。
+  - `MainForm._announcer` の readonly 化+ctor 先頭移動: AnnouncerFactory 廃止で `new UiaAnnouncer(_announceLabel)` は依存ゼロになり、ctor 先頭移動+`null!` 撤去が可能になった。既存申し送り「ctor 時間的結合」([[settings-new-items-followups]]相当)と合流し Stage 8(MainForm 痩身)で対応。
+  - GrepDialog の IAnnouncer 注入化: 現在はダイアログ内部で `new UiaAnnouncer(_status)`。GrepController の通知文言テストが必要になる Stage 7 の設計時に注入化を判断。

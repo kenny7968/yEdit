@@ -120,6 +120,7 @@ jobs:
 - テストは**ステップを分ける**こと。Actions の pwsh は複数行 run の途中の exit code を検査しないため、1 ステップにまとめると前段の失敗が握りつぶされる。
 - `--filter "Category!=LocalOnly"` は該当 Trait を持つテストがゼロでも有効(全件実行になる)。将来ホステッドランナーで不安定なテストが見つかったら `[Trait("Category", "LocalOnly")]` を付けて隔離する(設計書 §2.2)。
 - `on.push.branches` 指定によりタグ push では発火しない(release.yml と重複しない)。
+- レビュー指摘により `permissions: contents: read`(トップレベル・最小権限)と `timeout-minutes: 20`(jobs.test 直下・Editor.Tests のハング型フレーク対策)を追加(計画からの意図的逸脱)。
 
 **Step 2: 目視レビュー**
 

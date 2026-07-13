@@ -29,5 +29,8 @@ Invoke-Step 'Core.Tests' {
 Invoke-Step 'Editor.Tests' {
     dotnet test (Join-Path $repoRoot 'tests/yEdit.Editor.Tests') -c Release --no-build
 }
+Invoke-Step 'App.Tests' {
+    dotnet test (Join-Path $repoRoot 'tests/yEdit.App.Tests') -c Release --no-build
+}
 Write-Host 'OK: pre-merge チェック全通過' -ForegroundColor Green
 exit 0

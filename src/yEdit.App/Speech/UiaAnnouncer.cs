@@ -10,14 +10,12 @@ internal sealed class UiaAnnouncer : AnnouncerBase
 {
     public UiaAnnouncer(Label label) : base(label) { }
 
-    protected override void Speak(string message) => Raise(_label, message);
-
-    /// <summary>指定 Label の UIA プロバイダから通知を上げる。非対応環境では握りつぶし（視覚のみ）。</summary>
-    internal static void Raise(Label label, string message)
+    /// <summary>Label の UIA プロバイダから通知を上げる。非対応環境では握りつぶし（視覚のみ）。</summary>
+    protected override void Speak(string message)
     {
         try
         {
-            label.AccessibilityObject.RaiseAutomationNotification(
+            _label.AccessibilityObject.RaiseAutomationNotification(
                 AutomationNotificationKind.ActionCompleted,
                 AutomationNotificationProcessing.MostRecent,
                 message);

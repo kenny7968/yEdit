@@ -37,7 +37,7 @@ public sealed class GrepDialog : Form
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
 
         BuildLayout();
-        _announcer = AnnouncerFactory.Create(_status);
+        _announcer = new UiaAnnouncer(_status);
 
         _browse.Click += (_, _) => BrowseFolder();
         _run.Click += (_, _) => _controller.Run();

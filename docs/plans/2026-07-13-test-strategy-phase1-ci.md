@@ -159,6 +159,10 @@ git commit -m "CI ワークフロー新設(push/PR で Release ビルド+Core/Ed
         run: dotnet test tests/yEdit.Editor.Tests -c Release --filter "Category!=LocalOnly"
 ```
 
+設計メモ:
+- ステップ名はコロン(`: `)を含むため YAML 構文上ダブルクォートで囲むことが必須(計画の素の YAML はパースエラーになる。計画からの意図的逸脱)。
+- レビュー指摘により `timeout-minutes: 30` を jobs.release 直下に追加(ci.yml の 20 分と同根拠のハング対策。publish/zip 分を見込んで長め。計画からの意図的逸脱)。
+
 **Step 2: 目視レビュー**
 
 release.yml の他ステップ(バージョン抽出以降)に影響がないこと、インデントが既存と揃っていることを確認。

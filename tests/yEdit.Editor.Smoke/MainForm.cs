@@ -150,25 +150,18 @@ public sealed class MainForm : Form
         UpdateCaretStatus();
     }
 
-    // P5 Task 13: smoke --uia モード。SR で本文/選択/位置/座標を読める状態にして、
-    // WordNavigated / CaretEnteredEmptyLine を UiaSmokeAnnouncer が拾って発声する。
+    // P5 Task 13: smoke --uia モード。SR で本文/選択/位置/座標を読める状態にする。
     // 起動側(Program.cs)が MainForm 生成後に true にする。
     // (WFO1000 回避 = デザイナ非対応の宣言)
     [System.ComponentModel.Browsable(false)]
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public bool UseUiaAnnouncer { get; set; }
-    private UiaSmokeAnnouncer? _uiaAnnouncer;
 
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        if (UseUiaAnnouncer && _uiaAnnouncer is null)
-        {
-            // UIA プロバイダは WM_GETOBJECT 経由で lazy 生成されるため、この時点では null 渡し。
-            // 通知イベントは PC-Talker 直叩きが主経路(SR 側 UIA 通知は smoke 用途では省略)。
-            _uiaAnnouncer = new UiaSmokeAnnouncer(_editor, null);
+        if (UseUiaAnnouncer && !Text.StartsWith("[UIA] ", StringComparison.Ordinal))
             Text = $"[UIA] {Text}";
-        }
     }
 
     private void SetWrap(int cols)

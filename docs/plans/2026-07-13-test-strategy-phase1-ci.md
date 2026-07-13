@@ -60,6 +60,7 @@ exit 0
 - ローカルゲートは CI と違い **LocalOnly フィルタを付けない**(全件実行がローカルの責務。設計書 §2.2)。
 - `--no-build` はビルドステップ済みのため。テストプロジェクトは yEdit.sln に含まれており、sln の Release ビルドでテスト DLL も生成される。
 - PowerShell 5.1 で動くこと(pwsh 専用構文 `&&` や三項演算子を使わない)。
+- 計画からの意図的逸脱: ①実ファイルは UTF-8 BOM 付き(BOM なしだと PS 5.1 が ANSI 解釈し日本語リテラルが文字化けするため)。②レビュー指摘により `Invoke-Step` の `& $Body` 直前に `$global:LASTEXITCODE = 0` を追加(前ステップの stale な exit code を誤読する false-pass の防止)。
 
 **Step 2: 失敗伝播をレビューで確認**
 

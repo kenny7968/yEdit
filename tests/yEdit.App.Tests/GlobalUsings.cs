@@ -3,7 +3,6 @@ global using System.Threading;
 global using System.Windows.Forms;
 global using Xunit;
 global using yEdit.App;
-global using yEdit.Core.Buffers;
 global using yEdit.Editor;
 
 // App.Tests も Editor.Tests と同じく実 WinForms コントロール(EditorControl/TabControl)を

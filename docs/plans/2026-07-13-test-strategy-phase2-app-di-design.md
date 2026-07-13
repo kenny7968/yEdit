@@ -132,3 +132,12 @@ WinForms Timer は抽象化せず、**`Reconcile()` を internal にして App.T
 
 - ダイアログ内部(FindReplaceDialog の UI 配線・SaveAsDialog のコントロール構成など)は本 Phase の対象外(L5 手動)。プレゼンター抽出は必要が生じた Stage で個別判断。
 - Stage 8 は任意。Stage 7 完了時点で費用対効果を再評価する。
+
+### Stage 1 実施記録(2026-07-13)
+
+- **完了**: `tests/yEdit.App.Tests` 新設(csproj・Sta.cs・GlobalUsings)+DocumentManager テスト 14 件+pre-merge-check.ps1 へ App.Tests 追加。ゲート全通過(Release 0 警告・Core 588+Editor 229+App 14=831 緑)。
+- **逸脱 1**: §4 Stage 1 の「Fake 群」は `FakeAnnouncer` のみ作成。IUserPrompt/IFileDialogService/IBackupWriter 等のシームは未導入のため、対応する Fake は各導入 Stage(3/5 ほか)で追加する。
+- **逸脱 2(小拡張)**: Stage 1 の DoD は pre-merge-check への追加のみ言及だが、上位戦略書 §1 の L3「毎マージ(ローカルゲート+CI)」と揃えるため ci.yml / release.yml にも App.Tests(`Category!=LocalOnly` フィルタ付き)を追加した。
+- **技術知見**: TabControl の Selected/Deselecting/SelectedIndexChanged は、ハンドル生成だけではプログラム切替で発火せず、**ウィンドウ可視のとき同期発火**する(プローブ実測)。App.Tests のテストホスト Form は ShowWithoutActivation+画面外+ShowInTaskbar=false で Show() する。実運用 MainForm は常に可視のため、これが挙動の忠実な再現。
+- **CI 初回観察ポイント**: 可視 Form 方式は windows-latest 実機未検証(Phase 1 からの既知の申し送りと同じ穴)。初回 push で App.Tests が落ちた場合、14 件の機械的 LocalOnly 隔離では CI の App ゲートが空になるため、「Selected 転送系のみ隔離+残りは不可視 Form で回す」等の分割を検討する。
+- **Stage 2 への追加観点**: ActiveCaretEnteredEmptyLine / ActiveWordNavigated の転送テスト(配線は UpdateUI と同型)。空行発声の未解決バグ(PC-Talker)の切り分け材料として DocumentManager 区間の配線を緑と証明できる。テストユーティリティの共通化(Make ヘルパの IDisposable フィクスチャ化・Sta.cs の共有抽出は 3 プロジェクト目が現れたら)も Stage 2 以降で判断。

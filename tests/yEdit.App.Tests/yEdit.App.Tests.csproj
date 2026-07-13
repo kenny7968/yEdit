@@ -3,8 +3,9 @@
   <PropertyGroup>
     <TargetFramework>net9.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
-    <!-- yEdit.App が UIA 型（System.Windows.Automation）の連鎖参照のため UseWPF を
-         有効化しており、参照側も揃えないと App 内の型ロードで実行時欠落になり得る -->
+    <!-- yEdit.App が UIA 型（System.Windows.Automation）参照のため UseWPF を有効化している。
+         FrameworkReference は ProjectReference 経由で推移的に流れるため無くても動くが、
+         依存を可視化するため参照側でも明示する -->
     <UseWPF>true</UseWPF>
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>

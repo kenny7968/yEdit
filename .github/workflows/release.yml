@@ -29,6 +29,9 @@ jobs:
       - name: "テスト(リリース前ゲート: Editor・LocalOnly 除外)"
         run: dotnet test tests/yEdit.Editor.Tests -c Release --filter "Category!=LocalOnly"
 
+      - name: "テスト(リリース前ゲート: App・LocalOnly 除外)"
+        run: dotnet test tests/yEdit.App.Tests -c Release --filter "Category!=LocalOnly"
+
       - name: バージョン抽出 (v1.2.3 → 1.2.3)
         id: ver
         shell: pwsh

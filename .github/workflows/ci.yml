@@ -28,3 +28,6 @@ jobs:
 
       - name: Editor.Tests(LocalOnly 除外)
         run: dotnet test tests/yEdit.Editor.Tests -c Release --no-build --filter "Category!=LocalOnly"
+
+      - name: App.Tests(LocalOnly 除外)
+        run: dotnet test tests/yEdit.App.Tests -c Release --no-build --filter "Category!=LocalOnly"

@@ -158,3 +158,4 @@ PC-Talker サポート廃止(`docs/plans/2026-07-13-pctalker-removal-design.md`)
 - **テスト数**: 800 → 805(App 14→19)。ゲート全通過(Release 0 警告)。
 - **読み替えの明確化**: 再スコープ文の「FakeAnnouncer による通知配線テスト」は、Stage 2 時点で注入可能な IAnnouncer 消費者が SearchController/CsvController(=Stage 4/6 の責務)のみのため「残存 Speech サブシステムの契約テスト」として実施した。FakeAnnouncer の実使用(通知文言検証)は Stage 4 以降。
 - **レビュー由来の申し送り**: 実装計画の「申し送り」節を参照(空白のみメッセージの特徴付け=Stage 4/`_announcer` の readonly 化=Stage 8/GrepDialog の IAnnouncer 注入化=Stage 7 設計時判断)。
+- **マージ**: main へ no-ff マージ=**`59ef10f`**(2026-07-13・マージ直前の main=`01bea88`)。NVDA 実機スポット 2 項目(検索「N 件中 M 件目」読み・Ctrl+Tab タブ名読み)OK・マージ後ゲート全緑 805。

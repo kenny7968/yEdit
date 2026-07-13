@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+    branches: ['**']    # 全ブランチ。tags は release.yml の担当
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: ビルド(警告=エラー)
+        run: dotnet build yEdit.sln -c Release -warnaserror
+
+      - name: Core.Tests
+        run: dotnet test tests/yEdit.Core.Tests -c Release --no-build
+
+      - name: Editor.Tests(LocalOnly 除外)
+        run: dotnet test tests/yEdit.Editor.Tests -c Release --no-build --filter "Category!=LocalOnly"

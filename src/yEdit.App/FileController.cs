@@ -119,7 +119,7 @@ public sealed class FileController
     /// <summary>
     /// ファイルを読み込み、本文・文字コード・改行を対象タブへ反映する。
     /// forcedCodePage 指定時は自動判定せずそのコードページで読む（開き直し用）。
-    /// 成否を返す（失敗は MessageBox 表示・握り潰さない）。
+    /// 成否を返す（失敗は _prompt.Error で通知・握り潰さない）。
     /// </summary>
     private bool LoadInto(Document doc, string path, int? forcedCodePage)
     {
@@ -263,7 +263,7 @@ public sealed class FileController
 
     /// <summary>
     /// 改行を State.LineEnding に正規化してから本文を取得し、原子的に保存する。
-    /// 例外は MessageBox でエラー表示し false を返す。
+    /// 例外は _prompt.Error で通知し false を返す。
     /// </summary>
     private bool WriteToPath(Document doc, string path)
     {

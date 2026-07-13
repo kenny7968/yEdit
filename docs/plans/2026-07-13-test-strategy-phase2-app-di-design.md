@@ -1,0 +1,134 @@
+# テスト戦略 Phase 2: App 層 DI リファクタ+App.Tests 設計書
+
+- 日付: 2026-07-13
+- 上位文書: `docs/plans/2026-07-13-test-strategy-design.md` §3
+- 前提: Phase 1(ローカルゲート+CI)完了後に着手する
+
+## 0. 方針(上位文書で承認済み)
+
+- **コンテナレスの本格分離**: MainForm を composition root 化し、各 Controller はコンストラクタ注入されたインターフェースにのみ依存する。DI コンテナは導入しない。
+- **EditorControl はモックしない**: App.Tests でも実物 EditorControl+実 Core を STA 上で使う。偽物にするのは **Form 境界(ダイアログ・MessageBox)と OS 境界(SR 稼働判定・時計・背景書込)** に限定する。
+- **ストラングラー方式**: Controller 1 つ=1 フィーチャーブランチ=1 no-ff マージ。各段で「シーム導入 → 失敗テスト → 実装 → 挙動不変確認 → マージ」。
+
+## 1. 現状の依存分析(2026-07-13 コード精読の結果)
+
+| クラス | Form 依存 | ダイアログ直 new | static/OS 依存 | テスト容易性 |
+|---|---|---|---|---|
+| DocumentManager | なし(TabControl 内包のみ) | なし | なし | **◎ 現状のままテスト可能** |
+| CsvController | なし(FindForm() 経由 1 箇所) | CsvGoToCellDialog | なし(IAnnouncer 注入済み) | **○ GoToCell 以外は現状で可能** |
+| FileController | `Form _owner`(ダイアログ親) | OpenFileDialog / SaveAsDialog / EncodingPickDialog / MessageBox×5 | TextFileService(実ファイル=温存可) | △ ダイアログ抽象化が必要 |
+| SearchController | `Form _owner` | FindReplaceDialog(生成+8 メンバー参照) | なし(IAnnouncer 注入済み) | △ ダイアログ抽象化が必要 |
+| BackupCoordinator | IWin32Window(復元ダイアログ親) | RestoreDialog | WinForms Timer / SerialBackupWriter(背景スレッド) / DateTime.UtcNow | △ 時計・ライター・タイマー抽象化が必要 |
+| GrepController | `Form _owner` | GrepDialog / GrepResultsWindow | Task.Run+`async void Run()` | △ ビュー抽象化+async 化が必要 |
+| MainForm | ―(本体) | GoToLineDialog / SettingsDialog / MarkdownPreviewForm / MessageBox | PcTalkerSpeech.IsRunning() / AnnouncerFactory(static+Lazy) | ✕ composition root 化で解消 |
+| Speech 系 | Label 束縛 | なし | PCTKUsr.dll P/Invoke(遅延束縛) | △ 経路判定の注入化が必要 |
+
+好材料: BackupCoordinator は `directory` が注入可能済み、判定中核は Core の純粋関数 `BackupPlanner`(テスト済み)。SearchController/CsvController は `IAnnouncer` 注入済み。Core 側(TextFileService/SnapshotSearcher/GrepService/CsvParser)は L1 でテスト済みなので、App.Tests の責務は**配線・状態遷移・通知文言**に絞る。
+
+## 2. 導入するシーム(インターフェース設計)
+
+命名・所属はすべて `yEdit.App`(必要なら `yEdit.App.Abstractions` サブフォルダ)。実装クラスは既存 UI をラップするだけの薄い Adapter とし、ロジックを持たせない。
+
+### 2.1 OS 境界
+
+```csharp
+/// <summary>起動時に一度だけ確定する SR 経路(PC-Talker か否か)。プロセス寿命で不変。</summary>
+public interface ISrRoute { bool IsPcTalker { get; } }
+// 実装: PcTalkerSrRoute(PcTalkerSpeech.IsRunning() を ctor で 1 回だけ評価)
+// AnnouncerFactory は static/Lazy をやめ、ISrRoute を受けるインスタンス化 or
+// Program.Main で判定→MainForm に bool/IAnnouncer を注入する形へ。
+// MainForm._isPcTalker(空行・単語ナビ分岐)も同じ ISrRoute から取る=判定源を 1 つに統一。
+```
+
+```csharp
+/// <summary>ユーザーへの確認・警告(MessageBox のラップ)。</summary>
+public interface IUserPrompt
+{
+    void Info(string text, string caption);
+    void Warn(string text, string caption);
+    void Error(string text, string caption);
+    bool OkCancel(string text, string caption);            // 文字コード劣化警告など
+    DialogResult YesNoCancel(string text, string caption); // 未保存確認
+}
+```
+
+- 時計: .NET 標準の `TimeProvider` を注入(BackupRecord.TimestampUtc 用)。
+- 背景書込: `IBackupWriter { void Enqueue(Action job); void Dispose(); }` を切り、実装は既存 SerialBackupWriter。テストは同期実行フェイク。
+
+### 2.2 Form 境界(ダイアログ)
+
+```csharp
+/// <summary>ファイル系ダイアログの結果だけを返す抽象。UI 実装は既存ダイアログをラップ。</summary>
+public interface IFileDialogService
+{
+    string? PickOpenPath(IWin32Window owner);
+    SaveAsResult? PickSaveAs(IWin32Window owner, SaveAsRequest current); // パス/コードページ/BOM/改行
+    int? PickEncoding(IWin32Window owner, int currentCodePage);          // 開き直し
+}
+```
+
+```csharp
+/// <summary>FindReplaceDialog の Controller 向け表面。</summary>
+public interface IFindReplaceView
+{
+    string Pattern { get; }
+    string Replacement { get; }
+    bool MatchCase { get; } bool WholeWord { get; } bool UseRegex { get; } bool InSelection { get; }
+    bool Visible { get; }
+    void SetMode(bool replaceMode);
+    void SetStatus(string text);
+    void ShowAndFocus(IWin32Window owner); // Show+Activate+FocusPattern を 1 メソッドに集約
+}
+// SearchController はビューを Func<IFindReplaceView> ファクトリで受け、生成タイミングは現状維持。
+```
+
+- GrepController: 同様に `IGrepView` / `IGrepResultsView` を切る。`async void Run()` は `internal Task RunAsync()` に改め(メニューは async void ラッパ)、テストで await 可能にする。
+- BackupCoordinator: RestoreDialog 相当を `IRestorePrompt`(records → 復元/全破棄/後で+チェック済み一覧)に抽象化。
+- CsvController: CsvGoToCellDialog を `Func<(int row,int col), (int,int)?>` 相当の `ICellPicker` に抽象化(GoToCell のみが対象。他の操作は現状で可)。
+- GoToLineDialog / SettingsDialog / MarkdownPreviewForm は MainForm 側の残置とし、コマンドロジック抽出(§4 Stage 8)時に必要なら抽象化する(YAGNI)。
+
+### 2.3 タイマー(BackupCoordinator)
+
+WinForms Timer は抽象化せず、**`Reconcile()` を internal にして App.Tests から直接叩く**(タイマーは「Reconcile を定期起動するだけ」の 1 行配線であり、間隔クランプは ctor 単体で検証可能)。テストが時間待ちしないための最小手段。
+
+## 3. テスト観点(App.Tests の責務)
+
+真実源: 配線・状態遷移・通知文言・ロールバック。Core が検証済みの照合・I/O 正しさは再検証しない。
+
+| 対象 | 主要観点(抜粋) |
+|---|---|
+| DocumentManager | CreateNew の配線(SavePoint→ラベル`*`/イベント転送がアクティブ限定)・FindByPath(PathKey 同一視)・TryClose(confirm 拒否で閉じない/Dispose される)・SelectNext 巡回/SelectAt 範囲外 no-op・KeyBasedSwitch は実切替時のみ発火 |
+| FileController | NewFile 既定(設定のコードページ/EOL・無題連番)・TryOpenOrActivate(既存タブ再利用/失敗時の作りかけタブ破棄と復帰)・SaveAs ロールバック(WriteToPath 失敗で Encoding/EOL/BOM が元に戻る=データ破損防止の要)・CanEncodeBuffer(非 UTF-8 で表せない文字→OkCancel 経由)・ConfirmDiscardIfDirty(Yes=保存成否/No=true/Cancel=false)・RestoreFromBackup(dirty のまま・無題連番の引継ぎ)・RegisterRecent(上限 10・先頭繰上げ) |
+| SearchController | 歩進(_lastHit 一致時は次から/ゼロ幅で前進)・文書切替で _lastHit/_selectionScope リセット・ReplaceOne の VSCode 準拠(未選択→検索して即置換)・ReplaceAll の InSelection スコープ(未捕捉は「選択範囲がありません」)・通知文言(「N 件中 M 件目」「これ以上見つかりません」)・CSV モード中の置換抑止 |
+| BackupCoordinator | Reconcile 直接呼び(dirty→Write/クリーン化→Delete/変化なし→None は BackupPlanner 済みなので配線のみ)・閉じた文書の削除投入・背景失敗→ForceWrite 再書込・UpdateSettings(有効化で即 Reconcile/無効化で Stop)・Shutdown(管理分削除+ドレイン・冪等)・OfferRestoreOnStartup(confirm=false 全復元と件数/不正レコード 1 件で巻き添えにしない) |
+| CsvController | TryEnterMode(解析不可→通知して通常のまま/ReadOnly・RaiseUiaSelectionEvents の設定)・ExitMode(キャレット復帰→UIA 再有効化の順序)・Move 端で境界文言・Clamp(本文編集で行列が減った後の補正)・F2 確定(EscapeField 経由の直列化と再ハイライト)・GoToCell 範囲外 |
+| GrepController | RunAsync(入力検証の文言/連打で先行実行の結果が UI を上書きしない=_cts 追い越し判定/BeginClose 中は結果窓を出さない/エラー件数ありは必ず発声) |
+| Speech | ISrRoute 固定化(プロセス内で判定が揺れない)・PcTalker 経路で空行/単語ナビの能動発声が出る・非 PcTalker では出ない(MainForm 配線を関数抽出してテスト) |
+
+共通テストユーティリティ: `FakeAnnouncer`(Say 履歴を記録)・`FakePrompt`(応答を事前登録)・`FakeFileDialogService`・同期 `FakeBackupWriter`・STA ヘルパ(Editor.Tests の `Sta.cs` パターンを流用)。
+
+## 4. 段階分解(1 Stage=1 ブランチ=1 no-ff マージ)
+
+| Stage | 内容 | リファクタ量 |
+|---|---|---|
+| 1 | `tests/yEdit.App.Tests` 新設(csproj・STA ヘルパ・Fake 群)+**DocumentManager のテスト**(リファクタ不要で書ける=基盤の実証) | なし |
+| 2 | Speech: ISrRoute 導入・AnnouncerFactory 非 static 化・MainForm の判定源統一+テスト | 小 |
+| 3 | FileController: IUserPrompt/IFileDialogService 導入+テスト(SaveAs ロールバックを最優先) | 中 |
+| 4 | SearchController: IFindReplaceView 導入+テスト | 中 |
+| 5 | BackupCoordinator: TimeProvider/IBackupWriter/IRestorePrompt 導入・Reconcile internal 化+テスト | 中 |
+| 6 | CsvController: ICellPicker 導入+テスト | 小 |
+| 7 | GrepController: IGrepView/IGrepResultsView・RunAsync 化+テスト | 中 |
+| 8 | (任意)MainForm 痩身: コマンドロジック(禁則整形・位置読み・行ジャンプ等)の抽出+テスト。ここまでで MainForm は配線と ProcessCmdKey のみ | 中 |
+
+各 Stage の DoD: `tools/pre-merge-check.ps1` 緑(App.Tests を含むよう Stage 1 でスクリプトへ追加)・テスト数純増・**挙動不変**(公開挙動・SR 発声文言・フォーカス遷移を変えない)。
+
+## 5. リスクと対策
+
+- **SR 挙動の退行**: Stage 2(Speech)と Stage 6(CSV)は SR 経路に触れるため、マージ前に L5 スポット確認(p6-manual-checklist の該当項目: 空行発声・単語ナビ・CSV セル読み)を必須とする。他 Stage はダイアログ抽象化のみで SR 経路不変。
+- **FindReplaceDialog 側の結合**: FindReplaceDialog は `SearchController` を直接参照している(相互参照)。Stage 4 でビュー→Controller 方向はイベント/コールバックに置き換え、循環を断つ。
+- **挙動同一性の担保**: 各 Stage は「シーム導入(Adapter が既存 UI を呼ぶだけ)」に徹し、条件分岐・文言・順序を一切変えない。diff レビューで機械的に確認できる粒度を保つ。
+
+## 6. 申し送り
+
+- ダイアログ内部(FindReplaceDialog の UI 配線・SaveAsDialog のコントロール構成など)は本 Phase の対象外(L5 手動)。プレゼンター抽出は必要が生じた Stage で個別判断。
+- Stage 8 は任意。Stage 7 完了時点で費用対効果を再評価する。

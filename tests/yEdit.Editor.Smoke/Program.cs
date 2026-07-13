@@ -36,7 +36,7 @@ if (args.Length > 0 && args[0] == "--uia")
 {
     ApplicationConfiguration.Initialize();
     var initialPath = args.Length > 1 ? args[1] : null;
-    var form = new MainForm(initialPath) { UseUiaAnnouncer = true };
+    var form = new MainForm(initialPath) { MarkUiaTitle = true };
     Application.Run(form);
     return 0;
 }

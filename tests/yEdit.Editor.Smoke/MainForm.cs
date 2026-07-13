@@ -150,17 +150,18 @@ public sealed class MainForm : Form
         UpdateCaretStatus();
     }
 
-    // P5 Task 13: smoke --uia モード。SR で本文/選択/位置/座標を読める状態にする。
+    // P5 Task 13: smoke --uia モードの目印。UIA プロバイダは EditorControl に常時配線済みのため、
+    // このフラグの実態は「タイトルバーへ [UIA] を付けて起動モードを判別できるようにする」だけ。
     // 起動側(Program.cs)が MainForm 生成後に true にする。
     // (WFO1000 回避 = デザイナ非対応の宣言)
     [System.ComponentModel.Browsable(false)]
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
-    public bool UseUiaAnnouncer { get; set; }
+    public bool MarkUiaTitle { get; set; }
 
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        if (UseUiaAnnouncer && !Text.StartsWith("[UIA] ", StringComparison.Ordinal))
+        if (MarkUiaTitle && !Text.StartsWith("[UIA] ", StringComparison.Ordinal))
             Text = $"[UIA] {Text}";
     }
 

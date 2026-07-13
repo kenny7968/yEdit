@@ -62,7 +62,7 @@ public class AnnouncerTests
     });
 
     [Fact]
-    public void UiaAnnouncer_Say_Empty_ClearsLabel_WithoutRaising() => Sta.Run(() =>
+    public void UiaAnnouncer_Say_Empty_ClearsLabel() => Sta.Run(() =>
     {
         using var label = new Label { Text = "前回の通知" };
         var announcer = new UiaAnnouncer(label);

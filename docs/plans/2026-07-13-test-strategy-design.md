@@ -105,6 +105,7 @@
 
 ## 6. 申し送り・未決事項
 
+- **2026-07-13 追記(PC-Talker サポート廃止の影響)**: `docs/plans/2026-07-13-pctalker-removal-design.md` により、§1 の L5 実機マトリクスから PC-Talker を除外・§4 の `verify-msaa-client.ps1` は削除済み(統合対象外)・Phase 2 Stage 2 は縮小(同 Phase 2 設計書の「Stage 2 再スコープ」参照)。
 - CI 初回実行で判明した `LocalOnly` 隔離テストの一覧は、判明次第この節に追記する。
 - Phase 2 の Controller ごとの詳細設計(インターフェース名・分割単位)は、各ブランチ着手時に個別の実装計画で確定する。本書の §3 は方針レベルの合意。
 - `tools/verify-msaa-client.ps1` は現在未コミット(untracked)。Phase 3 でスイート統合する際に扱いを確定する。

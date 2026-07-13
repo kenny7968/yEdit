@@ -2,6 +2,8 @@
 
 **対象**: P6(App 層一発置き換え + Scintilla/v1 系一括撤去)完了時点の App 層全機能。P7(実機総合検証・撤去・リリース整備)へ進む前の中間検証。SR は NVDA / PC-Talker / ナレーター(汎用UIA)の 3 種で確認。SR 未起動時も基本操作を確認。
 
+> **2026-07-13 追記**: PC-Talker サポート廃止(`docs/plans/2026-07-13-pctalker-removal-design.md`)により、以後の実施では PC-Talker 列はスキップ対象。過去の実施記録は当時のまま(改変しない)。
+
 **前提**:
 - worktree: `<repo>\.worktrees\custom-editcontrol-design`(ブランチ `feature/custom-editcontrol-design`)
 - ビルド: `dotnet build yEdit.sln -c Release`

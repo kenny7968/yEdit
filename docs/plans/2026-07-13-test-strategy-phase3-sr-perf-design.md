@@ -4,6 +4,8 @@
 - 上位文書: `docs/plans/2026-07-13-test-strategy-design.md` §4
 - 位置づけ: **任意・将来**。Phase 2 完了後、または a11y 回帰が頻発した時点で着手する。
 
+> **2026-07-13 追記**: PC-Talker サポート廃止(`docs/plans/2026-07-13-pctalker-removal-design.md`)により、`verify-msaa-client.ps1` は削除済み=統合対象から除外。`walk-test-editor.ps1`(PC-Talker の 1 文字走査再現)は汎用 UIA クライアント堅牢性テストとして残すか本 Phase 着手時に採否を判断。実機検証(L5)のマトリクスから PC-Talker は除外する。
+
 ## 1. SR 呼び出しパターン回帰スイート `tools/sr-regression.ps1`(新設)
 
 ### 目的

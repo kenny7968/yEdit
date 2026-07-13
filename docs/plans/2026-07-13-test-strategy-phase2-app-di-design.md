@@ -141,3 +141,13 @@ WinForms Timer は抽象化せず、**`Reconcile()` を internal にして App.T
 - **技術知見**: TabControl の Selected/Deselecting/SelectedIndexChanged は、ハンドル生成だけではプログラム切替で発火せず、**ウィンドウ可視のとき同期発火**する(プローブ実測)。App.Tests のテストホスト Form は ShowWithoutActivation+画面外+ShowInTaskbar=false で Show() する。実運用 MainForm は常に可視のため、これが挙動の忠実な再現。
 - **CI 初回観察ポイント**: 可視 Form 方式は windows-latest 実機未検証(Phase 1 からの既知の申し送りと同じ穴)。初回 push で App.Tests が落ちた場合、14 件の機械的 LocalOnly 隔離では CI の App ゲートが空になるため、「Selected 転送系のみ隔離+残りは不可視 Form で回す」等の分割を検討する。
 - **Stage 2 への追加観点**: ActiveCaretEnteredEmptyLine / ActiveWordNavigated の転送テスト(配線は UpdateUI と同型)。空行発声の未解決バグ(PC-Talker)の切り分け材料として DocumentManager 区間の配線を緑と証明できる。テストユーティリティの共通化(Make ヘルパの IDisposable フィクスチャ化・Sta.cs の共有抽出は 3 プロジェクト目が現れたら)も Stage 2 以降で判断。
+
+### Stage 2 再スコープ(2026-07-13)
+
+PC-Talker サポート廃止(`docs/plans/2026-07-13-pctalker-removal-design.md`)により本 Stage を縮小する。
+
+- §2.1 の `ISrRoute` シームは**導入しない**(判定対象の PC-Talker 経路が消滅)。
+- 残作業: AnnouncerFactory の構造整理(static 解消 or MainForm での直接生成)+`FakeAnnouncer` による通知配線テスト。
+- 排除ブランチのレビュー指摘の持ち込み: `UiaAnnouncer.Raise` は退避呼び出し元(PcTalkerAnnouncer)の消滅で同クラス内からしか呼ばれない=private 化 or Speak へのインライン化を検討。Smoke の `UseUiaAnnouncer` は実態(タイトルに `[UIA]` を付けるだけ)に合わせた改名(例: MarkUiaTitle)を検討。
+- Stage 1 実施記録の追加観点「ActiveCaretEnteredEmptyLine / ActiveWordNavigated の転送テスト」は対象消滅により不要。
+- §3 テスト観点表の「Speech」行・§5 の「Stage 2 は SR 経路に触れるため L5 スポット確認必須」は上記縮小後の内容に読み替える。

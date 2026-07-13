@@ -72,21 +72,6 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     // Task 8 以降の編集経路(挿入/削除等)でも同様に -1 リセットする(§0-6 の一貫性)。
     private int _desiredXpx = -1;
 
-    // P3 Task 13: 前回のキャレット論理行(SetSource で 0 リセット)。
-    // <see cref="RaiseCaretEnteredEmptyLineIfNeeded"/> が「行が変わった」判定に使う。
-    // 更新経路:
-    // - <see cref="RaiseCaretEnteredEmptyLineIfNeeded"/> 内(行遷移検出時)
-    // - 公開キャレット/選択 setter(<see cref="SetCaretCharOffset"/> /
-    //   <see cref="MoveCaretWithSelection"/> / <see cref="SetSelectionAnchored"/> /
-    //   <see cref="SetSelectionCharRange"/>)=App 層 programmatic ジャンプ(検索ジャンプ・
-    //   GoTo 等)で空行に飛んだあと、ユーザーが同位置に留まるキーを押しても
-    //   spurious fire しないよう強制同期(Task 13 レビュー I-1)。
-    // - <see cref="SetSource"/>=0 初期化
-    // 編集経路(OnKeyPress / BackSpace/Delete/Enter/Tab/Undo/Redo/Cut/Paste)からは
-    // 呼ばないため、編集直後は stale になり得るが、直後の純キャレット移動で新しい行が
-    // 空行に着地したときの発火は「新しい行が空か」だけで決まるため stale は害無し。
-    private int _lastCaretLine;
-
     // Task 15: システムキャレットの太さ(px)。既定 2・ApplyAppearance で AppSettings.CaretWidth
     // (1〜5)を反映。弱視のキャレット視認性要件(設計原則 yedit-sighted-users-first-class)。
     private int _caretWidthPx = 2;
@@ -207,8 +192,6 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
             throw new InvalidOperationException("SetSource は 1 度だけ");
         _buffer = buffer;
         _topLine = 0;
-        // Task 13: 空行遷移検知の内部状態を初期化(SetSource 直後は _caret=0=行0 なので同期)。
-        _lastCaretLine = 0;
         UpdateVerticalScrollbar();
         UpdateHorizontalScrollbar();
         if (_hasFocus)
@@ -268,7 +251,6 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         _anchor = 0;
         _topLine = 0;
         _scrollX = 0;
-        _lastCaretLine = 0;
         _desiredXpx = -1;
         _cellHighlight = null;      // 旧バッファのオフセット由来のセル強調は無効化
         _mouseDragging = false;     // ドラッグ選択の途中状態を破棄
@@ -809,21 +791,6 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public LineEnding EolMode { get; set; } = LineEnding.Crlf;
 
-    /// <summary>
-    /// 純キャレット移動(本文変更なし)で行が変わり、着地行が空行(len=0)のとき発火する。
-    /// App 層(P6)がこのイベントを購読して SR 能動発声「空行」を行う予定。
-    /// 継承 SR 対策§2-5-3(HANDOFF §4.1)。
-    /// </summary>
-    /// <remarks>
-    /// 発火条件は「純キャレット移動」経路のみ=OnKeyDown の移動系(Left/Right/Up/Down/Home/End/
-    /// PageUp/PageDown・shift 併用の選択拡張も含む)と OnMouseDown。
-    /// 編集経路(OnKeyPress の文字挿入・BackSpace/Delete/Enter/Tab/Undo/Redo/Cut/Paste)からは
-    /// 発火しない=SR は編集経路とは別の通知経路(TextChanged / UIA TextChangedEvent 等)で
-    /// 内容変化を読み上げるため、空行能動発声は移動時に限定する設計。
-    /// マウスドラッグ末端(OnMouseMove)からも発火しない(Task 12 の申し送り=P7 実機検証で最終判断)。
-    /// </remarks>
-    public event EventHandler? CaretEnteredEmptyLine;
-
     // P6 Task 4: App 層互換イベント。TextBuffer の Modified 状態遷移と UI 更新契機を通知する。
 
     /// <summary>P6 Task 4: <see cref="SetSavePoint"/>(=<see cref="TextBuffer.MarkSaved"/>)呼び出し時に発火(App 層は「保存済み表示」に切替)。</summary>
@@ -838,7 +805,7 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     /// <summary>
     /// キャレット/選択移動時の UIA TextSelectionChangedEvent を発火するか。
     /// <b>P3 では受け口のみ</b>(値は読み書きできるが挙動は無し)=P5 の UIA 接続で本挙動化する。
-    /// P6 の CSV モードでは false にしてシンクへ移る遷移の一瞬に PC-Talker が行を読むのを防ぐ。
+    /// P6 の CSV モードでは false にしてシンクへ移る遷移の一瞬に SR が行を読むのを防ぐ。
     /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool RaiseUiaSelectionEvents { get; set; } = true;
@@ -870,11 +837,6 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     /// 現在キャレットの論理行番号(0 始まり)。SetSource 前は 0(P6 の
     /// <c>ScintillaHost.CurrentLine</c> と同名=App 層互換 API・設計書 §2-8)。
     /// </summary>
-    /// <remarks>
-    /// 内部フィールド <see cref="_lastCaretLine"/> は「純キャレット移動時の行遷移検知」用で
-    /// 編集経路(BackSpace/Delete/Enter/Undo/Redo/Cut/Paste)からは更新されないため公開値には使えない。
-    /// 常にスナップショットから引き直す(<see cref="TextSnapshot.GetLineIndexOfChar"/> は O(log N))。
-    /// </remarks>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public int CurrentLine => _buffer is null ? 0 : _buffer.Current.GetLineIndexOfChar(_caret);
 
@@ -950,11 +912,6 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         if (_caret == snapped && _anchor == snapped) return;
         _caret = snapped;
         _anchor = snapped;   // 単純キャレット移動は選択解除
-        // Task 13 レビュー I-1: _lastCaretLine を同期(App 層 programmatic ジャンプで
-        // 空行に飛んだ場合に、後続のユーザー入力で行が変わらないケース=
-        // OnKeyDown 移動系末尾の RaiseCaretEnteredEmptyLineIfNeeded が spurious fire
-        // するのを防ぐ)。
-        _lastCaretLine = _buffer.Current.GetLineIndexOfChar(_caret);
         PositionCaret();
         Invalidate();
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
@@ -991,8 +948,6 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         if (_anchor == s && _caret == e) return;
         _anchor = s;
         _caret = e;
-        // Task 13 レビュー I-1: _lastCaretLine 同期(SetCaretCharOffset と同旨)。
-        _lastCaretLine = _buffer.Current.GetLineIndexOfChar(_caret);
         PositionCaret();
         Invalidate();
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
@@ -1016,8 +971,6 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         if (_caret == snapped) return;
         _caret = snapped;
         // _anchor は保持
-        // Task 13 レビュー I-1: _lastCaretLine 同期(SetCaretCharOffset と同旨)。
-        _lastCaretLine = _buffer.Current.GetLineIndexOfChar(_caret);
         PositionCaret();
         Invalidate();
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
@@ -1042,8 +995,6 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         if (_anchor == a && _caret == c) return;
         _anchor = a;
         _caret = c;
-        // Task 13 レビュー I-1: _lastCaretLine 同期(SetCaretCharOffset と同旨)。
-        _lastCaretLine = _buffer.Current.GetLineIndexOfChar(_caret);
         PositionCaret();
         Invalidate();
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
@@ -2030,9 +1981,6 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         base.OnMouseDown(e);
         if (_buffer is null || e.Button != MouseButtons.Left) return;
         Focus();
-        // Task 13 レビュー I-1: setter で _lastCaretLine が同期されるため、「前の行」を setter
-        // 呼び出し前に捕獲して Raise に渡す(OnKeyDown 移動系末尾と同旨)。
-        int fromLine = _buffer.Current.GetLineIndexOfChar(_caret);
         int target = OffsetFromClientPoint(e.X, e.Y);
         bool shift = (ModifierKeys & Keys.Shift) != 0;
         if (shift)
@@ -2043,7 +1991,6 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
         _desiredXpx = -1;
         _buffer.BreakUndoCoalescing();
         BringCaretIntoView();
-        RaiseCaretEnteredEmptyLineIfNeeded(fromLine);
     }
 
     /// <summary>
@@ -2277,8 +2224,8 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     ///   (新規計算経路=-1 → 有効値、有効値継続経路=同じ値)。
     /// - 純キャレット移動でも <see cref="TextBuffer.BreakUndoCoalescing"/> を呼び、
     ///   移動をまたいだ連続タイピングを分割する(Scintilla 版と同挙動)。
-    /// - <c>BringCaretIntoView()</c> / <c>RaiseCaretEnteredEmptyLineIfNeeded()</c> は Task 7/13 で
-    ///   本実装。Task 6 では**呼び出し箇所を確定させる**ためスタブ(no-op)で置く。
+    /// - <c>BringCaretIntoView()</c> は Task 7 で本実装。Task 6 では**呼び出し箇所を確定させる**
+    ///   ためスタブ(no-op)で置く。
     /// - <b>case の順序規約</b>: <c>when</c> ガード付き case は同 KeyCode の無修飾 case より
     ///   <b>switch 上に</b>置くこと。C# switch は上から順評価=無修飾 case を先に置くと、
     ///   修飾付き case は永遠にヒットしない。Task 11 の Ctrl+Insert / Shift+Insert /
@@ -2294,10 +2241,6 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
 
         int? target = null;
         bool resetDesired = false;
-        // P5 Task 12: Ctrl+←→ 単語ナビの App 層補完受け口(WordNavigatedEvent)発火判定。
-        // 選択拡張中(shift)は発火しない=PC-Talker が「単語スパンで読み上げ」を期待するのは
-        // 純単語移動のみ。判定は case Keys.Left/Right の分岐で行う。
-        bool wordNavCandidate = false;
 
         switch (e.KeyCode)
         {
@@ -2305,13 +2248,11 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
                 target = ctrl ? WordBoundary.PrevWordStart(snap, _caret)
                               : NavigationCommands.MoveLeftChar(snap, _caret);
                 resetDesired = true;
-                if (ctrl && !shift) wordNavCandidate = true;
                 break;
             case Keys.Right:
                 target = ctrl ? WordBoundary.NextWordStart(snap, _caret)
                               : NavigationCommands.MoveRightChar(snap, _caret);
                 resetDesired = true;
-                if (ctrl && !shift) wordNavCandidate = true;
                 break;
             case Keys.Home:
                 // P8-1a: 折り返し ON では視覚行(折り返し行)の先頭へ(NVDA が視覚行先頭から読むよう App 層挙動を統一)
@@ -2495,41 +2436,14 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
 
         if (target is int t2)
         {
-            // Task 13 レビュー I-1: setter は _lastCaretLine を同期する(App 層 programmatic
-            // ジャンプ由来の spurious fire 抑止のため)ため、Raise が比較する「前の行」を
-            // setter 呼び出し前に捕獲しておく必要がある(setter 呼び出し後だと常に一致してしまう)。
-            int fromLine = snap.GetLineIndexOfChar(_caret);
-            int beforeCaret = _caret;
             if (resetDesired) _desiredXpx = -1;
             if (shift) MoveCaretWithSelection(t2);
             else SetCaretCharOffset(t2);
             _buffer.BreakUndoCoalescing();          // 純キャレット移動は coalescing 破断
             BringCaretIntoView();
-            RaiseCaretEnteredEmptyLineIfNeeded(fromLine);
-            // P5 Task 12: 純単語ナビ(Ctrl+←→ かつ非 shift)で移動が起きたら WordNavigated 発火
-            if (wordNavCandidate && beforeCaret != _caret)
-                RaiseWordNavigated(Math.Min(beforeCaret, _caret), Math.Max(beforeCaret, _caret));
             e.Handled = true;
         }
     }
-
-    /// <summary>
-    /// Ctrl+←→ で単語ナビが発生したとき発火(選択拡張中でない場合のみ)。
-    /// P0 で確定した「PC-Talker Ctrl+←→ 単語ナビの App 層補完受け口」(P5 Task 12)。
-    /// UIA の TextSelectionChanged と同じく <see cref="RaiseUiaSelectionEvents"/>=false で抑止される。
-    /// </summary>
-    public event System.EventHandler<WordNavigatedEventArgs>? WordNavigated;
-
-    private void RaiseWordNavigated(int wordStart, int wordEnd)
-    {
-        if (!RaiseUiaSelectionEvents) return;
-        WordNavigated?.Invoke(this, new WordNavigatedEventArgs(wordStart, wordEnd));
-    }
-
-    // P5 Task 12: OnKeyDown をテストから直接叩くための internal 静的フック
-    // (App 層の入力経路を通さず、Ctrl+←→ 系の分岐だけ検証できる)。
-    internal static void TestHook_SendKey(EditorControl c, Keys keyData)
-        => c.OnKeyDown(new KeyEventArgs(keyData));
 
     /// <summary>
     /// 文字挿入(WM_CHAR)入り口(P3 Task 8 / P4 Task 3 で <see cref="InsertConfirmedText"/> へ委譲)。
@@ -2717,41 +2631,6 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
             // 末尾 Invalidate は削除: setter が Invalidate 発行済み、no-op ケースなら不要。
             PositionCaret();
         }
-    }
-
-    /// <summary>
-    /// 純キャレット移動後に呼ばれる(P3 Task 13)。<paramref name="fromLine"/> と現在の
-    /// キャレット論理行が異なり、着地行が空行(len=0)のとき <see cref="CaretEnteredEmptyLine"/>
-    /// を発火する。編集経路(OnKeyPress / BackSpace/Delete/Enter/Tab/Undo/Redo/Cut/Paste)からは
-    /// <b>呼ばない</b>(=SR は編集経路とは別の通知経路で内容変化を読み上げる=§0-7 の純キャレット
-    /// 移動時のみ発火)。
-    /// </summary>
-    /// <param name="fromLine">移動 <b>前</b> のキャレット論理行(呼び出し側が setter 呼び出し前に
-    /// 捕獲する)。setter が <see cref="_lastCaretLine"/> を同期する(Task 13 レビュー I-1)ため、
-    /// このフィールドを比較対象に使うと OnKeyDown → SetCaretCharOffset の直後で常に一致してしまい
-    /// 発火しない。呼び出し側で「前の行」を明示的に渡すことでこの結合を切る。</param>
-    /// <remarks>
-    /// 呼び出し箇所は 2 つ:
-    /// <list type="bullet">
-    /// <item><description><see cref="OnKeyDown"/> の移動系末尾(target==int の後)。shift 併用の
-    /// 選択拡張経路からも呼ぶ=「選択拡張中に空行に到達した」ケースでも SR に通知する
-    /// (設計原則: 呼び出し側で発火可否を決めない=無/有選択に関わらず「行遷移して空行に着地」
-    /// なら発火。実運用で選択拡張中の発声が煩わしければ P7 実機検証で条件追加を検討)。</description></item>
-    /// <item><description><see cref="OnMouseDown"/> の末尾。左クリックで別行の空行に着地したときも
-    /// 発火する。ドラッグ末端(<see cref="OnMouseMove"/>)からは呼ばない(申し送り=P7 実機評価)。</description></item>
-    /// </list>
-    /// SetSource 前は <c>_buffer is null</c> で早期 return=フォーカスや UI 初期化順序に依存しない。
-    /// </remarks>
-    private void RaiseCaretEnteredEmptyLineIfNeeded(int fromLine)
-    {
-        if (_buffer is null) return;
-        var snap = _buffer.Current;
-        int toLine = snap.GetLineIndexOfChar(_caret);
-        if (toLine == fromLine) return;
-        _lastCaretLine = toLine;
-        int lineLen = snap.GetLineEnd(toLine, includeBreak: false) - snap.GetLineStart(toLine);
-        if (lineLen == 0)
-            CaretEnteredEmptyLine?.Invoke(this, EventArgs.Empty);
     }
 
     protected override void OnPaint(PaintEventArgs e)

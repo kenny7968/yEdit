@@ -26,11 +26,7 @@ public sealed partial class MainForm : Form
         Dock = DockStyle.Bottom, Height = 22, AutoSize = false,
         TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "通知",
     };
-    private IAnnouncer _announcer = null!; // 起動時に PC-Talker 稼働で選択（下記コンストラクタ参照）
-    // 起動時に PC-Talker が稼働しているか（起動時確定方針・PC-Talker 起動/終了には追従しない）。
-    // PC-Talker 経路では UIA の長さ0行が無音になる等の欠落を「空行」能動発声等で補うため、
-    // 経路別の分岐（空行発声・単語ナビの能動発声）判定にこの1値を使う。
-    private readonly bool _isPcTalker = PcTalkerSpeech.IsRunning();
+    private IAnnouncer _announcer = null!; // AnnouncerFactory.Create で生成（下記コンストラクタ参照）
     private ToolStripMenuItem _recentMenu = null!; // BuildMenu で生成
     private readonly string _settingsPath = SettingsStore.DefaultPath;
     private AppSettings _settings = new();
@@ -53,26 +49,6 @@ public sealed partial class MainForm : Form
         _docs.KeyBasedSwitch += (_, doc) => _announcer.Say(doc.TabLabel);
         _docs.ActiveDirtyChanged += (_, _) => UpdateTitle();
         _docs.ActiveCaretChanged += (_, _) => UpdateStatus();
-        // 空行着地の能動発声: PC-Talker は UIA の長さ0行を無音にするため、こちらから「空行」を読む。
-        // NVDA はネイティブに「ブランク」を読むため対象外（起動時に判定済み）。
-        // CSVモード中はセル読み体系（CsvController）が担うため発声しない。
-        _docs.ActiveCaretEnteredEmptyLine += (_, _) =>
-        {
-            if (_isPcTalker && _docs.Active?.State.CsvMode != true)
-                _announcer.Say("空行");
-        };
-        // 単語ナビ(Ctrl+←→)の PC-Talker 補完: UIA の選択変更通知だけでは単語スパンが
-        // 発声されないため、EditorControl.WordNavigated を購読して単語文字列を能動発声する。
-        // NVDA/汎用ナレーターは UIA v2 の選択イベントで自力で読めるため対象外(空行と同構造)。
-        // CSVモード中はセル読み体系が担うため発声しない。
-        _docs.ActiveWordNavigated += (_, e) =>
-        {
-            if (!_isPcTalker) return;
-            var doc = _docs.Active;
-            if (doc is null || doc.State.CsvMode) return;
-            string span = ((yEdit.Accessibility.IUiaTextHost)doc.Editor).GetTextRange(e.WordStart, e.WordEnd - e.WordStart);
-            if (!string.IsNullOrWhiteSpace(span)) _announcer.Say(span.Trim());
-        };
         // 設定は OpenSettings で参照が差し替わるため Func で都度解決させる。
         _file = new FileController(_docs, this, () => _settings,
             SaveSettingsSafe, RebuildRecentMenu, () => { UpdateTitle(); UpdateStatus(); },

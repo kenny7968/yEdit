@@ -108,3 +108,4 @@
 - CI 初回実行で判明した `LocalOnly` 隔離テストの一覧は、判明次第この節に追記する。
 - Phase 2 の Controller ごとの詳細設計(インターフェース名・分割単位)は、各ブランチ着手時に個別の実装計画で確定する。本書の §3 は方針レベルの合意。
 - `tools/verify-msaa-client.ps1` は現在未コミット(untracked)。Phase 3 でスイート統合する際に扱いを確定する。
+- ci.yml / release.yml 拡張の実機検証は未実施(未公開履歴の公開を避けるため push しない方針)。ユーザーが次回 origin へ push した際に初回 CI 実行を確認し、不安定テストがあれば LocalOnly 隔離を行うこと。あわせて初回実行の所要時間を確認し、timeout-minutes(ci.yml=20/release.yml=30)が窮屈なら調整すること。

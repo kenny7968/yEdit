@@ -22,8 +22,11 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
-      - name: テスト(リリース前ゲート)
+      - name: "テスト(リリース前ゲート: Core)"
         run: dotnet test tests/yEdit.Core.Tests -c Release
+
+      - name: "テスト(リリース前ゲート: Editor・LocalOnly 除外)"
+        run: dotnet test tests/yEdit.Editor.Tests -c Release --filter "Category!=LocalOnly"
 
       - name: バージョン抽出 (v1.2.3 → 1.2.3)
         id: ver

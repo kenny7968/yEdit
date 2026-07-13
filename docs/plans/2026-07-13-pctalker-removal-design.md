@@ -47,12 +47,12 @@ diff レビューを機械的に保つため 3 コミットに分ける。
 - `EditorControl.WordNavigated` イベント+`RaiseWordNavigated`+発火判定(`:2297,:2509-2511`)+`WordNavigatedEventArgs.cs`
 - `DocumentManager.ActiveCaretEnteredEmptyLine`/`ActiveWordNavigated`+転送配線(`DocumentManager.cs:41-42,70-77`)
 - Smoke: `tests/yEdit.Editor.Smoke/UiaSmokeAnnouncer.cs` 削除+`Program.cs`/`MainForm.cs` の購読配線除去(**`--uia` モード自体は NVDA 実機検証用に温存**)
-- テスト削除: `EmptyLineNavigationTests.cs`(12件)+`EditorControlWordNavEventTests.cs`(3件)
+- テスト削除: `EmptyLineNavigationTests.cs` のうち `CaretEnteredEmptyLine` 系10件+`EditorControlWordNavEventTests.cs`(3件)。**同ファイル内の `RaiseUiaSelectionEvents` プロパティ契約テスト2件は温存機能のカバレッジのため新ファイル `RaiseUiaSelectionEventsTests.cs` へ移設**(実装計画作成時のコード精査で判明)
 - 死にコード削除: `EmptyLineDetector.cs`+`EmptyLineDetectorTests.cs`(19件)
 
 ### コミット③ ドキュメント・ツール整理
 
-- **説明書**(`説明書/yEdit説明書.md`): 対応 SR を「NVDA 等 UIA 対応スクリーンリーダー」とし PC-Talker がサポート対象外である旨を明記。**文面はユーザー編集版が正のため、変更案を提示してユーザー確認を経る**
+- **説明書**(`説明書/yEdit説明書.md`): 対応 SR を「NVDA 等 UIA 対応スクリーンリーダー」とし PC-Talker がサポート対象外である旨を明記。あわせて「優先するスクリーンリーダー」設定の記載(235行)を削除(**P7 で撤去済み機能の記載残り=既存の陳腐化**・実装計画作成時に発見)。**文面はユーザー編集版が正のため、変更案を提示してユーザー確認を経る**
 - `docs/plans/2026-07-06-p6-manual-checklist.md`: 冒頭に「PC-Talker 列は 2026-07-13 のサポート廃止によりスキップ対象」の注記を追記(過去の実施記録は改変しない)
 - `docs/plans/2026-07-13-test-strategy-phase2-app-di-design.md`: Stage 2 再スコープを追記(本書 §5)
 - `tools/verify-msaa-client.ps1`(untracked): 削除。調査の結果 Scintilla 前提(クラス名探索)の陳腐化残骸で、自作 EditorControl 化後の現行アプリでは動作不能
@@ -67,7 +67,7 @@ diff レビューを機械的に保つため 3 コミットに分ける。
 ## 4. DoD
 
 1. `tools/pre-merge-check.ps1` 全緑(Release 0 警告+Core+Editor+App)
-2. テスト数 **831 → 797**(Core 588→569・Editor 229→214・App 14)。減少は「削除機能に付随するテストの削除」であり、テスト数純増規約の例外として本書を典拠とする
+2. テスト数 **831 → 799**(Core 588→569・Editor 229→216・App 14)。Editor は −15+移設2(RaiseUiaSelectionEvents 契約)。減少は「削除機能に付随するテストの削除」であり、テスト数純増規約の例外として本書を典拠とする
 3. **NVDA 実機スポット確認(L5・ユーザー実施)**: 文字/行の通常読み・空行(NVDA ネイティブ読み)・単語ナビ(Ctrl+←→)・状態通知(検索結果件数など UiaAnnouncer 経由)・CSV セル読み
 4. 別エージェントによるコードレビュー(マージ前・いつもの運用)
 5. main へ no-ff マージ。**マージコミットのハッシュを本書 §6 に追記**(復活用参照)

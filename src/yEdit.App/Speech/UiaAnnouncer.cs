@@ -4,7 +4,7 @@ namespace yEdit.App.Speech;
 
 /// <summary>
 /// UIA 通知（RaiseAutomationNotification）で読ませる Announcer。NVDA・その他SR・既定。
-/// 空ガード・視覚表示は <see cref="AnnouncerBase"/> が担う。PC-Talker のハード失敗退避でも Raise を再利用する。
+/// 空ガード・視覚表示は <see cref="AnnouncerBase"/> が担う。
 /// </summary>
 internal sealed class UiaAnnouncer : AnnouncerBase
 {

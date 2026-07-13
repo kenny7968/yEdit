@@ -13,7 +13,7 @@ namespace yEdit.App;
 /// 撤去し、フォーカスは常に EditorControl(=Document.FocusTarget)へ向かう。CsvSink 自体は
 /// §0-8「無効化のみで残す」に従い生成のみ残す(P7 で完全撤去)。読み上げは Announcer に一本化。
 /// システムキャレットも動かさない（可視域スクロールはキャレット無移動の
-/// EnsureVisibleCharRange）。RaiseUiaSelectionEvents=false は PC-Talker（UIA 経路）向けの
+/// EnsureVisibleCharRange）。RaiseUiaSelectionEvents=false は UIA 系 SR 向けの
 /// 防御（EditorControl OnGotFocus の明示 SelectionChangedEvent で行を読まれるのを防ぐ）。
 /// F2 は CsvCellEditor に委譲し、終了時の復帰先は FocusTarget(=Editor)。
 /// </summary>
@@ -60,7 +60,7 @@ public sealed class CsvController
         }
         doc.State.CsvMode = true;
         doc.Editor.ReadOnly = true;
-        // PC-Talker（UIA経路）向け防御: モード遷移中の EditorControl OnGotFocus で
+        // UIA 系 SR 向け防御: モード遷移中の EditorControl OnGotFocus で
         // 明示 TextSelectionChangedEvent を出して行を読まれるのを防ぐ。
         doc.Editor.RaiseUiaSelectionEvents = false;
         if (csv.Rows.Count == 0)
@@ -98,7 +98,7 @@ public sealed class CsvController
         }
         // キャレット復帰の後に再有効化し、復帰が同期経路で TextSelectionChangedEvent を
         // 出すケースを塞ぐ（通常編集の SR 挙動へ復帰）。SCN_UPDATEUI は次ペイントまで
-        // 遅延し得るため遅延配送までは塞げない（PC-Talker の二重読み解消は実機で要確認）。
+        // 遅延し得るため遅延配送までは塞げない（二重読み解消は実機で要確認）。
         doc.Editor.RaiseUiaSelectionEvents = true;
         doc.Editor.Focus();
         doc.ClearCsvCache();   // 通常編集へ戻るのでパース結果を保持しない（メモリ解放）

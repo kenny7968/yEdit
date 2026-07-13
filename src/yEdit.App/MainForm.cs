@@ -26,7 +26,7 @@ public sealed partial class MainForm : Form
         Dock = DockStyle.Bottom, Height = 22, AutoSize = false,
         TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "通知",
     };
-    private IAnnouncer _announcer = null!; // AnnouncerFactory.Create で生成（下記コンストラクタ参照）
+    private IAnnouncer _announcer = null!; // コンストラクタで UiaAnnouncer を直接生成（下記参照）
     private ToolStripMenuItem _recentMenu = null!; // BuildMenu で生成
     private readonly string _settingsPath = SettingsStore.DefaultPath;
     private AppSettings _settings = new();
@@ -53,7 +53,7 @@ public sealed partial class MainForm : Form
         _file = new FileController(_docs, this, () => _settings,
             SaveSettingsSafe, RebuildRecentMenu, () => { UpdateTitle(); UpdateStatus(); },
             AutoEnterCsvMode);
-        _announcer = AnnouncerFactory.Create(_announceLabel);
+        _announcer = new UiaAnnouncer(_announceLabel);
         _search = new SearchController(_docs, this, _announcer);
         _grep = new GrepController(_docs, this,
             hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength));

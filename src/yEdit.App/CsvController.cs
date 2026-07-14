@@ -22,11 +22,13 @@ public sealed class CsvController
     private readonly DocumentManager _docs;
     private readonly IAnnouncer _announcer;
     private readonly CsvCellEditor _editor = new();
+    private readonly ICellPicker _cellPicker;
 
-    public CsvController(DocumentManager docs, IAnnouncer announcer)
+    public CsvController(DocumentManager docs, IAnnouncer announcer, ICellPicker cellPicker)
     {
         _docs = docs;
         _announcer = announcer;
+        _cellPicker = cellPicker;
     }
 
     /// <summary>F2 編集オーバーレイ表示中か（MainForm がキー横取りを抑止するのに使う）。</summary>
@@ -121,16 +123,24 @@ public sealed class CsvController
     public void MoveTopLeft()     { if (TryContext(out var ed, out var csv, out _, out _))     ApplyTarget(ed, csv, csv.TopLeft()); }
     public void MoveBottomRight() { if (TryContext(out var ed, out var csv, out _, out _))     ApplyTarget(ed, csv, csv.BottomRight()); }
 
-    /// <summary>セル指定移動（G）。「行,列」入力ボックス→範囲検証→移動。</summary>
+    /// <summary>セル指定移動(G)。「行,列」入力→範囲検証→移動。ダイアログは ICellPicker 経由(Stage 6)。</summary>
     public void GoToCell()
     {
         if (!TryContext(out var ed, out var csv, out var row, out var col)) return;
-        using var dlg = new CsvGoToCellDialog(row + 1, col + 1);
-        if (dlg.ShowDialog(ed.FindForm()) != DialogResult.OK) return;
-        if (!dlg.TryGetCell(out int r1, out int c1)) { _announcer.Say(CsvAnnounceFormatter.BadCellFormat); return; }
-        var t = csv.GoTo(r1 - 1, c1 - 1);
-        if (t is null) { _announcer.Say(CsvAnnounceFormatter.OutOfRange); return; }
-        ApplyCell(ed, csv, t.Value.row, t.Value.col, announce: true);
+        var result = _cellPicker.Pick(ed.FindForm()!, row + 1, col + 1);
+        switch (result.Kind)
+        {
+            case CellPickKind.Canceled:
+                return; // 無音(現行挙動)
+            case CellPickKind.InvalidFormat:
+                _announcer.Say(CsvAnnounceFormatter.BadCellFormat);
+                return;
+            case CellPickKind.Ok:
+                var t = csv.GoTo(result.Row1 - 1, result.Col1 - 1);
+                if (t is null) { _announcer.Say(CsvAnnounceFormatter.OutOfRange); return; }
+                ApplyCell(ed, csv, t.Value.row, t.Value.col, announce: true);
+                return;
+        }
     }
 
     // ---- 読み上げのみ（移動なし） ----

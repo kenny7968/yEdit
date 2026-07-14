@@ -47,7 +47,9 @@ public sealed class SearchController
     {
         if (_view is null || _view.IsDisposed)
             _view = _viewFactory(new FindReplaceCallbacks(
-                FindNext, FindPrev, ReplaceOne, ReplaceAll, UpdateCount, OnInSelectionToggled));
+                FindNext: FindNext, FindPrev: FindPrev,
+                ReplaceOne: ReplaceOne, ReplaceAll: ReplaceAll,
+                UpdateCount: UpdateCount, InSelectionToggled: OnInSelectionToggled));
         _view.SetMode(replaceMode);
         _view.ShowAndFocus(_owner); // 従来の「!Visible なら Show→Activate→FocusPattern」と同順(ビュー側に集約)
         UpdateCount();

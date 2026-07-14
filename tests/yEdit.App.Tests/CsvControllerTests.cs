@@ -44,7 +44,8 @@ public class CsvControllerTests
         }
     }
 
-    // 3×3 の素朴 CSV(セル値=r 行 c 列を「r,c」で表示)。改行 LF。
+    // 3×3 の素朴 CSV。行 = 頭文字(a=1行目・b=2行目・c=3行目)、列 = 末尾数字(1=1列目・2=2列目・3=3列目)。
+    // 例: "b2" は 2 行 2 列。改行は LF 固定。
     private const string Grid3x3 =
         "a1,a2,a3\n" +
         "b1,b2,b3\n" +
@@ -98,7 +99,8 @@ public class CsvControllerTests
         Assert.True(doc.Editor.ReadOnly);
         Assert.False(doc.Editor.RaiseUiaSelectionEvents); // SR 誤読み抑止
         // データ無しは ModeOn のみ(セル情報なし)
-        Assert.Equal(CsvAnnounceFormatter.ModeOn, host.Announcer.Said[^1]);
+        Assert.Single(host.Announcer.Said);
+        Assert.Equal(CsvAnnounceFormatter.ModeOn, host.Announcer.Said[0]);
     });
 
     [Fact]
@@ -111,8 +113,8 @@ public class CsvControllerTests
         Assert.True(doc.State.CsvMode);
         Assert.True(doc.Editor.ReadOnly);
         Assert.False(doc.Editor.RaiseUiaSelectionEvents);
-        // ModeOn + Cell が結合された 1 通知(現行実装=1 回 Say)
-        Assert.Contains(host.Announcer.Said, s => s.StartsWith(CsvAnnounceFormatter.ModeOn) && s.Contains("行") && s.Contains("列"));
+        // ModeOn + Cell が結合された 1 通知(現行実装=1 回 Say)。初期セルは caret=0→(0,0)="a1"。
+        Assert.Contains($"{CsvAnnounceFormatter.ModeOn} {CsvAnnounceFormatter.Cell("a1", 1, 1)}", host.Announcer.Said);
     });
 
     [Fact]

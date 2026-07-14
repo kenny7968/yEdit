@@ -1,5 +1,6 @@
 using yEdit.App.Settings;
 using yEdit.App.Speech;
+using yEdit.Core.Backup;
 using yEdit.Core.Csv;
 using yEdit.Core.Reading;
 using yEdit.Core.Settings;
@@ -57,7 +58,11 @@ public sealed partial class MainForm : Form
         _search = new SearchController(_docs, this, _announcer, cb => new FindReplaceDialog(cb));
         _grep = new GrepController(_docs, this,
             hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength));
-        _backup = new BackupCoordinator(_docs, _settings.BackupEnabled, _settings.BackupIntervalSeconds);
+        _backup = new BackupCoordinator(
+            _docs, _settings.BackupEnabled, _settings.BackupIntervalSeconds,
+            TimeProvider.System,
+            () => new SerialBackupWriter(BackupStore.DefaultDirectory),
+            new WinFormsRestorePrompt());
         _csv = new CsvController(_docs, _announcer);
         _docs.BeforeActiveChange = () => _csv.AbortEdit(); // タブ切替直前に F2 編集を中断（焦点の引き戻し防止）
         // P6 で編集エンジンが自作 EditorControl (v2 UIA 単一経路) に統一されたため、

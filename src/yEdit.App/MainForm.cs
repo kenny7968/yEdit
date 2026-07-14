@@ -52,7 +52,7 @@ public sealed partial class MainForm : Form
         // 設定は OpenSettings で参照が差し替わるため Func で都度解決させる。
         _file = new FileController(_docs, this, () => _settings,
             SaveSettingsSafe, RebuildRecentMenu, () => { UpdateTitle(); UpdateStatus(); },
-            AutoEnterCsvMode);
+            AutoEnterCsvMode, new MessageBoxUserPrompt(), new WinFormsFileDialogService());
         _announcer = new UiaAnnouncer(_announceLabel);
         _search = new SearchController(_docs, this, _announcer);
         _grep = new GrepController(_docs, this,

@@ -22,12 +22,14 @@ public sealed class FileController
     private readonly Action _recentChanged;         // 「最近のファイル」メニューの再構築
     private readonly Action _metaChanged;           // タイトル・ステータスの更新
     private readonly Action<Document> _openedFresh; // 開く系で新規ロード成功した直後（.csv 自動モードの判定は MainForm 側）
+    private readonly IUserPrompt _prompt;              // 確認・警告の注入点（テストでは FakePrompt）
+    private readonly IFileDialogService _fileDialogs;  // ファイル系ダイアログの注入点（テストでは FakeFileDialogService）
     private int _untitledSeq; // 無題タブの連番（新規作成毎に増加・セッション内で再利用しない）
 
     public FileController(
         DocumentManager docs, Form owner, Func<AppSettings> settings,
         Action saveSettings, Action recentChanged, Action metaChanged,
-        Action<Document> openedFresh)
+        Action<Document> openedFresh, IUserPrompt prompt, IFileDialogService fileDialogs)
     {
         _docs = docs;
         _owner = owner;
@@ -36,6 +38,8 @@ public sealed class FileController
         _recentChanged = recentChanged;
         _metaChanged = metaChanged;
         _openedFresh = openedFresh;
+        _prompt = prompt;
+        _fileDialogs = fileDialogs;
     }
 
     // ==================== 新規 / 開く ====================
@@ -62,9 +66,9 @@ public sealed class FileController
     /// <summary>「開く」ダイアログでファイルを選んで開く。</summary>
     public void OpenFileWithDialog()
     {
-        using var dlg = new OpenFileDialog { Filter = "対応ファイル (*.txt, *.md, *.csv)|*.txt;*.md;*.csv|すべてのファイル (*.*)|*.*" };
-        if (dlg.ShowDialog(_owner) != DialogResult.OK) return;
-        TryOpenOrActivate(dlg.FileName);
+        var path = _fileDialogs.PickOpenPath(_owner);
+        if (path is null) return;
+        TryOpenOrActivate(path);
     }
 
     /// <summary>
@@ -99,13 +103,13 @@ public sealed class FileController
         if (doc is null) return;
         if (doc.State.Path is null)
         {
-            MessageBox.Show("ファイルを開いてから実行してください。", "yEdit", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            _prompt.Info("ファイルを開いてから実行してください。", "yEdit");
             return;
         }
         if (!ConfirmDiscardIfDirty(doc)) return;
-        using var dlg = new EncodingPickDialog(doc.State.Encoding.CodePage);
-        if (dlg.ShowDialog(_owner) != DialogResult.OK) return;
-        if (!LoadInto(doc, doc.State.Path, forcedCodePage: dlg.SelectedCodePage)) return;
+        int? picked = _fileDialogs.PickEncoding(_owner, doc.State.Encoding.CodePage);
+        if (picked is null) return;
+        if (!LoadInto(doc, doc.State.Path, forcedCodePage: picked)) return;
         _openedFresh(doc);   // 開き直しも .csv 自動モードの対象（設計 2026-07-04）
         // CSVモード中の開き直しでは、ダイアログ閉塞時に WinForms がシンクへフォーカスを復元するため明示的に戻す。
         // 自動 CSV モードに入った場合は FocusTarget=シンク、入らなければエディタへ向く。
@@ -115,7 +119,7 @@ public sealed class FileController
     /// <summary>
     /// ファイルを読み込み、本文・文字コード・改行を対象タブへ反映する。
     /// forcedCodePage 指定時は自動判定せずそのコードページで読む（開き直し用）。
-    /// 成否を返す（失敗は MessageBox 表示・握り潰さない）。
+    /// 成否を返す（失敗は _prompt.Error で通知・握り潰さない）。
     /// </summary>
     private bool LoadInto(Document doc, string path, int? forcedCodePage)
     {
@@ -151,10 +155,10 @@ public sealed class FileController
 
             if (loaded.HadReplacementChar)
             {
-                MessageBox.Show(
+                _prompt.Warn(
                     "このファイルには現在の文字コードで表せない文字（置換文字）が含まれています。" +
                     "別の文字コードで開き直してください。",
-                    "文字コードの警告", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    "文字コードの警告");
             }
             RegisterRecent(path); // 開けたファイルを最近のファイルへ
             return true;
@@ -162,7 +166,7 @@ public sealed class FileController
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Security.SecurityException or NotSupportedException)
         {
             // 想定内の入出力エラーのみ握る。NullReference 等のロジックバグは伝播させる。
-            MessageBox.Show($"開けませんでした: {ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            _prompt.Error($"開けませんでした: {ex.Message}", "エラー");
             return false;
         }
     }
@@ -190,24 +194,27 @@ public sealed class FileController
     /// <summary>指定ドキュメントを名前を付けて保存。成功で State.Path/Encoding/LineEnding とラベルを更新する。</summary>
     private bool SaveAsDocument(Document doc)
     {
-        using var dlg = new SaveAsDialog(doc.State.Path, doc.State.Encoding.CodePage, doc.State.HasBom, doc.State.LineEnding);
-        if (dlg.ShowDialog(_owner) != DialogResult.OK) return false;
-        if (string.IsNullOrWhiteSpace(dlg.SelectedPath))
+        var picked = _fileDialogs.PickSaveAs(_owner,
+            new SaveAsRequest(doc.State.Path, doc.State.Encoding.CodePage, doc.State.HasBom, doc.State.LineEnding));
+        if (picked is null) return false;
+        if (string.IsNullOrWhiteSpace(picked.Path))
         {
-            MessageBox.Show("ファイル名を指定してください。", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _prompt.Warn("ファイル名を指定してください。", "エラー");
             return false;
         }
 
-        var newEncoding = EncodingCatalog.Get(dlg.SelectedCodePage);
+        var newEncoding = EncodingCatalog.Get(picked.CodePage);
 
         // C-2 追補 I-2: 選択エンコードで表せない文字があれば警告して続行/中止を選ばせる。
         // Load 経路の HadReplacementChar 警告と対称。UTF-8(65001) は BMP+astral 全表現可でスキップ。
-        if (dlg.SelectedCodePage != 65001 && !CanEncodeBuffer(doc.Editor.CurrentBuffer, newEncoding))
+        if (picked.CodePage != 65001 && !CanEncodeBuffer(doc.Editor.CurrentBuffer, newEncoding))
         {
-            var result = MessageBox.Show(
+            if (!_prompt.OkCancel(
                 "選択した文字コードで表せない文字が含まれています。'?' として保存されデータが失われます。続行しますか?",
-                "文字コードの警告", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
-            if (result != DialogResult.OK) return false;
+                "文字コードの警告"))
+            {
+                return false;
+            }
         }
 
         // 新エンコード/改行/BOM を State に反映してから WriteToPath へ(既存 WriteToPath は State を参照する)。
@@ -218,20 +225,20 @@ public sealed class FileController
         var oldLineEnding = doc.State.LineEnding;
         var oldHasBom = doc.State.HasBom;
         doc.State.Encoding = newEncoding;
-        doc.State.LineEnding = dlg.SelectedLineEnding;
-        doc.State.HasBom = dlg.SelectedHasBom;
+        doc.State.LineEnding = picked.LineEnding;
+        doc.State.HasBom = picked.HasBom;
 
-        if (!WriteToPath(doc, dlg.SelectedPath))
+        if (!WriteToPath(doc, picked.Path))
         {
             doc.State.Encoding = oldEncoding;
             doc.State.LineEnding = oldLineEnding;
             doc.State.HasBom = oldHasBom;
             return false;
         }
-        doc.State.Path = dlg.SelectedPath;
+        doc.State.Path = picked.Path;
         _docs.UpdateLabel(doc);
         _metaChanged();
-        RegisterRecent(dlg.SelectedPath); // 保存先も最近のファイルへ
+        RegisterRecent(picked.Path); // 保存先も最近のファイルへ
         return true;
     }
 
@@ -256,7 +263,7 @@ public sealed class FileController
 
     /// <summary>
     /// 改行を State.LineEnding に正規化してから本文を取得し、原子的に保存する。
-    /// 例外は MessageBox でエラー表示し false を返す。
+    /// 例外は _prompt.Error で通知し false を返す。
     /// </summary>
     private bool WriteToPath(Document doc, string path)
     {
@@ -277,7 +284,7 @@ public sealed class FileController
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Security.SecurityException or NotSupportedException)
         {
-            MessageBox.Show($"保存できませんでした: {ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            _prompt.Error($"保存できませんでした: {ex.Message}", "エラー");
             return false;
         }
     }
@@ -291,9 +298,7 @@ public sealed class FileController
     public bool ConfirmDiscardIfDirty(Document doc)
     {
         if (!doc.Editor.Modified) return true;
-        var r = MessageBox.Show(
-            $"{doc.State.DisplayName} の変更を保存しますか？",
-            "yEdit", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
+        var r = _prompt.YesNoCancel($"{doc.State.DisplayName} の変更を保存しますか？", "yEdit");
         return r switch
         {
             DialogResult.Yes => SaveDocument(doc),

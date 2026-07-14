@@ -346,4 +346,130 @@ public class FileControllerTests
         Assert.True(doc.Editor.Modified);
         Assert.Equal(65001, doc.State.Encoding.CodePage);
     });
+
+    // ===== 未保存確認(Yes=保存成否/No=true/Cancel=false) =====
+
+    [Fact]
+    public void ConfirmDiscardIfDirty_CleanDocument_TrueWithoutPrompt() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.Docs.CreateNew();
+        doc.Editor.Text = "abc"; // Text セッター=新規バッファで Modified=false
+
+        Assert.True(host.File.ConfirmDiscardIfDirty(doc));
+        Assert.Empty(host.Prompt.Log); // クリーンなら問わない
+    });
+
+    [Fact]
+    public void ConfirmDiscardIfDirty_No_ReturnsTrueWithoutSaving() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        using var tmp = new TempDir();
+        var doc = host.Docs.CreateNew();
+        doc.Editor.Text = "abc";
+        doc.Editor.ReplaceCharRange(0, 0, "x");
+        doc.State.Path = tmp.File("a.txt"); // まだ存在しないファイル
+        host.Prompt.YesNoCancelResult = DialogResult.No;
+
+        Assert.True(host.File.ConfirmDiscardIfDirty(doc)); // 破棄=続行してよい
+
+        Assert.False(File2.Exists(doc.State.Path)); // 保存はしない
+        Assert.True(doc.Editor.Modified);
+    });
+
+    [Fact]
+    public void ConfirmDiscardIfDirty_Yes_SavesDocument_AndReturnsSaveResult() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        using var tmp = new TempDir();
+        var doc = host.Docs.CreateNew();
+        doc.Editor.Text = "abc";
+        doc.Editor.ReplaceCharRange(0, 0, "x");
+        doc.State.Path = tmp.File("a.txt");
+        host.Prompt.YesNoCancelResult = DialogResult.Yes;
+
+        Assert.True(host.File.ConfirmDiscardIfDirty(doc));
+
+        Assert.True(File2.Exists(doc.State.Path)); // Yes=保存してから続行
+        Assert.False(doc.Editor.Modified);
+        Assert.Contains(host.Prompt.Log, e => e.Kind == "YesNoCancel" && e.Text.Contains("の変更を保存しますか"));
+    });
+
+    [Fact]
+    public void ConfirmDiscardIfDirty_Yes_WithoutPath_FallsBackToSaveAs_CancelMeansFalse() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.Docs.CreateNew();
+        doc.Editor.Text = "abc";
+        doc.Editor.ReplaceCharRange(0, 0, "x"); // dirty な無題(Path=null)
+        host.Prompt.YesNoCancelResult = DialogResult.Yes;
+        host.Dialogs.SaveAs = null; // SaveAs ダイアログでキャンセル
+
+        Assert.False(host.File.ConfirmDiscardIfDirty(doc)); // Yes→SaveAs 失敗=続行しない(閉じない)
+    });
+
+    // ===== NewFile 既定+無題連番 / バックアップ復元 =====
+
+    [Fact]
+    public void NewFile_AppliesSettingsDefaults_AndNumbersUntitledTabs() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.Settings.DefaultCodePage = 932;
+        host.Settings.DefaultLineEnding = 1; // LineEnding.Lf
+
+        host.File.NewFile();
+        var doc1 = host.Docs.Active!;
+        host.File.NewFile();
+        var doc2 = host.Docs.Active!;
+
+        Assert.Equal(932, doc1.State.Encoding.CodePage);   // 設定の既定コードページ
+        Assert.Equal(LineEnding.Lf, doc1.State.LineEnding); // 設定の既定改行
+        Assert.False(doc1.State.HasBom);
+        Assert.Equal(1, doc1.State.UntitledNumber);
+        Assert.Equal(2, doc2.State.UntitledNumber);        // セッション内で再利用しない連番
+        Assert.Equal("無題 1", doc1.Page.Text);
+        Assert.False(doc2.Editor.Modified);
+        Assert.True(host.MetaChangedCount >= 2);           // タイトル・ステータス更新の配線
+    });
+
+    [Fact]
+    public void RestoreFromBackup_UntitledRecord_KeepsNumber_AndAdvancesSeq() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var rec = new BackupRecord("id-1", OriginalPath: null, UntitledNumber: 5,
+            CodePage: 932, HasBom: false, LineEndingId: 1, Content: "abc", TimestampUtc: DateTime.UtcNow);
+
+        var doc = host.File.RestoreFromBackup(rec);
+
+        Assert.Equal(5, doc.State.UntitledNumber);         // ダイアログ表示と復元後タブの番号一致
+        Assert.Equal(932, doc.State.Encoding.CodePage);
+        Assert.Equal(LineEnding.Lf, doc.State.LineEnding);
+        Assert.Equal("abc", doc.Editor.Text);
+        // 【既知バグの特徴付け】実装コメントの意図は「SetSavePoint しない → Modified=true のまま」だが、
+        // TextBuffer.FromString は生成時に保存点を持つ(TextBuffer.cs の _savedRoot=root)ため現行挙動は
+        // Modified=false=「*」も付かない。復元内容がサイレント喪失し得る(計画書の申し送り参照)。
+        // 修正ブランチでこの 2 assert を本来意図(True/「* 無題 5」)へ反転する。
+        Assert.False(doc.Editor.Modified);
+        Assert.Equal("無題 5", doc.Page.Text);
+
+        host.File.NewFile();                               // 連番カウンタは既存最大値の先へ進む
+        Assert.Equal(6, host.Docs.Active!.State.UntitledNumber);
+    });
+
+    [Fact]
+    public void RestoreFromBackup_PathRecord_SetsMetaFromRecord_AndToleratesNullContent() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var rec = new BackupRecord("id-2", OriginalPath: @"C:\backup-origin\b.txt", UntitledNumber: 0,
+            CodePage: 65001, HasBom: true, LineEndingId: 0, Content: null!, TimestampUtc: DateTime.UtcNow);
+
+        var doc = host.File.RestoreFromBackup(rec); // 復元はディスクを読まない=実在しないパスでよい
+
+        Assert.Equal(@"C:\backup-origin\b.txt", doc.State.Path);
+        Assert.Equal(0, doc.State.UntitledNumber);
+        Assert.True(doc.State.HasBom);
+        Assert.Equal("", doc.Editor.Text);                 // JSON 破損(null)でも空タブ復元で継続(レビュー M-5 の防御)
+        Assert.False(doc.Editor.Modified);                 // 【既知バグの特徴付け】上のテストと同じ(申し送り参照)
+        Assert.Equal("b.txt", doc.Page.Text);
+    });
 }

@@ -1143,7 +1143,7 @@ Expected: マージ後ゲート全緑(827)
 
 ## 申し送り(Stage 4 へ)
 
-- **【重要・別ブランチで修正予定】バックアップ復元タブが dirty にならない実バグを Task 6 のテストが発見**(2026-07-14・ユーザー判断=Stage 3 は現行挙動の特徴付けで完了し、マージ直後の修正ブランチで対応):
+- **【★修正完了】バックアップ復元タブが dirty にならない実バグを Task 6 のテストが発見**(2026-07-14・ユーザー判断=Stage 3 は現行挙動の特徴付けで完了し、マージ直後の修正ブランチで対応。**修正マージ=`59ad8b5`**(ブランチコミット `869c810`+レビュー対応 `bf9f365`)。機構=TextBuffer.MarkUnsaved(フラグ OR)+EditorControl.ClearSavePoint(SavePointLeft 発火+エッジ検出同期)+RestoreFromBackup で呼出。テスト 827→832(Core +3/Editor +2)・2 段レビュー承認・マージ後ゲート全緑):
   - 現象: `FileController.RestoreFromBackup` のコメント意図「SetSavePoint しない → Modified=true のまま」に対し、`TextBuffer.FromString` は生成時点で保存点を持つ(`TextBuffer.cs` の `_savedRoot = root`)ため復元直後は **Modified=false**。
   - 影響(サイレントなデータ恒久喪失): ①タブに「*」が付かない ②復元後は HasBackup=true で登録され(BackupCoordinator.cs:102,125)、次の Reconcile で BackupPlanner が Delete を返し**バックアップ本体が削除される**(BackupPlanner.cs:22) ③終了時の保存確認がスキップされる(MainForm.cs:138 の `if (!doc.Editor.Modified) continue;`)。
   - 由来: 旧 Scintilla の SetText 意味論(Modified=true)前提のコメントが、自作 EditorControl/TextBuffer 移行後の意味論(新規バッファ=クリーン)と乖離した回帰。

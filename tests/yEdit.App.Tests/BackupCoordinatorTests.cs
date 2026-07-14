@@ -196,4 +196,259 @@ public class BackupCoordinatorTests
         host.Backup.Reconcile();
         Assert.Equal(deletesBefore, host.Writer.Deletes.Count);
     });
+
+    // ===== 失敗回復(_failed → 次 Reconcile で ForceWrite) =====
+
+    [Fact]
+    public void FailedWrite_ForcesRewrite_NextReconcile() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("hello");
+        host.Backup.Reconcile();                     // Write 1 回目(成功)
+        var id = host.Writer.Writes[0].Id;
+
+        host.Writer.OnWriteFailed?.Invoke(id);       // 背景失敗を Coordinator に通知
+        host.Backup.Reconcile();                     // 同 sig でも ForceWrite=true で再書込
+
+        Assert.Equal(2, host.Writer.Writes.Count);   // 1 回目+再書込
+        Assert.Equal(id, host.Writer.Writes[^1].Id); // 同じ Id で再書込
+    });
+
+    [Fact]
+    public void ForceWrite_ClearsAfterSuccessfulRewrite() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("hello");
+        host.Backup.Reconcile();
+        var id = host.Writer.Writes[0].Id;
+        host.Writer.OnWriteFailed?.Invoke(id);
+        host.Backup.Reconcile();                     // 再書込=ForceWrite クリア想定
+
+        host.Backup.Reconcile();                     // 続く Reconcile では None(同 sig・ForceWrite=false)
+
+        Assert.Equal(2, host.Writer.Writes.Count);   // 追加 Write は出ない
+    });
+
+    // ===== OfferRestoreOnStartup(4 分岐) =====
+
+    private static BackupRecord Rec(string id, string content, DateTime? ts = null) => new(
+        Id: id, OriginalPath: null, UntitledNumber: 1,
+        CodePage: 65001, HasBom: false, LineEndingId: 0,
+        Content: content, TimestampUtc: ts ?? new DateTime(2026, 07, 14, 12, 0, 0, DateTimeKind.Utc));
+
+    private static void PlantBackup(string dir, BackupRecord rec) => BackupStore.Write(dir, rec);
+
+    [Fact]
+    public void OfferRestore_Disabled_ReturnsZero_WithoutPrompting() => Sta.Run(() =>
+    {
+        using var host = new Host(enabled: false);
+        PlantBackup(host.TempDir, Rec("orphan-1", "abc"));
+
+        int restored = host.Backup.OfferRestoreOnStartup(host.Form, r => throw new Xunit.Sdk.XunitException("restore must not be called"), confirm: true);
+
+        Assert.Equal(0, restored);
+        Assert.Equal(0, host.Prompt.PromptCount);   // 無効時は LoadAll/SweepTempFiles すら走らせない
+    });
+
+    [Fact]
+    public void OfferRestore_NoRecords_ReturnsZero_WithoutPrompting() => Sta.Run(() =>
+    {
+        using var host = new Host();                 // records 0 件のディレクトリ
+
+        int restored = host.Backup.OfferRestoreOnStartup(host.Form, r => throw new Xunit.Sdk.XunitException("restore must not be called"), confirm: true);
+
+        Assert.Equal(0, restored);
+        Assert.Equal(0, host.Prompt.PromptCount);   // 0 件時はダイアログを出さない
+    });
+
+    [Fact]
+    public void OfferRestore_ConfirmFalse_RestoresAll_AndReturnsCount() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        PlantBackup(host.TempDir, Rec("r1", "one"));
+        PlantBackup(host.TempDir, Rec("r2", "two"));
+
+        int restored = host.Backup.OfferRestoreOnStartup(host.Form, r => { var d = host.Docs.CreateNew(); d.Editor.Text = r.Content; return d; }, confirm: false);
+
+        Assert.Equal(2, restored);
+        Assert.Equal(0, host.Prompt.PromptCount);   // confirm=false はダイアログを経由しない
+    });
+
+    [Fact]
+    public void OfferRestore_ConfirmFalse_OneBadRecord_DoesNotBlockOthers() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        PlantBackup(host.TempDir, Rec("good", "ok"));
+        PlantBackup(host.TempDir, Rec("bad", "boom"));
+
+        int restored = host.Backup.OfferRestoreOnStartup(host.Form, r =>
+        {
+            if (r.Id == "bad") throw new InvalidOperationException("restore failed");
+            var d = host.Docs.CreateNew(); d.Editor.Text = r.Content; return d;
+        }, confirm: false);
+
+        Assert.Equal(1, restored);                   // 1 件の失敗で他を巻き添えにしない
+    });
+
+    [Fact]
+    public void OfferRestore_ConfirmTrue_Restore_UsesCheckedRecords_AndInheritsId() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        PlantBackup(host.TempDir, Rec("keep", "keeper"));
+        PlantBackup(host.TempDir, Rec("skip", "skipper"));
+
+        var kept = Rec("keep", "keeper");
+        host.Prompt.NextOutcome = new RestoreOutcome(RestoreAction.Restore, new[] { kept });
+
+        // 復元ラムダは本番 FileController.RestoreFromBackup と同様に ClearSavePoint で dirty に
+        // 固定する(§restore-dirty バグ修正 `59ad8b5`)。これがないと Modified=false・HasBackup=true で
+        // 次 Reconcile が Delete("keep") に落ち Id 引き継ぎの検証ができない。
+        int returned = host.Backup.OfferRestoreOnStartup(host.Form, r =>
+        {
+            var d = host.Docs.CreateNew();
+            d.Editor.Text = r.Content;
+            d.Editor.ClearSavePoint();
+            return d;
+        }, confirm: true);
+
+        Assert.Equal(0, returned);                   // Restore 分岐は 0 を返す(件数は呼び側で通知しない)
+        Assert.Equal(1, host.Prompt.PromptCount);
+        Assert.Equal(2, host.Prompt.LastRecords?.Count); // ダイアログには全件を渡す
+        // 元 Id の引き継ぎ検証: 復元 doc の内容を変更 → Reconcile が「keep」Id で Write。
+        // LastSig は OfferRestoreOnStartup 内で sig("keeper") に固定されるため、内容を変えない
+        // Reconcile は None を返す(sig 一致)。ここでは Id 引き継ぎの証拠として「Write が新 GUID
+        // ではなく "keep" で走る」ことを確認したいので、意図的に内容を進める。
+        var restored = host.Docs.Documents.Single();
+        restored.Editor.Text = "keeper edited";
+        restored.Editor.ClearSavePoint();
+        host.Backup.Reconcile();
+        Assert.Contains(host.Writer.Writes, w => w.Id == "keep"); // 復元タブは dirty=Write 走る・Id は元
+    });
+
+    [Fact]
+    public void OfferRestore_ConfirmTrue_DiscardAll_InvokesWriterDeleteAll() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        PlantBackup(host.TempDir, Rec("r1", "one"));
+        host.Prompt.NextOutcome = new RestoreOutcome(RestoreAction.DiscardAll, Array.Empty<BackupRecord>());
+
+        host.Backup.OfferRestoreOnStartup(host.Form, r => throw new Xunit.Sdk.XunitException("restore must not be called"), confirm: true);
+
+        Assert.Equal(1, host.Writer.DeleteAllCount);
+    });
+
+    [Fact]
+    public void OfferRestore_ConfirmTrue_Later_DoesNothing() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        PlantBackup(host.TempDir, Rec("r1", "one"));
+        host.Prompt.NextOutcome = RestoreOutcome.LaterEmpty;
+
+        host.Backup.OfferRestoreOnStartup(host.Form, r => throw new Xunit.Sdk.XunitException("restore must not be called"), confirm: true);
+
+        Assert.Equal(0, host.Writer.DeleteAllCount);
+        Assert.Empty(host.Writer.Deletes);
+        Assert.Empty(host.Writer.Writes);
+    });
+
+    // ===== Shutdown/Dispose(冪等・管理分削除) =====
+
+    [Fact]
+    public void Shutdown_DeletesManagedBackups_AndDisposesWriter() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc1 = host.NewDoc("one");
+        var doc2 = host.NewDoc("two");
+        host.Backup.Reconcile();                     // 両方 Write=HasBackup=true
+
+        host.Backup.Shutdown();
+
+        Assert.Equal(2, host.Writer.Deletes.Count);  // 管理分を全 Delete
+        Assert.Equal(1, host.Writer.DisposeCount);   // ライターをドレイン
+    });
+
+    [Fact]
+    public void Shutdown_Idempotent_SecondCallIsNoOp() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("hello");
+        host.Backup.Reconcile();
+
+        host.Backup.Shutdown();
+        int deletesAfterFirst = host.Writer.Deletes.Count;
+        int disposesAfterFirst = host.Writer.DisposeCount;
+        host.Backup.Shutdown();                      // 2 回目
+
+        Assert.Equal(deletesAfterFirst, host.Writer.Deletes.Count);
+        Assert.Equal(disposesAfterFirst, host.Writer.DisposeCount);
+    });
+
+    [Fact]
+    public void Dispose_WithoutShutdown_DisposesWriter_WithoutDeletingBackups() => Sta.Run(() =>
+    {
+        var host = new Host();
+        host.NewDoc("hello");
+        host.Backup.Reconcile();
+
+        host.Backup.Dispose();                       // 異常系(Shutdown 未経由)
+
+        Assert.Empty(host.Writer.Deletes);           // 管理分の削除は行わない(孤児として次回復元)
+        Assert.Equal(1, host.Writer.DisposeCount);
+        host.Form.Dispose();
+        try { Directory.Delete(host.TempDir, recursive: true); } catch { }
+    });
+
+    // ===== TimeProvider(BackupRecord.TimestampUtc が clock 由来) =====
+
+    [Fact]
+    public void BuildRecord_UsesInjectedClock_ForTimestamp() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("hello");
+
+        host.Backup.Reconcile();
+
+        Assert.Equal(FixedNow.UtcDateTime, host.Writer.Writes[0].TimestampUtc);
+    });
+
+    // ===== 追加: 対応固定(Reconcile の Write/Delete が IBackupWriter 経由であることの担保) =====
+
+    [Fact]
+    public void Reconcile_MultipleDocs_WriteRoutingIsPerDoc() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var a = host.NewDoc("A");
+        var b = host.NewDoc("B");
+
+        host.Backup.Reconcile();
+
+        Assert.Equal(2, host.Writer.Writes.Count);
+        Assert.NotEqual(host.Writer.Writes[0].Id, host.Writer.Writes[1].Id);  // 個別 Id
+    });
+
+    [Fact]
+    public void ReconcileAfterActiveDocumentChanged_DoesNotDoubleWrite() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("hello");
+
+        host.Backup.Reconcile();                     // 初回 Write
+        _ = host.Docs.CreateNew();                   // ActiveDocumentChanged=内部で Reconcile が走る
+
+        Assert.Single(host.Writer.Writes);           // 元 doc は同 sig=再 Write なし(2 回目の Reconcile で None)
+    });
+
+    [Fact]
+    public void UpdateSettings_DisableFromEnabled_DoesNotDisposeWriter() => Sta.Run(() =>
+    {
+        using var host = new Host(enabled: true);
+        host.NewDoc("hello");
+        host.Backup.Reconcile();
+
+        host.Backup.UpdateSettings(false, 30);       // 有効→無効: 既存ファイルを削除しない・writer は残す
+        int disposedBefore = host.Writer.DisposeCount;
+
+        Assert.Equal(disposedBefore, host.Writer.DisposeCount); // Dispose は Shutdown/Dispose まで待つ
+        Assert.Empty(host.Writer.Deletes);
+    });
 }

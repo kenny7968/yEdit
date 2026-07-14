@@ -424,7 +424,7 @@ public class FileControllerTests
 
         Assert.Equal(932, doc1.State.Encoding.CodePage);   // 設定の既定コードページ
         Assert.Equal(LineEnding.Lf, doc1.State.LineEnding); // 設定の既定改行
-        Assert.False(doc1.State.HasBom);
+        Assert.False(doc1.State.HasBom);                   // 既定と同値=契約の文書化(NewFile は BOM なし固定)
         Assert.Equal(1, doc1.State.UntitledNumber);
         Assert.Equal(2, doc2.State.UntitledNumber);        // セッション内で再利用しない連番
         Assert.Equal("無題 1", doc1.Page.Text);
@@ -460,16 +460,20 @@ public class FileControllerTests
     public void RestoreFromBackup_PathRecord_SetsMetaFromRecord_AndToleratesNullContent() => Sta.Run(() =>
     {
         using var host = new Host();
-        var rec = new BackupRecord("id-2", OriginalPath: @"C:\backup-origin\b.txt", UntitledNumber: 0,
+        // UntitledNumber: 7 は「path レコードでは旧無題番号を無視して 0 化する」契約を実効検証するため
+        // (0 のままだとコピー実装でも 0 化実装でも通ってしまう=レビュー I-1 と同型の空振り)
+        var rec = new BackupRecord("id-2", OriginalPath: @"C:\backup-origin\b.txt", UntitledNumber: 7,
             CodePage: 65001, HasBom: true, LineEndingId: 0, Content: null!, TimestampUtc: DateTime.UtcNow);
 
         var doc = host.File.RestoreFromBackup(rec); // 復元はディスクを読まない=実在しないパスでよい
 
         Assert.Equal(@"C:\backup-origin\b.txt", doc.State.Path);
-        Assert.Equal(0, doc.State.UntitledNumber);
+        Assert.Equal(0, doc.State.UntitledNumber);         // path レコードは旧無題番号(7)を無視して 0 化
         Assert.True(doc.State.HasBom);
         Assert.Equal("", doc.Editor.Text);                 // JSON 破損(null)でも空タブ復元で継続(レビュー M-5 の防御)
-        Assert.False(doc.Editor.Modified);                 // 【既知バグの特徴付け】上のテストと同じ(申し送り参照)
+        // 【既知バグの特徴付け】上のテストと同じ(申し送り参照)。修正ブランチで Modified と
+        // ラベルの 2 assert を本来意図(True/「* b.txt」)へ反転する。
+        Assert.False(doc.Editor.Modified);
         Assert.Equal("b.txt", doc.Page.Text);
     });
 }

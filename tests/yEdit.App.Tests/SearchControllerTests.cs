@@ -1,4 +1,5 @@
 using yEdit.App.Tests.Fakes;
+using yEdit.Core.Csv;
 
 namespace yEdit.App.Tests;
 
@@ -334,10 +335,12 @@ public class SearchControllerTests
         _ = host.NewDoc("x");          // 文書切替(リセット発火)
         host.Docs.SelectAt(0);         // doc1 へ戻す(再度リセット・選択 (1,1) は保持されている)
 
+        int saidBefore = host.Announcer.Said.Count;   // setup の 2 回目 FindNext が同一文言を発声済みのため件数でも検証
         Assert.True(host.Search.FindNext());
         // リセット済みなら選択終端(1)から再探索=同じ 2 件目。_lastHit が残っていれば 1+Max(1,0)=2 から=3 件目になる
         Assert.Equal((1, 1), doc1.Editor.GetSelectionCharRange());
         Assert.Equal("3 件中 2 件目", host.Announcer.Said[^1]);
+        Assert.Equal(saidBefore + 1, host.Announcer.Said.Count);   // 新規発声が 1 件増えた(既存文言との空振り一致でない)
     });
 
     [Fact]
@@ -372,5 +375,207 @@ public class SearchControllerTests
         Assert.Equal("選択範囲がありません", host.Announcer.Said[^1]);
         Assert.Equal("abc", doc2.Editor.Text);    // 新文書は置換されない
         Assert.Equal("abc abc", doc1.Editor.Text);// 旧文書のスコープへも波及しない
+    });
+
+    // ===== ReplaceOne(VSCode 準拠 G-3: 未選択なら検索して即置換) =====
+
+    [Fact]
+    public void ReplaceOne_SelectedHit_ReplacesAndSelectsNext() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc abc abc");
+        host.View.Pattern = "abc";
+        host.View.Replacement = "X";
+        host.Search.OpenReplace();
+        host.Search.FindNext();   // (0,3) を選択
+
+        host.Search.ReplaceOne();
+
+        Assert.Equal("X abc abc", doc.Editor.Text);
+        Assert.Equal((2, 5), doc.Editor.GetSelectionCharRange());   // 置換後テキスト上の次ヒットを選択
+        Assert.Equal("置換しました。2 件中 1 件目", host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void ReplaceOne_NoSelection_ReplacesNextHitImmediately() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc abc");
+        host.View.Pattern = "abc";
+        host.View.Replacement = "X";
+        host.Search.OpenReplace();   // キャレット (0,0)・選択なしのまま
+
+        host.Search.ReplaceOne();    // G-3: 検索して即置換(選択待ちの空振りにしない)
+
+        Assert.Equal("X abc", doc.Editor.Text);
+        Assert.Equal((2, 5), doc.Editor.GetSelectionCharRange());
+        Assert.Equal("置換しました。1 件中 1 件目", host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void ReplaceOne_LastHit_AnnouncesReplacedAndNoMore() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc");
+        host.View.Pattern = "abc";
+        host.View.Replacement = "X";
+        host.Search.OpenReplace();
+        host.Search.FindNext();
+
+        host.Search.ReplaceOne();
+
+        Assert.Equal("X", doc.Editor.Text);
+        Assert.Equal("置換しました。これ以上見つかりません", host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void ReplaceOne_EmptyReplacement_DoesNotSkipAdjacentHit() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("aa");
+        host.View.Pattern = "a";
+        host.View.Replacement = "";
+        host.Search.OpenReplace();
+        host.Search.FindNext();      // (0,1)
+
+        host.Search.ReplaceOne();    // 空置換(削除)後の前進は repl.Length=0(+1 すると隣接ヒットを取りこぼす)
+
+        Assert.Equal("a", doc.Editor.Text);
+        Assert.Equal((0, 1), doc.Editor.GetSelectionCharRange());   // 詰めて隣接した次ヒットを選択
+        Assert.Equal("置換しました。1 件中 1 件目", host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void ReplaceOne_InCsvMode_IsBlocked() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc");
+        host.View.Pattern = "abc";
+        host.View.Replacement = "X";
+        host.Search.OpenReplace();
+        doc.State.CsvMode = true;    // CsvController を介さず状態だけ立てる(判定は State 経由)
+
+        host.Search.ReplaceOne();
+
+        Assert.Equal("abc", doc.Editor.Text);   // 読取専用本文への無反映置換=誤成功通知を出さない
+        Assert.Equal(CsvAnnounceFormatter.BlockedInCsvMode, host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void ReplaceOne_InvalidRegex_AnnouncesError() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc");
+        host.View.Pattern = "(";
+        host.View.UseRegex = true;
+        host.View.Replacement = "X";
+        host.Search.OpenReplace();
+
+        host.Search.ReplaceOne();    // Find と別コードパスの同ガード(削除するとここで例外になる)
+
+        Assert.Equal("正規表現が正しくありません", host.Announcer.Said[^1]);
+        Assert.Equal("abc", doc.Editor.Text);
+    });
+
+    // ===== ReplaceAll(全文/捕捉済み選択スコープ) =====
+
+    [Fact]
+    public void ReplaceAll_ReplacesAllMatches_AndAnnouncesCount() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc abc abc");
+        host.View.Pattern = "abc";
+        host.View.Replacement = "X";
+        host.Search.OpenReplace();
+
+        host.Search.ReplaceAll();
+
+        Assert.Equal("X X X", doc.Editor.Text);
+        Assert.Equal("3 件置換しました", host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void ReplaceAll_NoMatch_AnnouncesNotFound_AndKeepsText() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc");
+        host.View.Pattern = "xyz";
+        host.View.Replacement = "X";
+        host.Search.OpenReplace();
+
+        host.Search.ReplaceAll();
+
+        Assert.Equal("abc", doc.Editor.Text);
+        Assert.Equal("見つかりません", host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void ReplaceAll_InSelection_ReplacesOnlyCapturedScope() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc abc abc");
+        host.View.Pattern = "abc";
+        host.View.Replacement = "X";
+        host.View.InSelection = true;
+        host.Search.OpenReplace();
+        doc.Editor.SelectCharRange(0, 7);       // "abc abc" を選択
+        host.Search.OnInSelectionToggled(true); // スコープ捕捉
+
+        host.Search.ReplaceAll();
+
+        Assert.Equal("X X abc", doc.Editor.Text);   // 範囲外の 3 件目は置換されない
+        Assert.Equal("2 件置換しました", host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void ReplaceAll_InSelection_WithoutCapturedScope_Announces() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc");
+        host.View.Pattern = "abc";
+        host.View.Replacement = "X";
+        host.View.InSelection = true;
+        host.Search.OpenReplace();
+        host.Search.OnInSelectionToggled(true); // 選択なし(ゼロ幅)で ON=スコープは捕捉されない
+
+        host.Search.ReplaceAll();
+
+        Assert.Equal("選択範囲がありません", host.Announcer.Said[^1]);
+        Assert.Equal("abc", doc.Editor.Text);
+    });
+
+    [Fact]
+    public void ReplaceAll_CapturedScope_SurvivesFindMoves() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc abc abc");
+        host.View.Pattern = "abc";
+        host.View.Replacement = "X";
+        host.View.InSelection = true;
+        host.Search.OpenReplace();
+        doc.Editor.SelectCharRange(0, 7);
+        host.Search.OnInSelectionToggled(true);  // [0,7) を捕捉
+
+        Assert.True(host.Search.FindNext());     // 検索移動で実選択は (8,11) へクロバーされる
+        host.Search.ReplaceAll();
+
+        Assert.Equal("X X abc", doc.Editor.Text);   // 捕捉時のスコープが生きている(実選択に追随しない)
+        Assert.Equal("2 件置換しました", host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void ReplaceAll_InCsvMode_IsBlocked() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc");
+        host.View.Pattern = "abc";
+        host.View.Replacement = "X";
+        host.Search.OpenReplace();
+        doc.State.CsvMode = true;
+
+        host.Search.ReplaceAll();
+
+        Assert.Equal("abc", doc.Editor.Text);
+        Assert.Equal(CsvAnnounceFormatter.BlockedInCsvMode, host.Announcer.Said[^1]);
     });
 }

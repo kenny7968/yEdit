@@ -33,6 +33,6 @@ public interface IFindReplaceView
     bool IsDisposed { get; }
     void SetMode(bool replaceMode);
     void SetStatus(string text);
-    /// <summary>従来の Open 手順「非表示なら Show(owner)→Activate→検索語フォーカス」を 1 メソッドに集約。</summary>
+    /// <summary>従来の Open 手順を 1 メソッドに集約: 非表示なら Show(owner)し、常に Activate→検索語フォーカス。</summary>
     void ShowAndFocus(IWin32Window owner);
 }

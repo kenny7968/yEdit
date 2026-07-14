@@ -2,11 +2,12 @@ namespace yEdit.App;
 
 /// <summary>
 /// モードレスの検索・置換ダイアログ。入力収集とステータス表示に徹し、操作は
-/// SearchController 経由。検索モード/置換モードでフィールド表示を切替える。
+/// 生成時に受け取るコールバック(FindReplaceCallbacks)経由。検索モード/置換モードで
+/// フィールド表示を切替える。
 /// </summary>
-public sealed class FindReplaceDialog : Form
+public sealed class FindReplaceDialog : Form, IFindReplaceView
 {
-    private readonly SearchController _controller;
+    private readonly FindReplaceCallbacks _cb;
 
     private readonly TextBox _pattern = new();
     private readonly TextBox _replacement = new();
@@ -23,9 +24,9 @@ public sealed class FindReplaceDialog : Form
     private readonly Label _status = new() { AutoSize = true, Text = "" };
     private bool _isReplaceMode; // G-2: 検索モードでは「次を検索」後にダイアログを Hide
 
-    public FindReplaceDialog(SearchController controller)
+    public FindReplaceDialog(FindReplaceCallbacks callbacks)
     {
-        _controller = controller;
+        _cb = callbacks;
         Text = "検索";
         FormBorderStyle = FormBorderStyle.FixedToolWindow;
         StartPosition = FormStartPosition.CenterParent;
@@ -36,16 +37,16 @@ public sealed class FindReplaceDialog : Form
 
         BuildLayout();
 
-        _next.Click += (_, _) => { if (_controller.FindNext() && !_isReplaceMode) Hide(); };
-        _prev.Click += (_, _) => { if (_controller.FindPrev() && !_isReplaceMode) Hide(); };
-        _replaceOne.Click += (_, _) => _controller.ReplaceOne();
-        _replaceAll.Click += (_, _) => _controller.ReplaceAll();
+        _next.Click += (_, _) => { if (_cb.FindNext() && !_isReplaceMode) Hide(); };
+        _prev.Click += (_, _) => { if (_cb.FindPrev() && !_isReplaceMode) Hide(); };
+        _replaceOne.Click += (_, _) => _cb.ReplaceOne();
+        _replaceAll.Click += (_, _) => _cb.ReplaceAll();
         _close.Click += (_, _) => Hide();
-        _pattern.TextChanged += (_, _) => _controller.UpdateCount();
-        _matchCase.CheckedChanged += (_, _) => _controller.UpdateCount();
-        _wholeWord.CheckedChanged += (_, _) => _controller.UpdateCount();
-        _useRegex.CheckedChanged += (_, _) => _controller.UpdateCount();
-        _inSelection.CheckedChanged += (_, _) => _controller.OnInSelectionToggled(_inSelection.Checked);
+        _pattern.TextChanged += (_, _) => _cb.UpdateCount();
+        _matchCase.CheckedChanged += (_, _) => _cb.UpdateCount();
+        _wholeWord.CheckedChanged += (_, _) => _cb.UpdateCount();
+        _useRegex.CheckedChanged += (_, _) => _cb.UpdateCount();
+        _inSelection.CheckedChanged += (_, _) => _cb.InSelectionToggled(_inSelection.Checked);
     }
 
     public string Pattern => _pattern.Text;
@@ -55,7 +56,15 @@ public sealed class FindReplaceDialog : Form
     public bool UseRegex => _useRegex.Checked;
     public bool InSelection => _inSelection.Checked;
 
-    public void FocusPattern() { _pattern.Focus(); _pattern.SelectAll(); }
+    private void FocusPattern() { _pattern.Focus(); _pattern.SelectAll(); }
+
+    /// <summary>従来 Controller 側の Open が行っていた表示手順の集約: 非表示なら Show(owner)し、常に Activate→検索語フォーカス。順序を変えない。</summary>
+    public void ShowAndFocus(IWin32Window owner)
+    {
+        if (!Visible) Show(owner);
+        Activate();
+        FocusPattern();
+    }
 
     public void SetMode(bool replaceMode)
     {
@@ -75,9 +84,9 @@ public sealed class FindReplaceDialog : Form
         switch (keyData)
         {
             case Keys.Escape: Hide(); return true;
-            case Keys.F3: _controller.FindNext(); return true;
-            case Keys.Shift | Keys.F3: _controller.FindPrev(); return true;
-            case Keys.Enter when _pattern.Focused: if (_controller.FindNext() && !_isReplaceMode) Hide(); return true;
+            case Keys.F3: _cb.FindNext(); return true;
+            case Keys.Shift | Keys.F3: _cb.FindPrev(); return true;
+            case Keys.Enter when _pattern.Focused: if (_cb.FindNext() && !_isReplaceMode) Hide(); return true;
         }
         return base.ProcessCmdKey(ref msg, keyData);
     }

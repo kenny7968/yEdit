@@ -200,4 +200,206 @@ public class GrepControllerTests
         Assert.Empty(host.SearchFn.Invocations);
         Assert.Empty(host.View.Notifications);   // view は生成されていないので Fake も呼ばれない
     });
+
+    // ===== RunAsync 成功系(検索デリゲート即完了=Task.FromResult パス) =====
+
+    [Fact]
+    public void RunAsync_ValidInputs_TogglesRunning_AndAnnouncesStart() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        host.SearchFn.DefaultOutcome = FakeGrepSearchFn.EmptyOutcome();
+
+        host.Grep.RunAsync().GetAwaiter().GetResult();
+
+        Assert.Equal(new[] { true, false }, host.View.RunningLog);   // 開始で true・完了で false
+        Assert.Contains("検索を開始しました", host.View.Notifications);
+    });
+
+    [Fact]
+    public void RunAsync_WithHits_PopulatesResults_AndShowsResults_WithSilentSummary() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        host.SearchFn.DefaultOutcome = FakeGrepSearchFn.OutcomeWith(hits: 3);
+
+        host.Grep.RunAsync().GetAwaiter().GetResult();
+
+        Assert.Single(host.Results.PopulateLog);
+        Assert.Equal("abc", host.Results.PopulateLog[0].Pattern);
+        Assert.Equal(ExistingFolder, host.Results.PopulateLog[0].Folder);
+        Assert.Equal(1, host.Results.ShowResultsCount);
+        // ヒットありエラー無しは Summary を発声せず視覚のみ(結果窓フォーカスの二重読み回避)
+        Assert.DoesNotContain(host.View.Notifications, s => s.Contains("行 /"));
+        Assert.Contains("3 行 / 1 ファイル", host.View.Status ?? "");
+    });
+
+    [Fact]
+    public void RunAsync_WithHits_AndErrors_AnnouncesSummary_ForcedSpeech() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        host.SearchFn.DefaultOutcome = FakeGrepSearchFn.OutcomeWith(hits: 3, errors: 2);
+
+        host.Grep.RunAsync().GetAwaiter().GetResult();
+
+        Assert.Equal(1, host.Results.ShowResultsCount);   // ヒット>0 なので結果窓は開く
+        // エラーがある時は summary を必ず発声(誤った「見つかりません」防止)
+        Assert.Contains(host.View.Notifications, s => s.Contains("3 行 / 1 ファイル") && s.Contains("読み取り不可 2 件"));
+    });
+
+    [Fact]
+    public void RunAsync_NoHits_AnnouncesNotFound_AndDoesNotShowResults() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        host.SearchFn.DefaultOutcome = FakeGrepSearchFn.EmptyOutcome();
+
+        host.Grep.RunAsync().GetAwaiter().GetResult();
+
+        Assert.Equal(0, host.Results.ShowResultsCount);   // ヒット 0 なので窓は出さない
+        Assert.Single(host.Results.PopulateLog);           // Populate は呼ぶ(見つかりません表示のため)
+        Assert.Contains("見つかりません", host.View.Notifications);
+    });
+
+    [Fact]
+    public void RunAsync_Cancelled_AnnouncesInterrupted() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        host.SearchFn.DefaultOutcome = FakeGrepSearchFn.OutcomeWith(hits: 0, cancelled: true);
+
+        host.Grep.RunAsync().GetAwaiter().GetResult();
+
+        // Summary: Hits=0 かつ Cancelled → "中断しました(0 件)"(現行 GrepController.Summary の文言=全角括弧)
+        Assert.Contains(host.View.Notifications, s => s.StartsWith("中断しました"));
+    });
+
+    [Fact]
+    public void RunAsync_SearchFnThrows_AnnouncesError_AndResetsRunning() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        var tcs = new TaskCompletionSource<GrepOutcome>();
+        host.SearchFn.Pending.Enqueue(tcs);
+
+        var task = host.Grep.RunAsync();
+        tcs.SetException(new InvalidOperationException("boom"));
+        task.GetAwaiter().GetResult();
+
+        Assert.Contains(host.View.Notifications, s => s.StartsWith("検索エラー: ") && s.Contains("boom"));
+        Assert.Equal(new[] { true, false }, host.View.RunningLog);   // catch でも finally は必ず走る
+    });
+
+    // ===== 追い越し guard・BeginClose 抑止・Cancel =====
+
+    [Fact]
+    public void SecondRunAsync_OvertakesFirst_FirstResultsSkipped() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        var tcs1 = new TaskCompletionSource<GrepOutcome>();
+        var tcs2 = new TaskCompletionSource<GrepOutcome>();
+        host.SearchFn.Pending.Enqueue(tcs1);
+        host.SearchFn.Pending.Enqueue(tcs2);
+
+        var task1 = host.Grep.RunAsync();   // 保留中: _cts=cts1
+        var task2 = host.Grep.RunAsync();   // 追い越し: _cts=cts2(cts1 は Cancel 済み)
+
+        tcs1.SetResult(FakeGrepSearchFn.OutcomeWith(hits: 9));   // 先行の結果が到着
+        task1.GetAwaiter().GetResult();
+        tcs2.SetResult(FakeGrepSearchFn.OutcomeWith(hits: 3));   // 後発の結果
+        task2.GetAwaiter().GetResult();
+
+        // 先行の結果は UI に反映されない=Populate/ShowResults は 1 回(後発分だけ)
+        Assert.Single(host.Results.PopulateLog);
+        Assert.Equal(3, host.Results.PopulateLog[0].Outcome.Hits.Count);
+        Assert.Equal(1, host.Results.ShowResultsCount);
+        // 先行の cts はキャンセルされていること(協調キャンセルの入り口が生きていることの担保)
+        Assert.True(host.SearchFn.Invocations[0].Token.IsCancellationRequested);
+    });
+
+    [Fact]
+    public void BeginClose_DuringRun_SuppressesResults() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        var tcs = new TaskCompletionSource<GrepOutcome>();
+        host.SearchFn.Pending.Enqueue(tcs);
+
+        var task = host.Grep.RunAsync();
+        host.Grep.BeginClose();                              // 終了開始
+        tcs.SetResult(FakeGrepSearchFn.OutcomeWith(hits: 5));  // 遅れて結果到着
+        task.GetAwaiter().GetResult();
+
+        // 結果反映は抑止(ShowResults 早期 return により resultsFactory が呼ばれない=結果ビュー自体を生成しない)
+        Assert.Equal(0, host.ResultsFactoryCalls);
+        Assert.Null(host.Results);
+        // Notifications は "検索を開始しました" までは記録される(BeginClose 前に発声済み)
+        Assert.Contains("検索を開始しました", host.View.Notifications);
+    });
+
+    [Fact]
+    public void Cancel_CancelsCurrentRun_TokenObserved() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        var tcs = new TaskCompletionSource<GrepOutcome>();
+        host.SearchFn.Pending.Enqueue(tcs);
+
+        var task = host.Grep.RunAsync();
+        host.Grep.Cancel();                                   // 実行中の中止(Stop ボタン相当)
+        tcs.SetResult(FakeGrepSearchFn.OutcomeWith(hits: 0, cancelled: true));   // GrepService は cancelled=true で戻る
+        task.GetAwaiter().GetResult();
+
+        Assert.True(host.SearchFn.Invocations[0].Token.IsCancellationRequested);
+        Assert.Equal(new[] { true, false }, host.View.RunningLog);   // 中止でも finally で SetRunning(false)
+    });
+
+    // ===== 結果窓のアクティベート→jumpTo 対応固定 =====
+
+    [Fact]
+    public void ResultsActivate_InvokesJumpTo_WithHit() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        host.SearchFn.DefaultOutcome = FakeGrepSearchFn.OutcomeWith(hits: 2);
+        host.Grep.RunAsync().GetAwaiter().GetResult();
+
+        var hit = host.Results.PopulateLog[0].Outcome.Hits[1];
+        host.Results.FireActivate(hit);   // ダブルクリック/Enter 相当
+
+        Assert.Single(host.Jumps);
+        Assert.Same(hit, host.Jumps[0]);
+    });
 }

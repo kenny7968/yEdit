@@ -2,7 +2,8 @@ namespace yEdit.App.Tests.Fakes;
 
 /// <summary>
 /// <see cref="IFindReplaceView"/> のテスト用フェイク。入力値(Pattern 等)は直接設定し、
-/// SetMode/SetStatus/ShowAndFocus の呼び出しを順序どおり記録する。
+/// SetMode/SetStatus/ShowAndFocus の呼び出しをメソッドごとに記録する(メソッド間の相対順序は
+/// 記録しない=表示手順の順序は diff レビューの担保範囲)。
 /// ShowAndFocus は Visible=true にする(実ダイアログの Show 相当)。Hide 相当は
 /// テストが Visible=false を直接設定する(G-2 の「次を検索」後 Hide の再現)。
 /// </summary>

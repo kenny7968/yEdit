@@ -196,4 +196,181 @@ public class SearchControllerTests
         Assert.Equal("1 件中 1 件目", host.Announcer.Said[^1]);   // 発声は共有 Announcer 直結で成立
         Assert.Equal(statusBefore, host.View.StatusLog.Count);    // 非表示中は SetStatus しない
     });
+
+    // ===== FindNext/FindPrev(歩進=_lastHit と選択の一致判定) =====
+
+    [Fact]
+    public void FindNext_SelectsFirstHit_AndAnnouncesOrdinal() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc abc abc");
+        host.View.Pattern = "abc";
+        host.Search.OpenFind();
+
+        Assert.True(host.Search.FindNext());
+
+        Assert.Equal((0, 3), doc.Editor.GetSelectionCharRange());
+        Assert.Equal("3 件中 1 件目", host.Announcer.Said[^1]);
+        Assert.Equal("3 件中 1 件目", host.View.Status);   // 表示中はダイアログ内ステータスにも同文言
+    });
+
+    [Fact]
+    public void FindNext_Repeated_AdvancesFromLastHit() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc abc abc");
+        host.View.Pattern = "abc";
+        host.Search.OpenFind();
+
+        host.Search.FindNext();
+        Assert.True(host.Search.FindNext());   // 選択が _lastHit と一致=その次から
+
+        Assert.Equal((4, 7), doc.Editor.GetSelectionCharRange());
+        Assert.Equal("3 件中 2 件目", host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void FindNext_ZeroWidthHit_AdvancesByOne() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("aaa");
+        host.View.Pattern = "(?=a)";   // ゼロ幅ヒット(長さ 0)
+        host.View.UseRegex = true;
+        host.Search.OpenFind();
+
+        host.Search.FindNext();                 // (0,0)
+        Assert.True(host.Search.FindNext());    // Max(1, h.Length)=1 で前進(同位置に張り付かない)
+
+        Assert.Equal((1, 1), doc.Editor.GetSelectionCharRange());
+        Assert.Equal("3 件中 2 件目", host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void FindNext_SelectionMovedByUser_SearchesFromSelectionEnd() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc abc abc");
+        host.View.Pattern = "abc";
+        host.Search.OpenFind();
+        host.Search.FindNext();                 // (0,3)
+        doc.Editor.SelectCharRange(5, 0);       // ユーザーがキャレット移動(選択≠_lastHit)
+
+        Assert.True(host.Search.FindNext());
+
+        Assert.Equal((8, 11), doc.Editor.GetSelectionCharRange());   // 5 以降の次ヒット(4 始まりは跨ぎ済み)
+        Assert.Equal("3 件中 3 件目", host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void FindNext_NoMoreHits_AnnouncesWithoutMoving() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc");
+        host.View.Pattern = "abc";
+        host.Search.OpenFind();
+        host.Search.FindNext();                 // (0,3)=最後のヒット
+
+        Assert.False(host.Search.FindNext());   // 折り返さない
+
+        Assert.Equal("これ以上見つかりません", host.Announcer.Said[^1]);
+        Assert.Equal((0, 3), doc.Editor.GetSelectionCharRange());    // 選択は動かない
+    });
+
+    [Fact]
+    public void FindPrev_FromLastHit_SelectsPreviousHit() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc abc abc");
+        host.View.Pattern = "abc";
+        host.Search.OpenFind();
+        host.Search.FindNext();
+        host.Search.FindNext();                 // (4,7)=2 件目
+
+        Assert.True(host.Search.FindPrev());    // _lastHit の Start より前を探す
+
+        Assert.Equal((0, 3), doc.Editor.GetSelectionCharRange());
+        Assert.Equal("3 件中 1 件目", host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void Find_InvalidRegex_AnnouncesError() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("abc");
+        host.View.Pattern = "(";
+        host.View.UseRegex = true;
+        host.Search.OpenFind();
+
+        Assert.False(host.Search.FindNext());
+
+        Assert.Equal("正規表現が正しくありません", host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void FindNext_BeforeOpeningDialog_ReturnsFalse_Silently() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("abc");
+
+        Assert.False(host.Search.FindNext());   // Ctrl+F 前の F3/メニュー: ビュー未生成=条件不足で無反応
+
+        Assert.Empty(host.Announcer.Said);
+        Assert.Equal(0, host.FactoryCalls);     // 勝手にビューを作らない
+    });
+
+    // ===== 文書切替(_lastHit/_selectionScope のリセット+件数の追随) =====
+
+    [Fact]
+    public void ActiveDocumentChanged_ResetsStepState() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc1 = host.NewDoc("aaa");
+        host.View.Pattern = "(?=a)";   // ゼロ幅: リセット有無で歩進結果が分かれる(通常パターンでは区別不能)
+        host.View.UseRegex = true;
+        host.Search.OpenFind();
+        host.Search.FindNext();
+        host.Search.FindNext();        // (1,1)=2 件目・_lastHit=(1,0)
+
+        _ = host.NewDoc("x");          // 文書切替(リセット発火)
+        host.Docs.SelectAt(0);         // doc1 へ戻す(再度リセット・選択 (1,1) は保持されている)
+
+        Assert.True(host.Search.FindNext());
+        // リセット済みなら選択終端(1)から再探索=同じ 2 件目。_lastHit が残っていれば 1+Max(1,0)=2 から=3 件目になる
+        Assert.Equal((1, 1), doc1.Editor.GetSelectionCharRange());
+        Assert.Equal("3 件中 2 件目", host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void ActiveDocumentChanged_WhileVisible_RefreshesCount() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("abc");
+        host.View.Pattern = "abc";
+        host.Search.OpenFind();
+        Assert.Equal("1 件", host.View.Status);
+
+        _ = host.Docs.CreateNew();     // 空の新文書がアクティブに
+
+        Assert.Equal("見つかりません", host.View.Status);   // 新アクティブ文書で件数を更新
+    });
+
+    [Fact]
+    public void ActiveDocumentChanged_ClearsSelectionScope() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc1 = host.NewDoc("abc abc");
+        host.View.Pattern = "abc";
+        host.View.Replacement = "X";
+        host.View.InSelection = true;
+        host.Search.OpenReplace();
+        doc1.Editor.SelectCharRange(0, 3);
+        host.Search.OnInSelectionToggled(true);   // doc1 で [0,3) を捕捉
+
+        var doc2 = host.NewDoc("abc");            // 文書切替=捕捉済みスコープ無効化
+        host.Search.ReplaceAll();
+
+        Assert.Equal("選択範囲がありません", host.Announcer.Said[^1]);
+        Assert.Equal("abc", doc2.Editor.Text);    // 新文書は置換されない
+        Assert.Equal("abc abc", doc1.Editor.Text);// 旧文書のスコープへも波及しない
+    });
 }

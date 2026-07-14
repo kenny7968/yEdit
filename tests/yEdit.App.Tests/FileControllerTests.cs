@@ -66,7 +66,8 @@ public class FileControllerTests
         public void Dispose()
         {
             try { Directory.Delete(Root, recursive: true); }
-            catch (IOException) { /* 掃除失敗はテスト失敗にしない */ }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            { /* 掃除失敗はテスト失敗にしない(読み取り専用属性等は UnauthorizedAccessException) */ }
         }
     }
 
@@ -81,12 +82,14 @@ public class FileControllerTests
         doc.Editor.Text = "abc"; // 既定 State=UTF-8/BOM なし/CRLF
         // 存在しないフォルダ配下を保存先にして TextFileService.Save を確実に失敗させる
         // (DirectoryNotFoundException は IOException 派生=想定内エラー経路)。
-        host.Dialogs.SaveAs = new SaveAsResult(tmp.File(@"no-such-dir\a.txt"), 65001, HasBom: true, LineEnding.Lf);
+        // CodePage は 932 を選ぶ: 既定(65001)と同値だと Encoding ロールバックの assert が
+        // 空振りする(レビュー I-1)。"abc" は ASCII なので 932 でも劣化警告は出ない。
+        host.Dialogs.SaveAs = new SaveAsResult(tmp.File(@"no-such-dir\a.txt"), 932, HasBom: true, LineEnding.Lf);
 
         Assert.False(host.File.SaveAs());
 
         Assert.Null(doc.State.Path); // Path は旧のまま(後続 Ctrl+S の別エンコード上書き事故防止)
-        Assert.Equal(65001, doc.State.Encoding.CodePage);
+        Assert.Equal(65001, doc.State.Encoding.CodePage);   // ロールバック(932→65001)
         Assert.False(doc.State.HasBom);                    // ロールバック
         Assert.Equal(LineEnding.Crlf, doc.State.LineEnding); // ロールバック
         Assert.Contains(host.Prompt.Log, e => e.Kind == "Error" && e.Text.StartsWith("保存できませんでした"));

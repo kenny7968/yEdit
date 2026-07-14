@@ -5,7 +5,7 @@ namespace yEdit.App.Tests.Fakes;
 /// <summary>
 /// <see cref="IBackupWriter"/> のテスト用フェイク。in-memory Dictionary に格納するため
 /// 実 I/O(BackupStore.Write 等)は起きない=テストが Coordinator の呼び出し配線・状態機械を
-/// 純粋に観測できる。書込失敗の再現は <see cref="FailNextWriteWith"/> を使う。
+/// 純粋に観測できる。書込失敗の再現は <see cref="OnWriteFailed"/> をテスト側で直接 Invoke する。
 /// </summary>
 public sealed class FakeBackupWriter : IBackupWriter
 {
@@ -26,19 +26,9 @@ public sealed class FakeBackupWriter : IBackupWriter
 
     public Action<string>? OnWriteFailed { get; set; }
 
-    /// <summary>次の Write を失敗させる(Id を通知)。挙動: Store には格納せず OnWriteFailed を発火。</summary>
-    private string? _failNextWriteId;
-    public void FailNextWriteWith(string id) => _failNextWriteId = id;
-
     public void Write(BackupRecord record)
     {
         Writes.Add(record);
-        if (_failNextWriteId is not null && _failNextWriteId == record.Id)
-        {
-            _failNextWriteId = null;
-            OnWriteFailed?.Invoke(record.Id);
-            return;
-        }
         Store[record.Id] = record;
     }
 

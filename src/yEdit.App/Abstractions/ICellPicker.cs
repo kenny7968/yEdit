@@ -7,7 +7,7 @@ public enum CellPickKind
     Canceled,
     /// <summary>OK を押したが入力書式が不正("行,列" として解釈不能)。呼び出し側が「書式が不正です」を通知する。</summary>
     InvalidFormat,
-    /// <summary>OK+書式 OK。<see cref="Row1"/>/<see cref="Col1"/> は 1 始まり。範囲外判定は呼び出し側(CsvController)が行う。</summary>
+    /// <summary>OK+書式 OK。<see cref="CellPickResult.Row1"/>/<see cref="CellPickResult.Col1"/> は 1 始まり。範囲外判定は呼び出し側(CsvController)が行う。</summary>
     Ok,
 }
 

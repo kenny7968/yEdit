@@ -54,6 +54,10 @@ public class GrepControllerTests
     private static readonly string ExistingFolder =
         Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
+    /// <summary>DefaultFolder の "activePath 由来" と "MyDocuments フォールバック" を区別するための実在ディレクトリ(必ず MyDocuments と異なる)。</summary>
+    private static readonly string TempFolder =
+        Path.TrimEndingDirectorySeparator(Path.GetTempPath());
+
     // ===== ctor(対応固定=生成時点で view/results/searchFn 呼び出しなし) =====
 
     [Fact]
@@ -73,14 +77,14 @@ public class GrepControllerTests
     {
         using var host = new Host();
         var doc = host.NewDoc("body");
-        doc.State.Path = Path.Combine(ExistingFolder, "sample.txt"); // ディレクトリ=ExistingFolder
+        doc.State.Path = Path.Combine(TempFolder, "sample.txt"); // ディレクトリ=TempFolder(MyDocuments フォールバックと区別)
 
         host.Grep.Open();
 
         Assert.Equal(1, host.ViewFactoryCalls);
         Assert.Equal(1, host.View.ShowAndFocusCount);
         Assert.True(host.View.Visible);
-        Assert.Equal(new[] { ExistingFolder }, host.View.FolderLog); // 空だったので DefaultFolder が設定される
+        Assert.Equal(new[] { TempFolder }, host.View.FolderLog); // activePath から派生した DefaultFolder が設定される
     });
 
     [Fact]
@@ -165,6 +169,7 @@ public class GrepControllerTests
 
         Assert.Equal(new[] { "フォルダが見つかりません" }, host.View.Notifications);
         Assert.Empty(host.SearchFn.Invocations);
+        Assert.Empty(host.View.RunningLog);   // SetRunning にも到達しない
     });
 
     [Fact]
@@ -181,6 +186,7 @@ public class GrepControllerTests
 
         Assert.Equal(new[] { "正規表現が正しくありません" }, host.View.Notifications);
         Assert.Empty(host.SearchFn.Invocations);
+        Assert.Empty(host.View.RunningLog);   // SetRunning にも到達しない
     });
 
     [Fact]

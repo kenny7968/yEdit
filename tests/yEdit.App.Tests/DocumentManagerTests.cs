@@ -8,33 +8,8 @@ namespace yEdit.App.Tests;
 /// </summary>
 public class DocumentManagerTests
 {
-    /// <summary>
-    /// テストホスト用フォーム。フォーカスを奪わないよう非アクティブで表示し、画面外に置く。
-    /// </summary>
-    private sealed class HostForm : Form
-    {
-        protected override bool ShowWithoutActivation => true;
-    }
-
-    /// <summary>
-    /// Form に TabHost を載せて「可視状態」まで作る(実運用と同じ前提)。
-    /// TabControl の Selected/Deselecting/SelectedIndexChanged は、ハンドル生成だけでは
-    /// プログラム切替で発火せず、ウィンドウが可視のときのみ同期発火する(プローブで実測)。
-    /// 実運用の MainForm は常に可視なので、可視で作るのが挙動の忠実な再現。
-    /// </summary>
-    private static (Form form, DocumentManager dm) Make()
-    {
-        var form = new HostForm
-        {
-            ShowInTaskbar = false,
-            StartPosition = FormStartPosition.Manual,
-            Location = new System.Drawing.Point(-32000, -32000), // 画面外(テスト実行中のチラつき防止)
-        };
-        var dm = new DocumentManager(() => new EditorControl());
-        form.Controls.Add(dm.TabHost);
-        form.Show();
-        return (form, dm);
-    }
+    /// <summary>可視状態の HostForm+DocumentManager を作る(可視が必要な理由と共通化の経緯は TestHost.cs 参照)。</summary>
+    private static (Form form, DocumentManager dm) Make() => HostForm.CreateWithDocs();
 
     /// <summary>クリーンな本文を持つ文書を作る(Text セッター=新規バッファで Modified=false)。</summary>
     private static Document NewDocWithText(DocumentManager dm, string text)

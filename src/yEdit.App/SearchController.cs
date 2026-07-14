@@ -15,20 +15,23 @@ public sealed class SearchController
     private readonly DocumentManager _docs;
     private readonly Form _owner;
     private readonly IAnnouncer _announcer;
-    private FindReplaceDialog? _dialog;
+    private readonly Func<FindReplaceCallbacks, IFindReplaceView> _viewFactory;
+    private IFindReplaceView? _view;
     private MatchSpan? _lastHit; // 直前に選択したヒット（ゼロ幅でも前進できるよう歩進に使う）
     private (int Start, int End)? _selectionScope; // 「選択範囲のみ」ON 時に捕捉した置換対象範囲
 
-    public SearchController(DocumentManager docs, Form owner, IAnnouncer announcer)
+    public SearchController(DocumentManager docs, Form owner, IAnnouncer announcer,
+        Func<FindReplaceCallbacks, IFindReplaceView> viewFactory)
     {
         _docs = docs;
         _owner = owner;
         _announcer = announcer;
+        _viewFactory = viewFactory;
         _docs.ActiveDocumentChanged += (_, _) =>
         {
             _lastHit = null;                              // 別文書の歩進状態を持ち越さない
             _selectionScope = null;                       // 別文書へ切替時は捕捉済みスコープも無効化
-            if (_dialog?.Visible == true) UpdateCount();  // 表示中なら新アクティブで件数を更新
+            if (_view?.Visible == true) UpdateCount();    // 表示中なら新アクティブで件数を更新
         };
     }
 
@@ -42,17 +45,19 @@ public sealed class SearchController
 
     private void Open(bool replaceMode)
     {
-        if (_dialog is null || _dialog.IsDisposed) _dialog = new FindReplaceDialog(this);
-        _dialog.SetMode(replaceMode);
-        if (!_dialog.Visible) _dialog.Show(_owner);
-        _dialog.Activate();
-        _dialog.FocusPattern();
+        if (_view is null || _view.IsDisposed)
+            _view = _viewFactory(new FindReplaceCallbacks(
+                FindNext: FindNext, FindPrev: FindPrev,
+                ReplaceOne: ReplaceOne, ReplaceAll: ReplaceAll,
+                UpdateCount: UpdateCount, InSelectionToggled: OnInSelectionToggled));
+        _view.SetMode(replaceMode);
+        _view.ShowAndFocus(_owner); // 従来の「!Visible なら Show→Activate→FocusPattern」と同順(ビュー側に集約)
         UpdateCount();
     }
 
     private SearchOptions? CurrentOptions()
     {
-        var d = _dialog;
+        var d = _view;
         if (d is null || string.IsNullOrEmpty(d.Pattern)) return null;
         return new SearchOptions(d.Pattern, d.MatchCase, d.WholeWord, d.UseRegex);
     }
@@ -60,7 +65,7 @@ public sealed class SearchController
     /// <summary>増分カウント（移動しない）。エラー/タイムアウトはステータスのみ更新（通知しない）。</summary>
     public void UpdateCount()
     {
-        var d = _dialog;
+        var d = _view;
         if (d is null) return;
         var opts = CurrentOptions();
         if (opts is null) { d.SetStatus(""); return; }
@@ -138,7 +143,7 @@ public sealed class SearchController
     {
         var ed = ActiveEditor;
         var opts = CurrentOptions();
-        var d = _dialog;
+        var d = _view;
         if (ed is null || opts is null || d is null) return;
         if (IsCsvModeActive) { Announce(CsvAnnounceFormatter.BlockedInCsvMode); return; }
         var searcher = new SnapshotSearcher(opts);
@@ -208,7 +213,7 @@ public sealed class SearchController
     {
         var ed = ActiveEditor;
         var opts = CurrentOptions();
-        var d = _dialog;
+        var d = _view;
         if (ed is null || opts is null || d is null) return;
         if (IsCsvModeActive) { Announce(CsvAnnounceFormatter.BlockedInCsvMode); return; }
         var searcher = new SnapshotSearcher(opts);
@@ -245,11 +250,11 @@ public sealed class SearchController
     /// <summary>MainForm 底部の通知 Label へ SR ライブ通知(Say 契約: 空は視覚クリアのみ・発声なし)。
     /// dialog が表示中なら dialog 内の視覚ステータスも更新して、置換結果の可視表示が
     /// dialog 内で維持される(晴眼/弱視ユーザーの UX 保持=SetStatus は発声しないので二重発声にならない)。
-    /// P7/P8 申し送り: G-2 で「次を検索」後にダイアログを Hide するため、Hidden な _dialog を
+    /// P7/P8 申し送り: G-2 で「次を検索」後にダイアログを Hide するため、Hidden な _view を
     /// 経由せず MainForm 共有 Announcer 直結で SR 発声を成立させる。</summary>
     internal void Announce(string message)
     {
         _announcer.Say(message);
-        if (_dialog?.Visible == true) _dialog.SetStatus(message);
+        if (_view?.Visible == true) _view.SetStatus(message);
     }
 }

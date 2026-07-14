@@ -168,3 +168,12 @@ PC-Talker サポート廃止(`docs/plans/2026-07-13-pctalker-removal-design.md`)
 - **★Task 6 のテストが実バグを発見(復元 dirty 化バグ・ユーザー判断=別ブランチで修正)**: RestoreFromBackup で復元したタブが Modified=false(実装コメントの意図「SetSavePoint しない → Modified=true」と乖離。TextBuffer は生成時に保存点を持つ)。影響: ①「*」なし ②次の Reconcile でバックアップ本体が削除 ③終了時の保存確認スキップ=復元内容のサイレント恒久喪失。Stage 3 では現行挙動の特徴付け(バグ注記付き)とし、マージ後の修正ブランチで復元 dirty 化+テスト期待反転を行う(詳細=実装計画の申し送り)。
 - **レビューの学び(ミューテーションテストの常用)**: Task 4〜6 の品質レビューで「既定値と同値のため空振りする assert」を 3 件検出(SaveAs ロールバックの Encoding・LoadFailure の直前タブ復帰・path レコードの無題番号 0 化)、いずれも実装行の一時変異→赤→復元で実効性を証明のうえ修正。TabControl は選択中タブ除去後に**先頭(index 0)を自動選択**する(直前 index ではない)ことも実測で確定。Stage 4 以降のテストレビューでもミューテーション検証を標準とする。
 - **マージ**: main へ no-ff マージ=**`e50c4e6`**(2026-07-14・マージ直前の main=`6fc1626`)。マージ後ゲート全緑 827(Release 0 警告)。フィーチャーブランチ削除済み。
+
+### Stage 4 実施記録(2026-07-14)
+
+- **完了**: 実装計画=`docs/plans/2026-07-14-test-strategy-phase2-stage4.md`(Subagent-Driven Development・各 Task 2 段レビュー)。①IFindReplaceView+FindReplaceCallbacks シーム(§2.2 からの精密化 2 点=ファクトリの `Func<FindReplaceCallbacks, IFindReplaceView>` 化・IsDisposed 追加。根拠は実装計画 §0)=`28a71a8` ②FindReplaceDialog のコールバック化で SearchController への型参照を除去(相互参照の切断=§5)+ShowAndFocus 集約(挙動不変)=`89572d9` ③SearchControllerTests 32 件(Open ライフサイクル/歩進(ゼロ幅前進)/文書切替リセット/置換系(VSCode 準拠・空置換前進・選択スコープ)/CSV 抑止/コールバック対応固定)+AnnouncerTests 1 件(空白のみメッセージ=IsNullOrEmpty ガードの特徴付け・Stage 2 申し送り回収)=`d14ceec`/`1213de1`/`5de45f8`。
+- **レビュー由来の増分**: Task 3 品質レビュー指摘(同型 delegate の位置取り違えがコンパイル・テストとも検出不能)対応で、FindReplaceCallbacks 構築の名前付き引数化(`0ba0ad1`)+対応固定テスト 1 件を追加(計画 864→実績 865)。
+- **テストユーティリティ共通化**: 可視 HostForm パターンを `TestHost.cs` へ抽出(「3 copy 目が現れたら」ルール発動=Stage 3 申し送りの判断)。DocumentManagerTests/FileControllerTests も追随=`64f0fbb`。Sta.cs の共有抽出(3 プロジェクト目条件)は未成立のため見送り継続。
+- **テスト数**: 832 → **865**(App 41→74・純増 +33)。ゲート全通過(Release 0 警告)。
+- **ミューテーション検証(Stage 3 由来の標準)**: Task 5〜7 の品質レビューで計 18 変異を実施し 17 kill(いずれも想定テストのみが赤=1:1 対応)。生存 1 は Find 未ヒット分岐の `_lastHit = null`(準等価変異)=実装計画の申し送りに記録。空振りリスク 1 件(ResetsStepState の文言 assert)は発声カウント assert で堅牢化済み。全テストが現行実装のまま初回 green=置換系に実装バグの兆候なし。
+- **L5 スポット確認**: 不要(§5 のとおりダイアログ抽象化のみで SR 経路不変。Announce は同一 UiaAnnouncer・ダイアログ表示手順同順)。

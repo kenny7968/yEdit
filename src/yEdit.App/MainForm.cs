@@ -54,7 +54,7 @@ public sealed partial class MainForm : Form
             SaveSettingsSafe, RebuildRecentMenu, () => { UpdateTitle(); UpdateStatus(); },
             AutoEnterCsvMode, new MessageBoxUserPrompt(), new WinFormsFileDialogService());
         _announcer = new UiaAnnouncer(_announceLabel);
-        _search = new SearchController(_docs, this, _announcer);
+        _search = new SearchController(_docs, this, _announcer, cb => new FindReplaceDialog(cb));
         _grep = new GrepController(_docs, this,
             hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength));
         _backup = new BackupCoordinator(_docs, _settings.BackupEnabled, _settings.BackupIntervalSeconds);

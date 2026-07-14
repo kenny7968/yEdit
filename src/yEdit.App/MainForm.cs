@@ -63,7 +63,7 @@ public sealed partial class MainForm : Form
             TimeProvider.System,
             () => new SerialBackupWriter(BackupStore.DefaultDirectory),
             new WinFormsRestorePrompt());
-        _csv = new CsvController(_docs, _announcer);
+        _csv = new CsvController(docs: _docs, announcer: _announcer, cellPicker: new WinFormsCellPicker());
         _docs.BeforeActiveChange = () => _csv.AbortEdit(); // タブ切替直前に F2 編集を中断（焦点の引き戻し防止）
         // P6 で編集エンジンが自作 EditorControl (v2 UIA 単一経路) に統一されたため、
         // CSVモード中に Editor がフォーカスを得た瞬間にシンクへ強制退避していた仕組みは撤去。

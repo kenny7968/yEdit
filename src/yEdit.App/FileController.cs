@@ -307,7 +307,7 @@ public sealed class FileController
         };
     }
 
-    /// <summary>バックアップ記録を新タブへ復元する。本文・メタを載せ、保存点は打たず dirty のままにする。</summary>
+    /// <summary>バックアップ記録を新タブへ復元する。本文・メタを載せ、保存点を破棄して dirty にする。</summary>
     public Document RestoreFromBackup(BackupRecord rec)
     {
         var doc = _docs.CreateNew();

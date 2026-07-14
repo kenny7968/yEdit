@@ -6,17 +6,18 @@ namespace yEdit.App;
 /// <summary>
 /// grep 結果のモードレス一覧（ListBox・1 行 1 ヒット）。標準 Win32 ListBox なので
 /// PC-Talker/NVDA が各項目をネイティブに読む（我々の UIA 層は不要）。Enter/ダブルクリックで
-/// 選択ヒットを <see cref="HitActivated"/> で発火し、上位（MainForm）がジャンプする。
+/// 選択ヒットを生成時に受け取ったコールバック(<see cref="GrepResultsCallbacks.OnActivate"/>)で
+/// 通知し、上位（MainForm）がジャンプする。
 /// </summary>
-public sealed class GrepResultsWindow : Form
+public sealed class GrepResultsWindow : Form, IGrepResultsView
 {
+    private readonly GrepResultsCallbacks _cb;
     private readonly ListBox _list = new() { Dock = DockStyle.Fill, IntegralHeight = false, HorizontalScrollbar = true };
     private string _baseFolder = "";
 
-    public event Action<GrepHit>? HitActivated;
-
-    public GrepResultsWindow()
+    public GrepResultsWindow(GrepResultsCallbacks callbacks)
     {
+        _cb = callbacks;
         Text = "検索結果";
         Width = 760;
         Height = 420;
@@ -47,7 +48,7 @@ public sealed class GrepResultsWindow : Form
     }
 
     /// <summary>窓を前面に出して結果リストへフォーカスする（SR が先頭ヒットを読む）。</summary>
-    public void ShowResults(Form owner)
+    public void ShowResults(IWin32Window owner)
     {
         if (!Visible) Show(owner);
         Activate();
@@ -75,7 +76,7 @@ public sealed class GrepResultsWindow : Form
 
     private void ActivateSelected()
     {
-        if (_list.SelectedItem is Row row) HitActivated?.Invoke(row.Hit);
+        if (_list.SelectedItem is Row row) _cb.OnActivate(row.Hit);
     }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)

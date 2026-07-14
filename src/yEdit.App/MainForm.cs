@@ -56,8 +56,12 @@ public sealed partial class MainForm : Form
             AutoEnterCsvMode, new MessageBoxUserPrompt(), new WinFormsFileDialogService());
         _announcer = new UiaAnnouncer(_announceLabel);
         _search = new SearchController(_docs, this, _announcer, cb => new FindReplaceDialog(cb));
-        _grep = new GrepController(_docs, this,
-            hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength));
+        _grep = new GrepController(
+            docs: _docs,
+            owner: this,
+            jumpTo: hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength),
+            viewFactory: cb => new GrepDialog(cb),
+            resultsFactory: cb => new GrepResultsWindow(cb));
         _backup = new BackupCoordinator(
             _docs, _settings.BackupEnabled, _settings.BackupIntervalSeconds,
             TimeProvider.System,

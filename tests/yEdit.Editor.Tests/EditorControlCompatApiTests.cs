@@ -167,6 +167,40 @@ public class EditorControlCompatApiTests
         });
     }
 
+    // バックアップ復元の dirty 化: 保存点破棄で Modified=true になり SavePointLeft が 1 回だけ発火し、
+    // 直後の編集で(_wasModified が陳腐化した誤検出による)二重発火をしない
+    [Fact]
+    public void ClearSavePoint_MakesModified_FiresSavePointLeftOnce()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("hello"));
+            Assert.False(ctrl.Modified);          // fresh バッファ=クリーン
+            int leftFires = 0;
+            ctrl.SavePointLeft += (_, _) => leftFires++;
+            ctrl.ClearSavePoint();
+            Assert.True(ctrl.Modified);           // 編集なしでも dirty(タブ「*」表示へ)
+            Assert.Equal(1, leftFires);
+            ctrl.ReplaceCharRange(0, 5, "xxx");   // Modified true のまま → 追加発火なし
+            Assert.Equal(1, leftFires);
+        });
+    }
+
+    [Fact]
+    public void ClearSavePoint_BeforeSetSource_IsNoOp()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            int leftFires = 0;
+            ctrl.SavePointLeft += (_, _) => leftFires++;
+            ctrl.ClearSavePoint();                // dirty にすべき本文が存在しない=何も起きない
+            Assert.False(ctrl.Modified);
+            Assert.Equal(0, leftFires);
+        });
+    }
+
     // -------- Task 10: CurrentBuffer --------
 
     [Fact]

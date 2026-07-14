@@ -433,7 +433,7 @@ public class FileControllerTests
     });
 
     [Fact]
-    public void RestoreFromBackup_UntitledRecord_KeepsNumber_AndAdvancesSeq() => Sta.Run(() =>
+    public void RestoreFromBackup_UntitledRecord_KeepsNumber_StaysDirty_AndAdvancesSeq() => Sta.Run(() =>
     {
         using var host = new Host();
         var rec = new BackupRecord("id-1", OriginalPath: null, UntitledNumber: 5,
@@ -445,12 +445,8 @@ public class FileControllerTests
         Assert.Equal(932, doc.State.Encoding.CodePage);
         Assert.Equal(LineEnding.Lf, doc.State.LineEnding);
         Assert.Equal("abc", doc.Editor.Text);
-        // 【既知バグの特徴付け】実装コメントの意図は「SetSavePoint しない → Modified=true のまま」だが、
-        // TextBuffer.FromString は生成時に保存点を持つ(TextBuffer.cs の _savedRoot=root)ため現行挙動は
-        // Modified=false=「*」も付かない。復元内容がサイレント喪失し得る(計画書の申し送り参照)。
-        // 修正ブランチでこの 2 assert を本来意図(True/「* 無題 5」)へ反転する。
-        Assert.False(doc.Editor.Modified);
-        Assert.Equal("無題 5", doc.Page.Text);
+        Assert.True(doc.Editor.Modified);                  // 保存点を打たない=ユーザーが保存できる(復元 dirty 化バグの修正で本来意図へ)
+        Assert.Equal("* 無題 5", doc.Page.Text);
 
         host.File.NewFile();                               // 連番カウンタは既存最大値の先へ進む
         Assert.Equal(6, host.Docs.Active!.State.UntitledNumber);
@@ -471,9 +467,7 @@ public class FileControllerTests
         Assert.Equal(0, doc.State.UntitledNumber);         // path レコードは旧無題番号(7)を無視して 0 化
         Assert.True(doc.State.HasBom);
         Assert.Equal("", doc.Editor.Text);                 // JSON 破損(null)でも空タブ復元で継続(レビュー M-5 の防御)
-        // 【既知バグの特徴付け】上のテストと同じ(申し送り参照)。修正ブランチで Modified と
-        // ラベルの 2 assert を本来意図(True/「* b.txt」)へ反転する。
-        Assert.False(doc.Editor.Modified);
-        Assert.Equal("b.txt", doc.Page.Text);
+        Assert.True(doc.Editor.Modified);                  // 復元 dirty 化バグの修正で本来意図へ
+        Assert.Equal("* b.txt", doc.Page.Text);
     });
 }

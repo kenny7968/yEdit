@@ -139,6 +139,42 @@ public class UndoTests
     }
 
     [Fact]
+    public void MarkUnsaved_pins_modified_until_next_save_point()
+    {
+        var b = TextBuffer.FromString("doc");
+        Assert.False(b.Modified);              // fresh バッファは生成時に保存点を持つ
+        b.MarkUnsaved();
+        Assert.True(b.Modified);               // 保存点破棄=編集なしでも dirty(バックアップ復元)
+        b.MarkSaved();
+        Assert.False(b.Modified);              // 保存で解除=以後は通常の参照比較へ戻る
+        b.Insert(3, "!");
+        Assert.True(b.Modified);
+        b.Undo();
+        Assert.False(b.Modified);              // 解除後は Undo で保存点へ戻れる(フラグが残留しない)
+    }
+
+    [Fact]
+    public void MarkUnsaved_pins_modified_even_for_empty_buffer()
+    {
+        // 空文書はルートも保存時ルートも null=参照比較では絶対に dirty にできない経路。
+        // フラグでない代替実装(_savedRoot 差し替え等)をここで弾く。
+        var b = TextBuffer.FromString("");
+        Assert.False(b.Modified);
+        b.MarkUnsaved();
+        Assert.True(b.Modified);
+    }
+
+    [Fact]
+    public void MarkUnsaved_keeps_modified_when_undo_returns_to_original_root()
+    {
+        var b = TextBuffer.FromString("doc");
+        b.MarkUnsaved();
+        b.Insert(3, "!");
+        b.Undo();                              // 生成時ルートへ戻っても保存点は存在しない
+        Assert.True(b.Modified);               // =復元内容は依然どこにも保存されていない
+    }
+
+    [Fact]
     public void New_edit_after_undo_discards_redo()
     {
         var b = TextBuffer.FromString("");

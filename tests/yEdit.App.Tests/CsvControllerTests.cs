@@ -273,6 +273,7 @@ public class CsvControllerTests
         using var host = new Host();
         var doc = host.NewCsvDoc(Grid3x3);
         host.Csv.TryEnterMode(doc);
+        host.Csv.Move(Direction.Right); host.Csv.Move(Direction.Down); // 既定 (0,0) から (1,1) へ
         host.Announcer.Said.Clear();
         host.Picker.NextResult = CellPickResult.Canceled;
 
@@ -280,8 +281,8 @@ public class CsvControllerTests
 
         Assert.Equal(1, host.Picker.PickCount);
         Assert.Empty(host.Announcer.Said);      // Cancel は無音
-        Assert.Equal(0, doc.State.CsvRow);      // 状態変化なし
-        Assert.Equal(0, doc.State.CsvCol);
+        Assert.Equal(1, doc.State.CsvRow);      // 変化なし=(1,1) のまま
+        Assert.Equal(1, doc.State.CsvCol);
     });
 
     [Fact]
@@ -290,14 +291,15 @@ public class CsvControllerTests
         using var host = new Host();
         var doc = host.NewCsvDoc(Grid3x3);
         host.Csv.TryEnterMode(doc);
+        host.Csv.Move(Direction.Right); host.Csv.Move(Direction.Down); // 既定 (0,0) から (1,1) へ
         host.Announcer.Said.Clear();
         host.Picker.NextResult = CellPickResult.InvalidFormat;
 
         host.Csv.GoToCell();
 
         Assert.Equal(CsvAnnounceFormatter.BadCellFormat, host.Announcer.Said[^1]);
-        Assert.Equal(0, doc.State.CsvRow);
-        Assert.Equal(0, doc.State.CsvCol);
+        Assert.Equal(1, doc.State.CsvRow);      // 変化なし=(1,1) のまま
+        Assert.Equal(1, doc.State.CsvCol);
     });
 
     [Fact]
@@ -306,14 +308,15 @@ public class CsvControllerTests
         using var host = new Host();
         var doc = host.NewCsvDoc(Grid3x3);
         host.Csv.TryEnterMode(doc);
+        host.Csv.Move(Direction.Right); host.Csv.Move(Direction.Down); // 既定 (0,0) から (1,1) へ
         host.Announcer.Said.Clear();
         host.Picker.NextResult = CellPickResult.Ok(99, 99);   // 3×3 の外
 
         host.Csv.GoToCell();
 
         Assert.Equal(CsvAnnounceFormatter.OutOfRange, host.Announcer.Said[^1]);
-        Assert.Equal(0, doc.State.CsvRow);
-        Assert.Equal(0, doc.State.CsvCol);
+        Assert.Equal(1, doc.State.CsvRow);      // 変化なし=(1,1) のまま
+        Assert.Equal(1, doc.State.CsvCol);
     });
 
     [Fact]
@@ -338,13 +341,15 @@ public class CsvControllerTests
         using var host = new Host();
         var doc = host.NewCsvDoc(Grid3x3);
         host.Csv.TryEnterMode(doc);
-        host.Csv.Move(Direction.Right); host.Csv.Move(Direction.Down); // (1,1)
+        // 非対称位置(1,2)= 2 行 3 列。Pick 呼び出しで row と col の取り違えを検出可能にする。
+        host.Csv.Move(Direction.Down);
+        host.Csv.Move(Direction.Right); host.Csv.Move(Direction.Right);
         host.Picker.NextResult = CellPickResult.Canceled;
 
         host.Csv.GoToCell();
 
-        Assert.Equal(2, host.Picker.LastCurrentRow1); // 1 始まり
-        Assert.Equal(2, host.Picker.LastCurrentCol1);
+        Assert.Equal(2, host.Picker.LastCurrentRow1); // 2 行(1 始まり)
+        Assert.Equal(3, host.Picker.LastCurrentCol1); // 3 列(1 始まり)
     });
 
     // ===== 読み上げ(移動なし) =====
@@ -448,7 +453,7 @@ public class CsvControllerTests
     // ===== parse-error 後始末(モード中に本文が引用符未終端になったケース) =====
 
     [Fact]
-    public void AnyCommand_AfterContentBecomesUnparseable_AnnouncesParseError_ClearsHighlight() => Sta.Run(() =>
+    public void AnyCommand_AfterContentBecomesUnparseable_AnnouncesParseError() => Sta.Run(() =>
     {
         using var host = new Host();
         var doc = host.NewCsvDoc(Grid3x3);

@@ -247,4 +247,221 @@ public class CsvControllerTests
         Assert.Equal(0, doc.State.CsvCol);
         Assert.Equal(CsvAnnounceFormatter.Cell("a1", 1, 1), host.Announcer.Said[^1]);
     });
+
+    // ===== 端ジャンプ(残り) =====
+
+    [Fact]
+    public void MoveBottomRight_MovesToLastCell() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        host.Announcer.Said.Clear();
+
+        host.Csv.MoveBottomRight();
+
+        Assert.Equal(2, doc.State.CsvRow);
+        Assert.Equal(2, doc.State.CsvCol);
+        Assert.Equal(CsvAnnounceFormatter.Cell("c3", 3, 3), host.Announcer.Said[^1]);
+    });
+
+    // ===== GoToCell(3 分岐+対応固定) =====
+
+    [Fact]
+    public void GoToCell_PickerCanceled_NoAnnounce_NoChange() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        host.Announcer.Said.Clear();
+        host.Picker.NextResult = CellPickResult.Canceled;
+
+        host.Csv.GoToCell();
+
+        Assert.Equal(1, host.Picker.PickCount);
+        Assert.Empty(host.Announcer.Said);      // Cancel は無音
+        Assert.Equal(0, doc.State.CsvRow);      // 状態変化なし
+        Assert.Equal(0, doc.State.CsvCol);
+    });
+
+    [Fact]
+    public void GoToCell_InvalidFormat_AnnouncesBadFormat_NoChange() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        host.Announcer.Said.Clear();
+        host.Picker.NextResult = CellPickResult.InvalidFormat;
+
+        host.Csv.GoToCell();
+
+        Assert.Equal(CsvAnnounceFormatter.BadCellFormat, host.Announcer.Said[^1]);
+        Assert.Equal(0, doc.State.CsvRow);
+        Assert.Equal(0, doc.State.CsvCol);
+    });
+
+    [Fact]
+    public void GoToCell_OutOfRange_AnnouncesOutOfRange_NoChange() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        host.Announcer.Said.Clear();
+        host.Picker.NextResult = CellPickResult.Ok(99, 99);   // 3×3 の外
+
+        host.Csv.GoToCell();
+
+        Assert.Equal(CsvAnnounceFormatter.OutOfRange, host.Announcer.Said[^1]);
+        Assert.Equal(0, doc.State.CsvRow);
+        Assert.Equal(0, doc.State.CsvCol);
+    });
+
+    [Fact]
+    public void GoToCell_Ok_MovesToTarget_AnnouncesCell() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        host.Announcer.Said.Clear();
+        host.Picker.NextResult = CellPickResult.Ok(3, 2);     // 1 始まり=(2,1) 0 始まり="c2"
+
+        host.Csv.GoToCell();
+
+        Assert.Equal(2, doc.State.CsvRow);
+        Assert.Equal(1, doc.State.CsvCol);
+        Assert.Equal(CsvAnnounceFormatter.Cell("c2", 3, 2), host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void GoToCell_PassesCurrentCellToPicker_As1Based() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        host.Csv.Move(Direction.Right); host.Csv.Move(Direction.Down); // (1,1)
+        host.Picker.NextResult = CellPickResult.Canceled;
+
+        host.Csv.GoToCell();
+
+        Assert.Equal(2, host.Picker.LastCurrentRow1); // 1 始まり
+        Assert.Equal(2, host.Picker.LastCurrentCol1);
+    });
+
+    // ===== 読み上げ(移動なし) =====
+
+    [Fact]
+    public void ReadCurrent_AnnouncesCurrentCell_NoStateChange() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        host.Csv.Move(Direction.Right); // (0,1)
+        host.Announcer.Said.Clear();
+
+        host.Csv.ReadCurrent();
+
+        Assert.Equal(CsvAnnounceFormatter.Cell("a2", 1, 2), host.Announcer.Said[^1]);
+        Assert.Equal(0, doc.State.CsvRow);   // 位置は動かない
+        Assert.Equal(1, doc.State.CsvCol);
+    });
+
+    [Fact]
+    public void ReadColumnTopAndRowHead_AnnounceHeaders() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        host.Csv.Move(Direction.Right); host.Csv.Move(Direction.Down); // (1,1)
+        host.Announcer.Said.Clear();
+
+        host.Csv.ReadColumnTop();
+        Assert.Equal(CsvAnnounceFormatter.Header("a2"), host.Announcer.Said[^1]);
+
+        host.Csv.ReadRowHead();
+        Assert.Equal(CsvAnnounceFormatter.Header("b1"), host.Announcer.Said[^1]);
+    });
+
+    // ===== BeginEdit/AbortEdit(オーバーレイの起動配線のみ検証・Enter/Esc の E2E は L5 領分) =====
+
+    [Fact]
+    public void BeginEdit_NotInMode_IsNoOp() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewCsvDoc(Grid3x3); // モードに入らない
+
+        host.Csv.BeginEdit();
+
+        Assert.False(host.Csv.IsEditing);
+    });
+
+    [Fact]
+    public void BeginEdit_InMode_StartsOverlay_IsEditingTrue() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+
+        host.Csv.BeginEdit();
+
+        Assert.True(host.Csv.IsEditing);
+        host.Csv.AbortEdit(); // 後始末(HostForm 破棄前に必ず落とす)
+    });
+
+    [Fact]
+    public void AbortEdit_WhenEditing_ExitsEditing_AndIsIdempotent() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        host.Csv.BeginEdit();
+        Assert.True(host.Csv.IsEditing);
+
+        host.Csv.AbortEdit();
+        Assert.False(host.Csv.IsEditing);
+
+        host.Csv.AbortEdit(); // 2 回目=冪等(例外を出さない)
+        Assert.False(host.Csv.IsEditing);
+    });
+
+    // ===== クランプ(本文編集で行/列が減った後の補正) =====
+
+    [Fact]
+    public void Move_AfterContentReducedRows_ClampsToLastRow() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        host.Csv.MoveBottomRight();               // (2,2)
+        // 本文を 1 行だけに置換(モード中でも Text setter は無条件で通る=クランプ機構のテスト)
+        doc.Editor.ReadOnly = false;
+        doc.Editor.Text = "x1,x2,x3";
+        doc.Editor.ReadOnly = true;
+        host.Announcer.Said.Clear();
+
+        host.Csv.ReadCurrent();                    // (2,2) → クランプ → (0,2)
+
+        Assert.Equal(0, doc.State.CsvRow);
+        Assert.Equal(2, doc.State.CsvCol);
+        Assert.Equal(CsvAnnounceFormatter.Cell("x3", 1, 3), host.Announcer.Said[^1]);
+    });
+
+    // ===== parse-error 後始末(モード中に本文が引用符未終端になったケース) =====
+
+    [Fact]
+    public void AnyCommand_AfterContentBecomesUnparseable_AnnouncesParseError_ClearsHighlight() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        // モード中に本文を書き換えて Ok=false 化(引用符未終端)
+        doc.Editor.ReadOnly = false;
+        doc.Editor.Text = "a1,\"broken\nx,y";
+        doc.Editor.ReadOnly = true;
+        doc.ClearCsvCache();                        // Snapshot の再パースを強制
+        host.Announcer.Said.Clear();
+
+        host.Csv.Move(Direction.Right);             // TryContext が ParseError を通知
+
+        Assert.Contains(CsvAnnounceFormatter.ParseError, host.Announcer.Said);
+    });
 }

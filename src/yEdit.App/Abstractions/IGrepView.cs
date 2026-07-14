@@ -13,7 +13,8 @@ public sealed record GrepCallbacks(Func<Task> RunAsync, Action Cancel);
 /// GrepDialog の Controller 向け表面(Phase 2 設計書 §2.2)。
 /// GrepController は入力値の読み取りとこの表示操作だけでビューを扱う。
 /// IsDisposed は Progress コールバック/await 後の再入判定で従来コードを一字一句保存するために載せる
-/// (Form が既に持つ)。Visible は Open の再表示判定で使う(現行 Open の `if (!_dialog.Visible)`)。
+/// (Form が既に持つ)。Visible は Stage 4 の <see cref="IFindReplaceView"/> との対称性のため公開
+/// (実ビューは自クラス内の <c>ShowAndFocus</c> で Form.Visible を直接参照・Fake は Show/Hide の可視状態検証に用いる)。
 /// </summary>
 public interface IGrepView
 {

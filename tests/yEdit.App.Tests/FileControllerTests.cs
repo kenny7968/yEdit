@@ -200,4 +200,144 @@ public class FileControllerTests
 
         Assert.DoesNotContain(host.Prompt.Log, e => e.Kind == "OkCancel");
     });
+
+    // ===== 開く系(TryOpenOrActivate は path を開く唯一の経路) =====
+
+    [Fact]
+    public void TryOpenOrActivate_NewFile_LoadsMetaContent_AndFiresOpenedFresh() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        using var tmp = new TempDir();
+        string path = tmp.File("a.txt");
+        File2.WriteAllBytes(path,
+            new byte[] { 0xEF, 0xBB, 0xBF }.Concat(Encoding.UTF8.GetBytes("あい\r\nう")).ToArray());
+
+        var doc = host.File.TryOpenOrActivate(path);
+
+        Assert.NotNull(doc);
+        Assert.Equal(path, doc!.State.Path);
+        Assert.Equal(65001, doc.State.Encoding.CodePage);
+        Assert.True(doc.State.HasBom);                       // BOM 検出の配線
+        Assert.Equal(LineEnding.Crlf, doc.State.LineEnding); // 改行検出の配線
+        Assert.Equal("あい\r\nう", doc.Editor.Text);
+        Assert.False(doc.Editor.Modified);                   // SetSavePoint 済み
+        Assert.Same(doc, Assert.Single(host.OpenedFresh));   // .csv 自動モード判定への通知
+        Assert.Equal(path, host.Settings.RecentFiles[0]);
+    });
+
+    [Fact]
+    public void TryOpenOrActivate_AlreadyOpen_ActivatesExistingTab_WithoutReload() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        using var tmp = new TempDir();
+        string path = tmp.File("a.txt");
+        File2.WriteAllText(path, "abc");
+        var first = host.File.TryOpenOrActivate(path);
+        _ = host.Docs.CreateNew(); // 別タブをアクティブにしてから再オープン
+
+        var second = host.File.TryOpenOrActivate(path);
+
+        Assert.Same(first, second);              // 既存タブ再利用(二重編集の上書き事故防止)
+        Assert.Same(first, host.Docs.Active);    // アクティブ化
+        Assert.Equal(2, host.Docs.Count);        // タブは増えない
+        Assert.Single(host.OpenedFresh);         // 再ロードなし=openedFresh は初回のみ
+    });
+
+    [Fact]
+    public void TryOpenOrActivate_LoadFailure_DiscardsScratchTab_AndRestoresPrevious() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        using var tmp = new TempDir();
+        var prev = host.Docs.CreateNew();
+
+        // Task 4 と同じ方式: 実在し得る絶対パス直書きを避け、一時フォルダ配下の
+        // 存在しないサブフォルダを使う(レビュー申し送り)。
+        var doc = host.File.TryOpenOrActivate(tmp.File(@"no-such-dir\no-such-file.txt"));
+
+        Assert.Null(doc);
+        Assert.Equal(1, host.Docs.Count);      // 作りかけタブは破棄
+        Assert.Same(prev, host.Docs.Active);   // 直前のアクティブへ復帰
+        Assert.Contains(host.Prompt.Log, e => e.Kind == "Error" && e.Text.StartsWith("開けませんでした"));
+    });
+
+    [Fact]
+    public void TryOpenOrActivate_SuppressAutoCsv_DoesNotFireOpenedFresh() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        using var tmp = new TempDir();
+        string path = tmp.File("a.csv");
+        File2.WriteAllText(path, "a,b");
+
+        var doc = host.File.TryOpenOrActivate(path, suppressAutoCsv: true); // grep ジャンプ経路
+
+        Assert.NotNull(doc);
+        Assert.Empty(host.OpenedFresh); // 選択+エディタフォーカスを機能させるため自動 CSV を抑止
+    });
+
+    [Fact]
+    public void OpenFileWithDialog_UsesPickedPath_AndCancelDoesNothing() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        using var tmp = new TempDir();
+        host.Dialogs.OpenPath = null; // キャンセル
+        host.File.OpenFileWithDialog();
+        Assert.Equal(0, host.Docs.Count);
+
+        string path = tmp.File("a.txt");
+        File2.WriteAllText(path, "abc");
+        host.Dialogs.OpenPath = path;
+        host.File.OpenFileWithDialog();
+        Assert.Equal(path, host.Docs.Active!.State.Path); // 選択パスが唯一の開く経路へ流れる
+    });
+
+    // ===== 文字コード指定の開き直し =====
+
+    [Fact]
+    public void ReopenWithEncoding_WithoutPath_InformsAndSkipsDialog() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        _ = host.Docs.CreateNew(); // Path=null の無題
+
+        host.File.ReopenWithEncoding();
+
+        Assert.Contains(host.Prompt.Log, e => e.Kind == "Info" && e.Text == "ファイルを開いてから実行してください。");
+        Assert.Equal(0, host.Dialogs.PickEncodingCount); // ダイアログまで進まない
+    });
+
+    [Fact]
+    public void ReopenWithEncoding_ForcedCodePage_Reloads_AndReenablesUiaSelectionEvents() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        using var tmp = new TempDir();
+        string path = tmp.File("a.txt");
+        File2.WriteAllText(path, "abc"); // ASCII=どのコードページでも同一内容(判定を決定的にする)
+        var doc = host.File.TryOpenOrActivate(path)!;
+        // PC-Talker 廃止後も温存の UIA 配線: LoadInto が RaiseUiaSelectionEvents を確実に戻すことを固定
+        doc.Editor.RaiseUiaSelectionEvents = false;
+        host.Dialogs.EncodingCodePage = 932;
+
+        host.File.ReopenWithEncoding();
+
+        Assert.Equal(932, doc.State.Encoding.CodePage);
+        Assert.True(doc.Editor.RaiseUiaSelectionEvents);
+        Assert.Equal(2, host.OpenedFresh.Count); // 開き直しも .csv 自動モードの対象
+    });
+
+    [Fact]
+    public void ReopenWithEncoding_DirtyCancelled_AbortsBeforeDialog() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        using var tmp = new TempDir();
+        string path = tmp.File("a.txt");
+        File2.WriteAllText(path, "abc");
+        var doc = host.File.TryOpenOrActivate(path)!;
+        doc.Editor.ReplaceCharRange(0, 0, "x"); // dirty
+        host.Prompt.YesNoCancelResult = DialogResult.Cancel;
+
+        host.File.ReopenWithEncoding();
+
+        Assert.Equal(0, host.Dialogs.PickEncodingCount); // 未保存確認で中止=ダイアログまで進まない
+        Assert.True(doc.Editor.Modified);
+        Assert.Equal(65001, doc.State.Encoding.CodePage);
+    });
 }

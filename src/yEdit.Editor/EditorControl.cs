@@ -1237,6 +1237,23 @@ public sealed class EditorControl : Control, yEdit.Accessibility.IUiaTextHost
     }
 
     /// <summary>
+    /// 保存点を破棄して <see cref="Modified"/> を true に固定する(<see cref="TextBuffer.MarkUnsaved"/> の
+    /// 別名)。バックアップ復元のように「fresh バッファだが内容はどのファイルにも保存されていない」文書を
+    /// dirty として扱うための <see cref="SetSavePoint"/> の逆操作。SetSource 前は no-op
+    /// (dirty にすべき本文がまだ存在しない)。
+    /// </summary>
+    public void ClearSavePoint()
+    {
+        if (_buffer is null) return;
+        _buffer.MarkUnsaved();
+        // SetSavePoint と対称: _wasModified を同期し(次の AfterEdit が false→true 遷移を誤検出して
+        // SavePointLeft を二重発火しないように)、App 層(タブ「*」/タイトルバー)へは SavePointLeft で
+        // 「変更あり」表示への切替を通知する。
+        _wasModified = true;
+        SavePointLeft?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
     /// EmptyUndoBuffer 相当(<see cref="TextBuffer.ClearUndo"/> の別名)。Undo/Redo 履歴を破棄する。
     /// 保存点は維持されるため <see cref="Modified"/> の値は変わらない。SetSource 前は no-op。
     /// P6 の <c>ScintillaHost.EmptyUndoBuffer</c> と同名。

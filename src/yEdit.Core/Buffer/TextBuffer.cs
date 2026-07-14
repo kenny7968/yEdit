@@ -17,6 +17,9 @@ public sealed class TextBuffer
     private readonly UndoHistory _history = new();
     private TextSnapshot _current;
     private PieceTree.Node? _savedRoot;
+    // 保存点なし状態(MarkUnsaved)。参照比較だけでは fresh バッファ(生成時 _savedRoot=root。
+    // 空文書なら両方 null)が常に「未変更」になるため、Modified へ OR するフラグで表す。
+    private bool _noSavePoint;
 
     /// <summary>文書上限(§0-1: 既定 int.MaxValue バイト)。テスト注入用。</summary>
     internal long MaxTotalBytes { get; set; } = int.MaxValue;
@@ -37,8 +40,9 @@ public sealed class TextBuffer
 
     public TextSnapshot Current => _current;
 
-    /// <summary>現在ルート != 保存時ルート(参照比較。Undoで保存点に戻ると false に戻る)。</summary>
-    public bool Modified => !ReferenceEquals(_current.Root, _savedRoot);
+    /// <summary>現在ルート != 保存時ルート(参照比較。Undoで保存点に戻ると false に戻る)。
+    /// <see cref="MarkUnsaved"/> 後は次の <see cref="MarkSaved"/> まで true 固定。</summary>
+    public bool Modified => _noSavePoint || !ReferenceEquals(_current.Root, _savedRoot);
 
     public bool CanUndo => _history.CanUndo;
     public bool CanRedo => _history.CanRedo;
@@ -69,8 +73,14 @@ public sealed class TextBuffer
     public void MarkSaved()
     {
         _savedRoot = _current.Root;
+        _noSavePoint = false;
         _history.BreakCoalescing();
     }
+
+    /// <summary>保存点を破棄し、次の <see cref="MarkSaved"/> まで <see cref="Modified"/> を true に固定する。
+    /// バックアップ復元のように「fresh バッファだが内容はどのファイルにも保存されていない」文書を
+    /// dirty として扱うための逆操作(Undo で戻れる保存点は存在しないためフラグで表す)。</summary>
+    public void MarkUnsaved() => _noSavePoint = true;
 
     /// <summary>EmptyUndoBuffer相当。両スタック破棄(保存点は維持)。</summary>
     public void ClearUndo() => _history.Clear();

@@ -307,7 +307,7 @@ public sealed class FileController
         };
     }
 
-    /// <summary>バックアップ記録を新タブへ復元する。本文・メタを載せ、保存点は打たず dirty のままにする。</summary>
+    /// <summary>バックアップ記録を新タブへ復元する。本文・メタを載せ、保存点を破棄して dirty にする。</summary>
     public Document RestoreFromBackup(BackupRecord rec)
     {
         var doc = _docs.CreateNew();
@@ -336,7 +336,10 @@ public sealed class FileController
         doc.Editor.SetOrReplaceSource(TextBuffer.FromString(rec.Content ?? string.Empty));
         ApplyEol(doc);
         doc.Editor.EmptyUndoBuffer();
-        // SetSavePoint しない → Modified=true のまま（ユーザーが保存できる）。
+        // 保存点を破棄して Modified=true に固定 → ユーザーが保存できる。FromString の fresh バッファは
+        // 生成時に保存点を持つため「SetSavePoint を打たない」だけではクリーン扱いになり、タブ「*」なし・
+        // 終了時の保存確認スキップ・次の Reconcile でバックアップ削除=復元内容のサイレント喪失につながる。
+        doc.Editor.ClearSavePoint();
         _docs.UpdateLabel(doc);
         _metaChanged();
         return doc;

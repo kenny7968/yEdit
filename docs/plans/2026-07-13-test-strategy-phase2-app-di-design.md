@@ -159,3 +159,11 @@ PC-Talker サポート廃止(`docs/plans/2026-07-13-pctalker-removal-design.md`)
 - **読み替えの明確化**: 再スコープ文の「FakeAnnouncer による通知配線テスト」は、Stage 2 時点で注入可能な IAnnouncer 消費者が SearchController/CsvController(=Stage 4/6 の責務)のみのため「残存 Speech サブシステムの契約テスト」として実施した。FakeAnnouncer の実使用(通知文言検証)は Stage 4 以降。
 - **レビュー由来の申し送り**: 実装計画の「申し送り」節を参照(空白のみメッセージの特徴付け=Stage 4/`_announcer` の readonly 化=Stage 8/GrepDialog の IAnnouncer 注入化=Stage 7 設計時判断)。
 - **マージ**: main へ no-ff マージ=**`59ef10f`**(2026-07-13・マージ直前の main=`01bea88`)。NVDA 実機スポット 2 項目(検索「N 件中 M 件目」読み・Ctrl+Tab タブ名読み)OK・マージ後ゲート全緑 805。
+
+### Stage 3 実施記録(2026-07-14)
+
+- **完了**: 実装計画=`docs/plans/2026-07-13-test-strategy-phase2-stage3.md`(Subagent-Driven Development・各 Task 2 段レビュー)。①IUserPrompt/IFileDialogService シーム+薄い Adapter(MessageBoxUserPrompt/WinFormsFileDialogService)=`e82d5bb` ②FileController 注入化(MessageBox 7 箇所+ダイアログ直 new 3 箇所の機械的置換・挙動不変)=`a40a7b9`+XML doc 追随 `e30ada4` ③FileControllerTests 22 件(SaveAs ロールバック最優先・FakePrompt/FakeFileDialogService 導入)=`74eced3`/`561d71c`/`2525982`+レビュー対応 `d518729`/`3e3467d`/`d0f2580`。
+- **PC-Talker 廃止の反映**: FileController は Speech 非依存(参照ゼロをコード精査で確認)=再スコープ不要。温存対象の RaiseUiaSelectionEvents 復帰配線(LoadInto)を開き直しテストで固定。L5 スポット確認は不要(§5 のとおりダイアログ抽象化のみで SR 経路不変)。
+- **テスト数**: 805 → **827**(App 19→41・純増 +22)。ゲート全通過(Release 0 警告)。
+- **★Task 6 のテストが実バグを発見(復元 dirty 化バグ・ユーザー判断=別ブランチで修正)**: RestoreFromBackup で復元したタブが Modified=false(実装コメントの意図「SetSavePoint しない → Modified=true」と乖離。TextBuffer は生成時に保存点を持つ)。影響: ①「*」なし ②次の Reconcile でバックアップ本体が削除 ③終了時の保存確認スキップ=復元内容のサイレント恒久喪失。Stage 3 では現行挙動の特徴付け(バグ注記付き)とし、マージ後の修正ブランチで復元 dirty 化+テスト期待反転を行う(詳細=実装計画の申し送り)。
+- **レビューの学び(ミューテーションテストの常用)**: Task 4〜6 の品質レビューで「既定値と同値のため空振りする assert」を 3 件検出(SaveAs ロールバックの Encoding・LoadFailure の直前タブ復帰・path レコードの無題番号 0 化)、いずれも実装行の一時変異→赤→復元で実効性を証明のうえ修正。TabControl は選択中タブ除去後に**先頭(index 0)を自動選択**する(直前 index ではない)ことも実測で確定。Stage 4 以降のテストレビューでもミューテーション検証を標準とする。

@@ -209,17 +209,18 @@ public class FileControllerTests
         using var host = new Host();
         using var tmp = new TempDir();
         string path = tmp.File("a.txt");
+        // 本文は LF 改行: 既定(Crlf)と同値だと改行検出配線のアサートが空振りする(レビュー I-2)
         File2.WriteAllBytes(path,
-            new byte[] { 0xEF, 0xBB, 0xBF }.Concat(Encoding.UTF8.GetBytes("あい\r\nう")).ToArray());
+            new byte[] { 0xEF, 0xBB, 0xBF }.Concat(Encoding.UTF8.GetBytes("あい\nう")).ToArray());
 
         var doc = host.File.TryOpenOrActivate(path);
 
         Assert.NotNull(doc);
         Assert.Equal(path, doc!.State.Path);
         Assert.Equal(65001, doc.State.Encoding.CodePage);
-        Assert.True(doc.State.HasBom);                       // BOM 検出の配線
-        Assert.Equal(LineEnding.Crlf, doc.State.LineEnding); // 改行検出の配線
-        Assert.Equal("あい\r\nう", doc.Editor.Text);
+        Assert.True(doc.State.HasBom);                       // BOM 検出の配線(既定 false に対し非デフォルト)
+        Assert.Equal(LineEnding.Lf, doc.State.LineEnding);   // 改行検出の配線(既定 Crlf に対し非デフォルト)
+        Assert.Equal("あい\nう", doc.Editor.Text);
         Assert.False(doc.Editor.Modified);                   // SetSavePoint 済み
         Assert.Same(doc, Assert.Single(host.OpenedFresh));   // .csv 自動モード判定への通知
         Assert.Equal(path, host.Settings.RecentFiles[0]);
@@ -248,14 +249,19 @@ public class FileControllerTests
     {
         using var host = new Host();
         using var tmp = new TempDir();
-        var prev = host.Docs.CreateNew();
+        // タブ 3 枚構成にして prev を先頭以外に置く: TabControl は選択中タブの除去後に
+        // 先頭(index 0)を自動選択するため、prev が先頭だと自動選択と明示復帰(Activate)を
+        // 判別できない(レビュー I-1・ミューテーションで実証)。prev=2 枚目なら自動選択(先頭)と区別できる
+        _ = host.Docs.CreateNew();        // 1 枚目(自動選択の着地先)
+        var prev = host.Docs.CreateNew(); // 2 枚目(作成時点でアクティブ=直前のアクティブ)
 
         // Task 4 と同じ方式: 実在し得る絶対パス直書きを避け、一時フォルダ配下の
         // 存在しないサブフォルダを使う(レビュー申し送り)。
         var doc = host.File.TryOpenOrActivate(tmp.File(@"no-such-dir\no-such-file.txt"));
 
         Assert.Null(doc);
-        Assert.Equal(1, host.Docs.Count);      // 作りかけタブは破棄
+        Assert.Equal(2, host.Docs.Count);      // 作りかけタブは破棄
+        // 作りかけ(末尾)除去後の TabControl 自動選択は先頭=明示復帰がないと落ちる
         Assert.Same(prev, host.Docs.Active);   // 直前のアクティブへ復帰
         Assert.Contains(host.Prompt.Log, e => e.Kind == "Error" && e.Text.StartsWith("開けませんでした"));
     });

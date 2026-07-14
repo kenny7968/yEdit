@@ -17,14 +17,9 @@ namespace yEdit.App.Tests;
 /// </summary>
 public class FileControllerTests
 {
-    private sealed class HostForm : Form
-    {
-        protected override bool ShowWithoutActivation => true;
-    }
-
     /// <summary>
-    /// FileController を Fake 境界で配線したテストホスト。DocumentManagerTests と同じ
-    /// 「可視・画面外・非アクティブ」の HostForm パターン(実運用 MainForm は常に可視のため)。
+    /// FileController を Fake 境界で配線したテストホスト。共通の HostForm.CreateWithDocs で
+    /// 「可視・画面外・非アクティブ」の土台を作る(実運用 MainForm は常に可視のため)。
     /// </summary>
     private sealed class Host : IDisposable
     {
@@ -41,15 +36,9 @@ public class FileControllerTests
 
         public Host()
         {
-            Form = new HostForm
-            {
-                ShowInTaskbar = false,
-                StartPosition = FormStartPosition.Manual,
-                Location = new System.Drawing.Point(-32000, -32000),
-            };
-            Docs = new DocumentManager(() => new EditorControl());
-            Form.Controls.Add(Docs.TabHost);
-            Form.Show();
+            var (form, docs) = HostForm.CreateWithDocs();
+            Form = form;
+            Docs = docs;
             File = new FileController(Docs, Form, () => Settings,
                 () => SaveSettingsCount++, () => RecentChangedCount++, () => MetaChangedCount++,
                 d => OpenedFresh.Add(d), Prompt, Dialogs);

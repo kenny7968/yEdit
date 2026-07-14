@@ -5,11 +5,12 @@ namespace yEdit.App;
 
 /// <summary>
 /// grep の入力収集モードレスダイアログ。検索文字列・フォルダ・フィルタ・各オプションを集め、
-/// 操作は <see cref="GrepController"/> 経由。実行中は入力を無効化し中止のみ可能にする。
+/// 操作は生成時に受け取るコールバック(<see cref="GrepCallbacks"/>)経由。実行中は入力を無効化し
+/// 中止のみ可能にする。
 /// </summary>
-public sealed class GrepDialog : Form
+public sealed class GrepDialog : Form, IGrepView
 {
-    private readonly GrepController _controller;
+    private readonly GrepCallbacks _cb;
 
     private readonly TextBox _pattern = new() { Width = 320 };
     private readonly TextBox _folder = new() { Width = 320 };
@@ -25,9 +26,9 @@ public sealed class GrepDialog : Form
     private readonly Label _status = new() { AutoSize = true, Text = "", AccessibleName = "状態" };
     private readonly IAnnouncer _announcer;
 
-    public GrepDialog(GrepController controller)
+    public GrepDialog(GrepCallbacks callbacks)
     {
-        _controller = controller;
+        _cb = callbacks;
         Text = "フォルダ検索 (grep)";
         FormBorderStyle = FormBorderStyle.FixedToolWindow;
         StartPosition = FormStartPosition.CenterParent;
@@ -40,8 +41,8 @@ public sealed class GrepDialog : Form
         _announcer = new UiaAnnouncer(_status);
 
         _browse.Click += (_, _) => BrowseFolder();
-        _run.Click += (_, _) => _controller.Run();
-        _stop.Click += (_, _) => _controller.Cancel();
+        _run.Click += async (_, _) => await _cb.RunAsync();  // fire-and-forget=UI 都合(戻り値は捨てる・例外は Controller 内で処理済み)
+        _stop.Click += (_, _) => _cb.Cancel();
         _close.Click += (_, _) => HideAndCancel();
         AcceptButton = _run;
     }
@@ -56,7 +57,15 @@ public sealed class GrepDialog : Form
 
     public void SetFolder(string path) => _folder.Text = path;
 
-    public void FocusPattern() { _pattern.Focus(); _pattern.SelectAll(); }
+    private void FocusPattern() { _pattern.Focus(); _pattern.SelectAll(); }
+
+    /// <summary>従来 Open 側で行っていた表示手順(非表示なら Show→Activate→検索語フォーカス)の集約。順序を変えない(Stage 4 と同型)。</summary>
+    public void ShowAndFocus(IWin32Window owner)
+    {
+        if (!Visible) Show(owner);
+        Activate();
+        FocusPattern();
+    }
 
     /// <summary>実行中は入力/検索を無効化し中止のみ可能に。完了で元に戻す。</summary>
     public void SetRunning(bool running)
@@ -82,7 +91,7 @@ public sealed class GrepDialog : Form
     /// <summary>ダイアログを隠す際は実行中の grep も中止する（隠れたまま走り続けるのを防ぐ）。</summary>
     private void HideAndCancel()
     {
-        _controller.Cancel();
+        _cb.Cancel();
         Hide();
     }
 

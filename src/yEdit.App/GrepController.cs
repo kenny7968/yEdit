@@ -4,35 +4,47 @@ using yEdit.Core.Search;
 namespace yEdit.App;
 
 /// <summary>
-/// grep の統括。ダイアログ入力を <see cref="GrepService"/>（別スレッド）へ渡し、結果を結果窓へ
-/// 反映し件数を SR 通知する。結果のジャンプは jumpTo デリゲートへ委譲（MainForm がファイルを
-/// 開いて該当を選択）。Core はスレッド非依存のため、スレッド制御は本クラスに閉じる（§4.1）。
+/// grep の統括。ダイアログ入力を検索デリゲート(既定=<see cref="GrepService"/>・別スレッド)へ渡し、
+/// 結果を結果窓へ反映し件数を SR 通知する。結果のジャンプは jumpTo デリゲートへ委譲(MainForm が
+/// ファイルを開いて該当を選択)。Core はスレッド非依存のため、スレッド制御は本クラスに閉じる(§4.1)。
 /// </summary>
 public sealed class GrepController
 {
     private readonly DocumentManager _docs;
     private readonly Form _owner;
     private readonly Action<GrepHit> _jumpTo;
-    private GrepDialog? _dialog;
-    private GrepResultsWindow? _results;
+    private readonly Func<GrepCallbacks, IGrepView> _viewFactory;
+    private readonly Func<GrepResultsCallbacks, IGrepResultsView> _resultsFactory;
+    private readonly Func<GrepRequest, IProgress<GrepProgress>?, CancellationToken, Task<GrepOutcome>> _searchFn;
+    private IGrepView? _view;
+    private IGrepResultsView? _resultsView;
     private CancellationTokenSource? _cts;
     private bool _closing; // アプリ終了中は結果反映を抑止
 
-    public GrepController(DocumentManager docs, Form owner, Action<GrepHit> jumpTo)
+    public GrepController(
+        DocumentManager docs,
+        Form owner,
+        Action<GrepHit> jumpTo,
+        Func<GrepCallbacks, IGrepView> viewFactory,
+        Func<GrepResultsCallbacks, IGrepResultsView> resultsFactory,
+        Func<GrepRequest, IProgress<GrepProgress>?, CancellationToken, Task<GrepOutcome>>? searchFn = null)
     {
         _docs = docs;
         _owner = owner;
         _jumpTo = jumpTo;
+        _viewFactory = viewFactory;
+        _resultsFactory = resultsFactory;
+        // 既定=現行の `await Task.Run(() => GrepService.Search(...))` と 1:1(await 位置と例外セマンティクス不変)
+        _searchFn = searchFn ?? ((req, prog, ct) => Task.Run(() => GrepService.Search(req, prog, ct)));
     }
 
     /// <summary>ダイアログを開く（既定フォルダ＝アクティブ文書のフォルダ）。</summary>
     public void Open()
     {
-        if (_dialog is null || _dialog.IsDisposed) _dialog = new GrepDialog(this);
-        if (string.IsNullOrEmpty(_dialog.Folder)) _dialog.SetFolder(DefaultFolder());
-        if (!_dialog.Visible) _dialog.Show(_owner);
-        _dialog.Activate();
-        _dialog.FocusPattern();
+        if (_view is null || _view.IsDisposed)
+            _view = _viewFactory(new GrepCallbacks(RunAsync, Cancel));
+        if (string.IsNullOrEmpty(_view.Folder)) _view.SetFolder(DefaultFolder());
+        _view.ShowAndFocus(_owner);
     }
 
     private string DefaultFolder()
@@ -51,9 +63,9 @@ public sealed class GrepController
     }
 
     /// <summary>入力を検証して別スレッドで grep を実行し、結果を反映する。</summary>
-    public async void Run()
+    internal async Task RunAsync()
     {
-        var d = _dialog;
+        var d = _view;
         if (d is null) return;
         if (string.IsNullOrEmpty(d.Pattern)) { d.RaiseNotification("検索文字列を入力してください"); return; }
         if (!Directory.Exists(d.Folder)) { d.RaiseNotification("フォルダが見つかりません"); return; }
@@ -84,10 +96,11 @@ public sealed class GrepController
         d.SetStatus("検索中…");
         try
         {
-            // GrepService は協調キャンセルで部分結果＋Cancelled を返す（例外で打ち切らない）。
-            var outcome = await Task.Run(() => GrepService.Search(req, progress, ct));
+            // 検索デリゲート(既定=GrepService.Search を Task.Run で包む)は協調キャンセルで
+            // 部分結果+Cancelled を返す（例外で打ち切らない）。
+            var outcome = await _searchFn(req, progress, ct);
 
-            // ダイアログ破棄済み・後発の実行に追い越された・終了中なら UI を触らない（結果窓も出さない）。
+            // ビュー破棄済み・後発の実行に追い越された・終了中なら UI を触らない（結果窓も出さない）。
             if (d.IsDisposed || !ReferenceEquals(_cts, cts) || _closing) return;
 
             ShowResults(pattern, folder, outcome);
@@ -134,12 +147,9 @@ public sealed class GrepController
 
     private void ShowResults(string pattern, string folder, GrepOutcome outcome)
     {
-        if (_results is null || _results.IsDisposed)
-        {
-            _results = new GrepResultsWindow();
-            _results.HitActivated += hit => _jumpTo(hit);
-        }
-        _results.Populate(pattern, folder, outcome);
-        if (outcome.Hits.Count > 0) _results.ShowResults(_owner);
+        if (_resultsView is null || _resultsView.IsDisposed)
+            _resultsView = _resultsFactory(new GrepResultsCallbacks(_jumpTo));
+        _resultsView.Populate(pattern, folder, outcome);
+        if (outcome.Hits.Count > 0) _resultsView.ShowResults(_owner);
     }
 }

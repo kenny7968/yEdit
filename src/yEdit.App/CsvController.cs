@@ -140,6 +140,8 @@ public sealed class CsvController
                 if (t is null) { _announcer.Say(CsvAnnounceFormatter.OutOfRange); return; }
                 ApplyCell(ed, csv, t.Value.row, t.Value.col, announce: true);
                 return;
+            default:
+                throw new InvalidOperationException($"Unknown CellPickKind: {result.Kind}");
         }
     }
 

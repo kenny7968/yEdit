@@ -146,6 +146,75 @@ public class FileControllerTests
         Assert.Contains(host.Prompt.Log, e => e.Kind == "Warn" && e.Text == "ファイル名を指定してください。");
     });
 
+    // ===== Save 公開入口(active 経由 Ctrl+S) / ReadOnly 復元(WriteToPath finally) =====
+
+    [Fact]
+    public void Save_ExistingPath_WritesAndClearsModified() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        using var tmp = new TempDir();
+        string path = tmp.File("a.txt");
+        File2.WriteAllText(path, "orig"); // ASCII=UTF-8 として妥当(初回オープンで警告なし)
+        var doc = host.File.TryOpenOrActivate(path)!;
+        // 開いた直後は Modified=false=SetSavePoint 済み。編集して Save で再度 SetSavePoint されるかを観測する。
+        doc.Editor.ReplaceCharRange(0, doc.Editor.CurrentBuffer.Current.CharLength, "changed");
+        Assert.True(doc.Editor.Modified);
+
+        // Ctrl+S 導線: FileController.Save() は docs.Active を SaveDocument に流す公開入口。
+        // 既存 SaveDocument 直呼び系(ConfirmDiscardIfDirty_Yes_...)と異なり、Active 経由のエントリを固定する。
+        Assert.True(host.File.Save());
+
+        Assert.Equal("changed", File2.ReadAllText(path)); // ディスクへ書き出し=バッファと一致
+        Assert.False(doc.Editor.Modified);                // SetSavePoint 済み
+    });
+
+    [Fact]
+    public void Save_ReadOnlyDocument_RestoresReadOnlyAfterSave() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        using var tmp = new TempDir();
+        string path = tmp.File("a.txt");
+        // 既存 Save 系テストの流儀(CreateNew + Text + State.Path)。既定 State=UTF-8/BOM なし/CRLF。
+        var doc = host.Docs.CreateNew();
+        doc.Editor.Text = "abc";
+        doc.State.Path = path;
+        doc.Editor.ReadOnly = true; // CSV モード相当(閲覧専用に落として保存する経路)
+
+        Assert.True(host.File.Save());
+
+        Assert.True(doc.Editor.ReadOnly);              // WriteToPath の try/finally で復元される契約
+        Assert.Equal("abc", File2.ReadAllText(path)); // ディスクは更新されている(=Save 経路が抜けている)
+    });
+
+    [Fact]
+    public void Save_ReadOnlyDocument_WriteFailure_StillRestoresReadOnly() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        using var tmp = new TempDir();
+        string path = tmp.File("a.txt");
+        File2.WriteAllText(path, "orig"); // ReadOnly 属性を付けるため一旦実在させる
+        File2.SetAttributes(path, System.IO.FileAttributes.ReadOnly);
+        try
+        {
+            var doc = host.Docs.CreateNew();
+            doc.Editor.Text = "changed";
+            doc.State.Path = path;
+            doc.Editor.ReadOnly = true; // CSV モード相当
+
+            // 保存先ファイルの ReadOnly 属性で AtomicFile.Write の File.Replace が UnauthorizedAccessException
+            // (WriteToPath の catch フィルタで false 返却+prompt.Error 通知)。
+            Assert.False(host.File.Save());
+            Assert.True(doc.Editor.ReadOnly); // 失敗経路でも finally で復元される(=CSV 復帰不能を防止)
+            Assert.Equal("orig", File2.ReadAllText(path)); // 原本は不変(AtomicFile の契約)
+            Assert.Contains(host.Prompt.Log, e => e.Kind == "Error" && e.Text.StartsWith("保存できませんでした"));
+        }
+        finally
+        {
+            // TempDir の再帰削除が ReadOnly 属性で失敗するのを避け、テスト成否に関わらず属性を戻す。
+            File2.SetAttributes(path, System.IO.FileAttributes.Normal);
+        }
+    });
+
     // ===== 符号化劣化警告(CanEncodeBuffer 経由) =====
 
     [Fact]
@@ -341,6 +410,28 @@ public class FileControllerTests
         Assert.Equal(0, host.Dialogs.PickEncodingCount); // 未保存確認で中止=ダイアログまで進まない
         Assert.True(doc.Editor.Modified);
         Assert.Equal(65001, doc.State.Encoding.CodePage);
+    });
+
+    [Fact]
+    public void Reopen_WithReplacementChar_WarnsToReopen() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        using var tmp = new TempDir();
+        string path = tmp.File("a.txt");
+        File2.WriteAllText(path, "abc"); // ASCII=UTF-8 として妥当=初回オープンで置換文字は発生しない
+        Assert.NotNull(host.File.TryOpenOrActivate(path)); // 初回オープン成功
+        Assert.DoesNotContain(host.Prompt.Log, e => e.Kind == "Warn"); // 初回オープンは警告なしを固定
+
+        // 本体を UTF-8 で不正なバイト(0xFF)に差し替える。TextBufferBuilder の Utf8Sanitizer が
+        // U+FFFD へ置換し HadReplacementChar=true を返す=文字コード取り違えの示唆経路を発火させる。
+        // (別コードページで開き直すと壊れる状況を狙う=forcedCodePage=65001 で必ず UTF-8 デコード)
+        File2.WriteAllBytes(path, new byte[] { 0xFF });
+        host.Dialogs.EncodingCodePage = 65001;
+
+        host.File.ReopenWithEncoding();
+
+        Assert.Contains(host.Prompt.Log,
+            e => e.Kind == "Warn" && e.Text.Contains("置換文字") && e.Caption == "文字コードの警告");
     });
 
     // ===== 未保存確認(Yes=保存成否/No=true/Cancel=false) =====

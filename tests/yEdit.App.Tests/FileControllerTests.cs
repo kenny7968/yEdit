@@ -681,4 +681,76 @@ public class FileControllerTests
             File2.SetAttributes(path, System.IO.FileAttributes.Normal);
         }
     });
+
+    // Batch A Task 1 Minor-3(2026-07-15): 上の 2 テスト(SaveAs=CRLF→LF・Save=LF→CRLF)は
+    // どちらも ConvertEols が「本文の EOL ≠ target EOL」の非 fast-path 経路しか踏まない
+    // (=ReplaceSource で新規 TextBuffer に差替=CurrentBuffer 参照が変わる)。WriteToPath (:303)
+    // の <c>!ReferenceEquals(doc.Editor.CurrentBuffer, snapshotBefore)</c> guard は fast-path
+    // (本文 EOL=target EOL=IsEolAlreadyUniform が true → EolMode 更新のみ・buffer 差替なし)で
+    // <see cref="EditorControl.SetOrReplaceSource"/> をスキップし、キャレット/選択/スクロールが
+    // <see cref="EditorControl.ReplaceSource"/> によって 0 リセットされるのを防いでいる。
+    //
+    // この guard が将来のリファクタで削除されて「常に SetOrReplaceSource(snapshotBefore) を呼ぶ」
+    // 形に変わっても、上の 2 テストは非 fast-path しか踏まないため緑のまま通る=サイレント退行が
+    // 可能。本テストは fast-path で I/O 失敗を起こし、caret/anchor/topLine/scrollX が Save 前と
+    // 同じであることを固定して、その退行を kill する。
+    [Fact]
+    public void Save_WriteFailure_FastPath_PreservesCaretAndScroll() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        using var tmp = new TempDir();
+        string path = tmp.File("a.txt");
+        File2.WriteAllText(path, "orig"); // ReadOnly 属性を付けるため一旦実在させる
+        File2.SetAttributes(path, System.IO.FileAttributes.ReadOnly);
+        try
+        {
+            var doc = host.Docs.CreateNew();
+            // 既定 State=CRLF。本文も CRLF のみで統一=ConvertEols(Crlf) が
+            // IsEolAlreadyUniform=true で fast-path(EolMode 更新のみ・ReplaceSource なし)を踏む。
+            // 4 論理行あるので TopLine=1 を有効に設定できる(maxLine=3)=非既定位置から検証開始
+            // (レビュー標準 §3-2)。
+            doc.Editor.Text = "abcdef\r\nghijkl\r\nmnopqr\r\nstuvwx";
+            doc.State.Path = path;
+            Assert.Equal(LineEnding.Crlf, doc.State.LineEnding); // 前提: 既定 CRLF=本文と一致=fast-path 経路
+
+            // Save 前に非 0 位置の caret + 選択範囲 + TopLine を設定。
+            // caret=5, anchor=2 → 選択 [2, 5) が "cde"(1 行目内・shift+右 3 文字相当)。
+            doc.Editor.SetSelectionAnchored(anchor: 2, caret: 5);
+            doc.Editor.TopLine = 1;
+            int caretBefore = doc.Editor.CaretCharOffset;
+            int anchorBefore = doc.Editor.SelectionAnchor;
+            int topLineBefore = doc.Editor.TopLine;
+            int scrollXBefore = doc.Editor.ScrollX;
+            // 前提: TopLine セッターは maxLine=3 なので value=1 を通す(実効的に非 0 に置ける)。
+            // これが 0 のまま=fixture 前提崩れ=以降の assert が空振りする。
+            Assert.Equal(5, caretBefore);
+            Assert.Equal(2, anchorBefore);
+            Assert.Equal(1, topLineBefore);
+            // 注: ScrollX は非表示 HScrollBar 下では setter が no-op=非 0 に置けないため 0 のまま。
+            // このため ScrollX の retention 単体では guard 削除ミューテーションを kill できない
+            // (before=0=after=0 も 0 リセット後の 0 と区別できない)。caret/anchor/topLine の
+            // 3 値で guard 削除は十分 kill できるため実用上問題なし。
+
+            // 保存先ファイルの ReadOnly 属性で AtomicFile.Write が UnauthorizedAccessException を投げ、
+            // WriteToPath catch フィルタで false 返却+prompt.Error 通知される。
+            Assert.False(host.File.Save());
+
+            // ---- fast-path guard の kill 対象(★ここが本テストの核) ----
+            // 現行実装: CurrentBuffer 参照が snapshotBefore と同一(fast-path=ReplaceSource 未発火)
+            // のため WriteToPath catch は SetOrReplaceSource をスキップ=caret/anchor/topLine は保持。
+            // guard 削除後: SetOrReplaceSource(snapshotBefore) → ReplaceSource が発火し、
+            // caret=0/anchor=0/topLine=0/scrollX=0 に全リセット=下 3 行が赤化して mutation を kill。
+            Assert.Equal(caretBefore, doc.Editor.CaretCharOffset);      // ★ guard 削除で 0 に落ちる ★
+            Assert.Equal(anchorBefore, doc.Editor.SelectionAnchor);     // ★ 同上 ★
+            Assert.Equal(topLineBefore, doc.Editor.TopLine);            // ★ 同上 ★
+            Assert.Equal(scrollXBefore, doc.Editor.ScrollX);            // 観測制約=常に 0=documentation 目的
+            Assert.Contains(host.Prompt.Log, e => e.Kind == "Error" && e.Text.StartsWith("保存できませんでした"));
+        }
+        finally
+        {
+            // TempDir の再帰削除が ReadOnly 属性で失敗するのを避け、テスト成否に関わらず属性を戻す
+            // (必須の後始末=既存 Save_ReadOnlyDocument_WriteFailure_StillRestoresReadOnly と同旨)。
+            File2.SetAttributes(path, System.IO.FileAttributes.Normal);
+        }
+    });
 }

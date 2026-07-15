@@ -54,9 +54,18 @@ public sealed partial class MainForm : Form
         _docs.ActiveDirtyChanged += (_, _) => UpdateTitle();
         _docs.ActiveCaretChanged += (_, _) => UpdateStatus();
         // 設定は OpenSettings で参照が差し替わるため Func で都度解決させる。
-        _file = new FileController(_docs, this, () => _settings,
-            SaveSettingsSafe, RebuildRecentMenu, () => { UpdateTitle(); UpdateStatus(); },
-            AutoEnterCsvMode, new MessageBoxUserPrompt(), new WinFormsFileDialogService());
+        // Stage 8 A.3: delegate 4 個(saveSettings/recentChanged/metaChanged/openedFresh)が同型 Action で
+        // 入れ替わっても検出不能なため、名前付き引数化で自己ドキュメント化(Stage 4 の教訓)。
+        _file = new FileController(
+            docs: _docs,
+            owner: this,
+            settings: () => _settings,
+            saveSettings: SaveSettingsSafe,
+            recentChanged: RebuildRecentMenu,
+            metaChanged: () => { UpdateTitle(); UpdateStatus(); },
+            openedFresh: AutoEnterCsvMode,
+            prompt: new MessageBoxUserPrompt(),
+            fileDialogs: new WinFormsFileDialogService());
         _search = new SearchController(_docs, this, _announcer, cb => new FindReplaceDialog(cb));
         _grep = new GrepController(
             docs: _docs,

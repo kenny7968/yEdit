@@ -329,10 +329,12 @@ public void CancelEdit_DiscardsChanges_AndRefocuses()
 
 ---
 
-## Task 8: CsvController 列側クランプ追加テスト
+## Task 8: CsvController 列側の範囲外(OutOfRange 通知)テスト
 
 **Files:**
 - Test: `tests/yEdit.App.Tests/CsvControllerTests.cs`
+
+**着手時 pivot(2026-07-15)**: タイトル/背景は当初「列側クランプ」を premise としていたが、実装読解(`src/yEdit.Core/Csv/CsvDocument.cs:111-112`)で **GoTo は範囲外で null 返し=クランプせず OutOfRange 通知** であることが判明。テスト名から「Clamp」を外し、実挙動(`GoToCell_ColumnBeyondMax_...` / `GoToCell_NegativeColumn_...`)と一致した pin に変更した。計画本文 Step 1 で「現状の GoToCell の挙動を先に読んで期待値を決める」と自己補正していた通りの流れ。既存 `GoToCell_OutOfRange_AnnouncesOutOfRange_NoChange`(`Ok(99,99)`)は行+列両方 OOR で列単独 mutation を kill できない=真の被覆穴を埋めた。
 
 **Background:** Stage 6 由来。行側クランプは既存 1 件あるが、列側(GoToCell に負の値/巨大値)のテストが不足。
 

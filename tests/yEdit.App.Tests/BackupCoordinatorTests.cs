@@ -505,4 +505,35 @@ public class BackupCoordinatorTests
         Assert.Equal(disposedBefore, host.Writer.DisposeCount); // Dispose は Shutdown/Dispose まで待つ
         Assert.Empty(host.Writer.Deletes);
     });
+
+    // ===== Lazy 生成の一度性(_writer ??= CreateWriter の pin) =====
+
+    [Fact]
+    public void Writer_IsCreated_LazilyOnce_AcrossMultipleReconciles() => Sta.Run(() =>
+    {
+        // BackupCoordinator.cs:93 `_writer ??= CreateWriter()` を pin する。
+        // 無効起動 → 有効化(factory 呼ばれ 1)→ dirty サイクル+Reconcile 複数回 →
+        // 無効化 → 再有効化(??= により factory 呼ばれない=2 にならない)を通しても
+        // WriterFactoryCalls が 1 のまま=Lazy 生成の意味論(既存 writer は再利用)を固定。
+        // ??= を = に変えたバグ変異では、再有効化時に factory が 2 回目を呼び 2 になる。
+        using var host = new Host(enabled: false);
+        Assert.Equal(0, host.WriterFactoryCalls);    // 無効起動=writer 未生成(既存 Ctor_Disabled と対称)
+
+        host.Backup.UpdateSettings(true, 30);        // 無効→有効(初回生成)
+        Assert.Equal(1, host.WriterFactoryCalls);
+
+        // dirty サイクルを複数回回しても Reconcile 経路は factory を呼ばない(そもそも Reconcile 側に生成分岐がない)。
+        var doc = host.NewDoc("hello");
+        host.Backup.Reconcile();
+        doc.Editor.Text = "hello world";
+        doc.Editor.ClearSavePoint();
+        host.Backup.Reconcile();
+
+        // 有効→無効→有効の切替で ??= の右辺は再評価されない(既存 _writer を再利用)。
+        host.Backup.UpdateSettings(false, 30);
+        host.Backup.UpdateSettings(true, 30);
+        host.Backup.Reconcile();
+
+        Assert.Equal(1, host.WriterFactoryCalls);    // ??= が 2 回目以降を抑止(mutation kill: ??= → = で赤化)
+    });
 }

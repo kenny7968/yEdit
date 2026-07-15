@@ -13,14 +13,14 @@ namespace yEdit.App;
 public sealed class SearchController
 {
     private readonly DocumentManager _docs;
-    private readonly Form _owner;
+    private readonly IWin32Window _owner;
     private readonly IAnnouncer _announcer;
     private readonly Func<FindReplaceCallbacks, IFindReplaceView> _viewFactory;
     private IFindReplaceView? _view;
     private MatchSpan? _lastHit; // 直前に選択したヒット（ゼロ幅でも前進できるよう歩進に使う）
     private (int Start, int End)? _selectionScope; // 「選択範囲のみ」ON 時に捕捉した置換対象範囲
 
-    public SearchController(DocumentManager docs, Form owner, IAnnouncer announcer,
+    public SearchController(DocumentManager docs, IWin32Window owner, IAnnouncer announcer,
         Func<FindReplaceCallbacks, IFindReplaceView> viewFactory)
     {
         _docs = docs;

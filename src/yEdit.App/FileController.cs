@@ -16,7 +16,7 @@ public sealed class FileController
     private const int MaxRecent = 10;
 
     private readonly DocumentManager _docs;
-    private readonly Form _owner;
+    private readonly IWin32Window _owner;
     private readonly Func<AppSettings> _settings;   // 設定ダイアログ適用で参照が差し替わるため都度解決する
     private readonly Action _saveSettings;          // 設定の永続化（保存失敗を致命にしない実装は呼び出し側）
     private readonly Action _recentChanged;         // 「最近のファイル」メニューの再構築
@@ -27,7 +27,7 @@ public sealed class FileController
     private int _untitledSeq; // 無題タブの連番（新規作成毎に増加・セッション内で再利用しない）
 
     public FileController(
-        DocumentManager docs, Form owner, Func<AppSettings> settings,
+        DocumentManager docs, IWin32Window owner, Func<AppSettings> settings,
         Action saveSettings, Action recentChanged, Action metaChanged,
         Action<Document> openedFresh, IUserPrompt prompt, IFileDialogService fileDialogs)
     {

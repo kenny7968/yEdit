@@ -11,7 +11,7 @@ namespace yEdit.App;
 public sealed class GrepController
 {
     private readonly DocumentManager _docs;
-    private readonly Form _owner;
+    private readonly IWin32Window _owner;
     private readonly Action<GrepHit> _jumpTo;
     private readonly Func<GrepCallbacks, IGrepView> _viewFactory;
     private readonly Func<GrepResultsCallbacks, IGrepResultsView> _resultsFactory;
@@ -23,7 +23,7 @@ public sealed class GrepController
 
     public GrepController(
         DocumentManager docs,
-        Form owner,
+        IWin32Window owner,
         Action<GrepHit> jumpTo,
         Func<GrepCallbacks, IGrepView> viewFactory,
         Func<GrepResultsCallbacks, IGrepResultsView> resultsFactory,

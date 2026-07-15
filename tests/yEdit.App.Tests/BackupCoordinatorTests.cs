@@ -536,4 +536,42 @@ public class BackupCoordinatorTests
 
         Assert.Equal(1, host.WriterFactoryCalls);    // ??= が 2 回目以降を抑止(mutation kill: ??= → = で赤化)
     });
+
+    // ===== HasBackup=false Delete ガード(:189 Reconcile-close 経路 / :270 Shutdown 経路) =====
+
+    [Fact]
+    public void Reconcile_ClosedDoc_WithoutBackup_DoesNotCall_Delete() => Sta.Run(() =>
+    {
+        // BackupCoordinator.cs:189 `if (gone.HasBackup) _writer?.Delete(gone.Id)` を pin する。
+        // clean な doc は Reconcile で _map に登録されるが Write が走らず HasBackup=false のまま。
+        // 閉じてから Reconcile → gone.HasBackup=false 分岐で Delete をスキップすることを固定。
+        // 条件を `if (true)` に変異させると Delete が余分に呼ばれ本テストが赤化する。
+        using var host = new Host();
+        var doc = host.NewDoc("hello", dirty: false); // Text セッター直後の fresh バッファ=Modified=false
+        host.Backup.Reconcile();                      // RegisterNew: _map に HasBackup=false で登録・Write は出ない
+        Assert.Empty(host.Writer.Writes);             // sanity: HasBackup=false 前提
+
+        host.Docs.TryClose(doc, _ => true);           // 未保存確認は素通し(clean なので通常も出ない)
+        host.Backup.Reconcile();                      // 閉じた doc の gone 経路: HasBackup=false → Delete しない
+
+        Assert.Empty(host.Writer.Deletes);            // ガード発火(:189)
+    });
+
+    [Fact]
+    public void Shutdown_WithoutBackup_DoesNotCall_Delete() => Sta.Run(() =>
+    {
+        // BackupCoordinator.cs:270 `if (info.HasBackup) _writer?.Delete(info.Id)` を pin する。
+        // clean な doc(HasBackup=false)のまま Shutdown → 管理分だが Delete をスキップし、
+        // writer は Dispose される(Shutdown_DeletesManagedBackups_AndDisposesWriter と対称)。
+        // 条件を `if (true)` に変異させると Delete が余分に呼ばれ本テストが赤化する。
+        using var host = new Host();
+        host.NewDoc("hello", dirty: false);           // Text セッター直後=Modified=false
+        host.Backup.Reconcile();                      // RegisterNew: HasBackup=false で登録・Write なし
+        Assert.Empty(host.Writer.Writes);             // sanity: HasBackup=false 前提
+
+        host.Backup.Shutdown();
+
+        Assert.Empty(host.Writer.Deletes);            // ガード発火(:270)
+        Assert.Equal(1, host.Writer.DisposeCount);    // Shutdown は writer を必ず Dispose する
+    });
 }

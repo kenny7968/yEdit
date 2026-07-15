@@ -13,7 +13,7 @@ public class AnchorSelectionTests
 {
     private static (Form f, EditorControl c) MakeControl(string text)
     {
-        var f = new Form();
+        var f = new HostForm();
         var c = new EditorControl();
         f.Controls.Add(c);
         _ = f.Handle;

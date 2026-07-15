@@ -16,7 +16,7 @@ public class EditorControlOffsetFromPointTests
             using var ctrl = new EditorControl();
             ctrl.SetSource(TextBuffer.FromString("hello world"));
             ctrl.Size = new System.Drawing.Size(400, 100);
-            using var form = new Form(); form.Controls.Add(ctrl); form.Show();
+            using var form = HostForm.CreateVisible(); form.Controls.Add(ctrl);
             try
             {
                 ctrl.Invalidate(); ctrl.Update(); Application.DoEvents();
@@ -62,7 +62,7 @@ public class EditorControlOffsetFromPointTests
         {
             using var ctrl = new EditorControl();
             ctrl.SetSource(TextBuffer.FromString("hello"));
-            using var form = new Form(); form.Controls.Add(ctrl); form.Show();
+            using var form = HostForm.CreateVisible(); form.Controls.Add(ctrl);
             try
             {
                 IUiaTextHost host = ctrl;

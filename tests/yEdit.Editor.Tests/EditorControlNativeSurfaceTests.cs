@@ -26,9 +26,8 @@ public class EditorControlNativeSurfaceTests
         {
             using var ctrl = new EditorControl();
             ctrl.SetSource(TextBuffer.FromString("secret content"));
-            using var form = new Form();
+            using var form = HostForm.CreateVisible();
             form.Controls.Add(ctrl);
-            form.Show();
             try
             {
                 var sb = new StringBuilder(1024);
@@ -46,9 +45,8 @@ public class EditorControlNativeSurfaceTests
         {
             using var ctrl = new EditorControl();
             ctrl.SetSource(TextBuffer.FromString("some text"));
-            using var form = new Form();
+            using var form = HostForm.CreateVisible();
             form.Controls.Add(ctrl);
-            form.Show();
             try
             {
                 var r = SendMessageInt(ctrl.Handle, WM_GETTEXTLENGTH, System.IntPtr.Zero, System.IntPtr.Zero);

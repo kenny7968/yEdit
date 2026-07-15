@@ -14,7 +14,7 @@ public class EditorControlCacheTests
 {
     private static (Form f, EditorControl c) MakeControl(string text, int wrap)
     {
-        var f = new Form();
+        var f = new HostForm();
         var c = new EditorControl { WrapColumns = wrap };
         f.Controls.Add(c);
         _ = f.Handle;

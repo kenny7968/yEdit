@@ -17,6 +17,7 @@ public sealed partial class MainForm : Form
     private GrepController _grep = null!;     // コンストラクタで生成
     private BackupCoordinator _backup = null!; // コンストラクタで生成
     private CsvController _csv = null!;        // コンストラクタで生成
+    private KinsokuFormatController _kinsoku = null!; // コンストラクタで生成(FormatWithKinsoku を委譲)
     private bool _restoreOffered;             // 起動時の復元提案を一度だけ行う
     private readonly ToolStripStatusLabel _posLabel = new("行 1, 桁 1");
     private readonly ToolStripStatusLabel _encLabel = new("UTF-8");
@@ -79,6 +80,7 @@ public sealed partial class MainForm : Form
             () => new SerialBackupWriter(BackupStore.DefaultDirectory),
             new WinFormsRestorePrompt());
         _csv = new CsvController(docs: _docs, announcer: _announcer, cellPicker: new WinFormsCellPicker());
+        _kinsoku = new KinsokuFormatController(_docs, _announcer);
         _docs.BeforeActiveChange = () => _csv.AbortEdit(); // タブ切替直前に F2 編集を中断（焦点の引き戻し防止）
         // P6 で編集エンジンが自作 EditorControl (v2 UIA 単一経路) に統一されたため、
         // CSVモード中に Editor がフォーカスを得た瞬間にシンクへ強制退避していた仕組みは撤去。
@@ -473,37 +475,9 @@ public sealed partial class MainForm : Form
         _docs.Active?.FocusTarget.Focus();                     // 戻り後は編集領域へフォーカス
     }
 
-    /// <summary>選択範囲（無ければ全文）を WrapColumn 桁で禁則整形する（実改行挿入・1 Undo）。</summary>
-    private void FormatWithKinsoku()
-    {
-        var doc = _docs.Active;
-        var ed = doc?.Editor;
-        if (ed is null) return;
-        // CSVモード中は本文が読取専用で整形が無反映になるため抑止（誤成功通知を防ぐ）。
-        if (doc!.State.CsvMode) { _announcer.Say(CsvAnnounceFormatter.BlockedInCsvMode); return; }
-
-        string text = ed.SnapshotText;
-        var (selStart, selEnd) = ed.GetSelectionCharRange();
-        bool whole = selStart == selEnd;
-        int start = whole ? 0 : selStart;
-        int len = whole ? text.Length : selEnd - selStart;
-        if (len <= 0) return;
-
-        string target = text.Substring(start, len);
-        string eol = doc!.State.LineEnding.ToEolString();
-        string formatted = KinsokuFormatter.Format(
-            target, _settings.WrapColumn,
-            _settings.KinsokuLineStartChars, _settings.KinsokuLineEndChars, _settings.KinsokuHangChars,
-            eol, _settings.TabWidth);   // タブ幅は表示設定と連動（画面の見た目どおりに整形する。従来は既定 8 固定）
-
-        if (formatted == target) { _announcer.Say("変更なし"); return; }
-        ed.ReplaceCharRange(start, len, formatted);   // 1 Undo で置換
-        // 部分選択なら変化箇所を選択して提示。全文整形では全選択を避け、先頭へキャレットを置く。
-        if (whole) ed.SelectCharRange(0, 0);
-        else ed.SelectCharRange(start, formatted.Length);
-        ed.Focus();
-        _announcer.Say("整形しました");
-    }
+    /// <summary>選択範囲（無ければ全文）を WrapColumn 桁で禁則整形する（Stage 8 で <see cref="KinsokuFormatController"/> へ委譲）。
+    /// AppSettings は OpenSettings で参照が差し替わるため Run 引数(呼び出し時解決)で渡す。</summary>
+    private void FormatWithKinsoku() => _kinsoku.Run(_settings);
 
     /// <summary>アクティブタブを閉じる。変更確認→クローズ。最後の1つを閉じたらアプリ終了（Q1=B）。</summary>
     private void CloseActiveTab()

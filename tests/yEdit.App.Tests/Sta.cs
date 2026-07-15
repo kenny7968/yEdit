@@ -14,9 +14,23 @@ namespace yEdit.App.Tests;
 ///   単純な <c>throw captured;</c> は元スタックトレースを throw 地点で上書きし、
 ///   xUnit の失敗レポートで <c>Assert.Equal</c> 行に飛べなくなるため、
 ///   <see cref="ExceptionDispatchInfo"/> でスタックトレースを保ったまま再スローする。
-/// - 現時点では <see cref="Application.Run"/> は起こさない(=ハンドル生成と
-///   同期的な API 呼び出しのみを検証する契約テスト用)。将来メッセージポンプが
-///   必要になったら Sta 側にオーバーロードを足す方針。
+/// - <see cref="Application.Run"/> は起こさないが、App.Tests は同期契約テストに
+///   限らず TCS 駆動の async テスト(GrepControllerTests・SerialBackupWriterTests 等の
+///   <c>await controller.RunAsync(...)</c> 経路)を含む。以下の TCS 規律を守ること。
+///
+/// TCS 規律(重要):
+/// - <see cref="TaskCompletionSource{TResult}"/> は必ず <b>同一 STA スレッド</b>で
+///   完了(<c>SetResult</c> を呼ぶ)させる。<c>TaskCreationOptions.RunContinuationsAsynchronously</c>
+///   は使わない・<c>searchFn</c> の中に <c>Task.Run</c> を挟まない。
+/// - 破ると <c>await</c> の継続がポンプされない WinFormsSynchronizationContext へ
+///   Post され、<c>GetResult()</c> がハングする(CI 上の 20 分 timeout を燃やす)。
+///   Sta.Run は <see cref="Application.Run"/> を回していないため、Post された継続は
+///   誰も拾わない。
+/// - GrepControllerTests 冒頭に定義される <c>SynchronousSyncContext</c> は
+///   <see cref="System.Threading.SynchronizationContext.Post"/> を同期呼び出しに
+///   置き換えるためのテストヘルパで、<see cref="Progress{T}"/> を観測するテスト
+///   (Progress は ctor 時点の SC を捕捉して報告先に Post するため)でのみ必要。
+///   通常の TCS 完了経路にはこれは要らない。
 /// </remarks>
 public static class Sta
 {

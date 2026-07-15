@@ -339,6 +339,21 @@ public class SearchControllerTests
     });
 
     [Fact]
+    public void FindNext_MatchCaseFalse_MatchesBothCases() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("ABC abc");
+        host.View.Pattern = "abc";   // MatchCase=false(既定)のまま=OFF 方向の配線固定
+        host.Search.OpenFind();
+
+        Assert.True(host.Search.FindNext());
+
+        // d.MatchCase を定数 true 化する変異だと ABC を飛ばして (4,7)="1 件中 1 件目" になるため選択位置と序数の両面で赤になる
+        Assert.Equal((0, 3), doc.Editor.GetSelectionCharRange());
+        Assert.Equal("2 件中 1 件目", host.Announcer.Said[^1]);   // 大文字 ABC もヒットに数える
+    });
+
+    [Fact]
     public void FindNext_WholeWordTrue_SkipsPartialWord() => Sta.Run(() =>
     {
         using var host = new Host();
@@ -506,7 +521,7 @@ public class SearchControllerTests
         host.View.Replacement = "X";
         host.Search.OpenReplace();
 
-        host.Search.ReplaceOne();    // Find と別コードパスの同ガード(削除するとここで例外になる)
+        host.Search.ReplaceOne();    // Find と別コードパスの同ガード(削除すると「これ以上見つかりません」の誤通知になる)
 
         Assert.Equal("正規表現が正しくありません", host.Announcer.Said[^1]);
         Assert.Equal("abc", doc.Editor.Text);

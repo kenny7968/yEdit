@@ -1,3 +1,4 @@
+using System.Reflection;
 using yEdit.App.Tests.Fakes;
 using yEdit.Core.Csv;
 
@@ -552,6 +553,79 @@ public class CsvControllerTests
         host.Csv.AbortEdit(); // 2 回目=冪等(例外を出さない)
         Assert.False(host.Csv.IsEditing);
     });
+
+    // ===== BeginEdit の Commit/Cancel 経路(Task 7・F2 UX 保護=L3 で厚めに固定) =====
+    // CsvCellEditor は internal(Task 7 で公開表面を削減)。テストは InternalsVisibleTo 経由で
+    // 直接 Commit()/CancelEdit() を呼び、キー入力の実機化(SendKeys 等)を挟まずに
+    // F2 経路の観測を決定的に固定する(Sta.Run はメッセージポンプを回さないため、
+    // TextBox.KeyDown 経由の実キー配送は再現しない)。
+    // refocusTarget の Focus() 副作用は非アクティブ HostForm 上で観測困難だが、
+    // Teardown が最後まで走ったことは IsEditing=false + 本文の反映有無で十分検出できる
+    // (Close→Teardown が途中で早退すると IsEditing/本文の少なくとも一方が期待と食い違う)。
+
+    /// <summary>CsvController の内部 CsvCellEditor(private field _editor)へ到達する。
+    /// F2 経路のフルワイヤ(BeginEdit→CsvCellEditor.Begin→Commit/CancelEdit→onCommit/onCancel)
+    /// をテストで観測するため、Fake で置換せず実インスタンスを取り出す。</summary>
+    private static CsvCellEditor GetCellEditor(CsvController controller)
+    {
+        var field = typeof(CsvController).GetField("_editor",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        return (CsvCellEditor)field.GetValue(controller)!;
+    }
+
+    /// <summary>CsvCellEditor の内部 TextBox(private field _box)を取り出す。
+    /// Begin 中はセル値で初期化された TextBox が入っており、Commit 前に Text を書き換えると
+    /// 「編集後の確定値」が onCommit へ伝わる。IsEditing=false 時は null が返る想定なので、
+    /// 呼び出し側は BeginEdit 直後にのみ使う。</summary>
+    private static TextBox GetOverlayBox(CsvCellEditor editor)
+    {
+        var field = typeof(CsvCellEditor).GetField("_box",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        return (TextBox)field.GetValue(editor)!;
+    }
+
+    // kill 対象: onCommit 内の ReplaceCharRange の削除/引数取り違え・serialized 未反映・
+    // Commit の onCommit 呼び出し漏れ(Close だけして早退)・_box.Text ではなく初期値を渡す変異。
+    [Fact]
+    public void BeginEdit_ThenCommit_ReplacesCurrentCell_WithEditedText_AndEndsEditing() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        // 初期位置 (0,0)="a1" を編集対象にする(セル境界 [0,2) を "NEW" で置換=長さ変化あり)。
+        host.Csv.BeginEdit();
+        Assert.True(host.Csv.IsEditing);
+
+        var editor = GetCellEditor(host.Csv);
+        var box = GetOverlayBox(editor);
+        box.Text = "NEW";     // ユーザーが編集した状態を再現(セル内改行なし=EscapeField は素通し)
+        editor.Commit();      // Enter 相当
+
+        Assert.False(host.Csv.IsEditing);
+        // (0,0)="a1"(len=2) → "NEW"(len=3) に置換され、以降のセルは相対位置がズレるだけ
+        Assert.Equal("NEW,a2,a3\nb1,b2,b3\nc1,c2,c3", doc.Editor.SnapshotText);
+    });
+
+    // kill 対象: onCancel が本文へ触ってしまう変異(CancelEdit が誤って onCommit を呼ぶ)・
+    // CancelEdit の early return 削除で TextBox.Text が本文に漏れる変異・二重解放。
+    [Fact]
+    public void BeginEdit_ThenCancel_LeavesCellContentUnchanged_AndEndsEditing() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        host.Csv.BeginEdit();
+        Assert.True(host.Csv.IsEditing);
+
+        var editor = GetCellEditor(host.Csv);
+        var box = GetOverlayBox(editor);
+        box.Text = "SHOULD_NOT_APPLY"; // 変更を入力した後で Cancel=本文に混ざってはならない
+        editor.CancelEdit();           // Esc 相当
+
+        Assert.False(host.Csv.IsEditing);
+        Assert.Equal(Grid3x3, doc.Editor.SnapshotText); // Cancel は本文へ一切書き込まない
+    });
+
 
     // ===== クランプ(本文編集で行/列が減った後の補正) =====
 

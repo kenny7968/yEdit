@@ -149,6 +149,20 @@ public class FileControllerTests
     // ===== Save 公開入口(active 経由 Ctrl+S) / ReadOnly 復元(WriteToPath finally) =====
 
     [Fact]
+    public void Save_NoActive_ReturnsFalse() => Sta.Run(() =>
+    {
+        // タブ 0 枚(Host 生成直後は docs.CreateNew を呼ばないため Active=null)。
+        // Save() の `docs.Active is not null` ガードを `true` に変える NRE 変異を kill する
+        // (ガードが外れれば SaveDocument(null) で NullReferenceException が伝播する)。
+        using var host = new Host();
+        Assert.Equal(0, host.Docs.Count);
+        Assert.Null(host.Docs.Active);
+
+        Assert.False(host.File.Save());
+        Assert.Empty(host.Prompt.Log); // ダイアログにも一切進まない
+    });
+
+    [Fact]
     public void Save_ExistingPath_WritesAndClearsModified() => Sta.Run(() =>
     {
         using var host = new Host();
@@ -203,6 +217,7 @@ public class FileControllerTests
 
             // 保存先ファイルの ReadOnly 属性で AtomicFile.Write の File.Replace が UnauthorizedAccessException
             // (WriteToPath の catch フィルタで false 返却+prompt.Error 通知)。
+            // (inner finally は TextFileService.Save が例外を投げる前に完走・ReadOnly=true 復元済み)
             Assert.False(host.File.Save());
             Assert.True(doc.Editor.ReadOnly); // 失敗経路でも finally で復元される(=CSV 復帰不能を防止)
             Assert.Equal("orig", File2.ReadAllText(path)); // 原本は不変(AtomicFile の契約)
@@ -424,7 +439,7 @@ public class FileControllerTests
 
         // 本体を UTF-8 で不正なバイト(0xFF)に差し替える。TextBufferBuilder の Utf8Sanitizer が
         // U+FFFD へ置換し HadReplacementChar=true を返す=文字コード取り違えの示唆経路を発火させる。
-        // (別コードページで開き直すと壊れる状況を狙う=forcedCodePage=65001 で必ず UTF-8 デコード)
+        // (forcedCodePage=65001 で UTF-8 として強制デコード=0xFF は不正バイト→U+FFFD 置換)
         File2.WriteAllBytes(path, new byte[] { 0xFF });
         host.Dialogs.EncodingCodePage = 65001;
 

@@ -27,7 +27,7 @@ public sealed partial class MainForm : Form
         Dock = DockStyle.Bottom, Height = 22, AutoSize = false,
         TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "通知",
     };
-    private IAnnouncer _announcer = null!; // コンストラクタで UiaAnnouncer を直接生成（下記参照）
+    private readonly IAnnouncer _announcer; // コンストラクタで UiaAnnouncer を直接生成（下記参照）
     private ToolStripMenuItem _recentMenu = null!; // BuildMenu で生成
     private readonly string _settingsPath = SettingsStore.DefaultPath;
     private AppSettings _settings = new();
@@ -46,6 +46,9 @@ public sealed partial class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
 
         _docs = new DocumentManager(CreateEditor);
+        // Announcer は KeyBasedSwitch のラムダで参照されるため、event 購読より前に確定させる
+        // (readonly 化に伴い null! 初期化を廃止 → definite assignment を先に済ませる)。
+        _announcer = new UiaAnnouncer(_announceLabel);
         _docs.ActiveDocumentChanged += (_, _) => { UpdateTitle(); UpdateStatus(); };
         _docs.KeyBasedSwitch += (_, doc) => _announcer.Say(doc.TabLabel);
         _docs.ActiveDirtyChanged += (_, _) => UpdateTitle();
@@ -54,7 +57,6 @@ public sealed partial class MainForm : Form
         _file = new FileController(_docs, this, () => _settings,
             SaveSettingsSafe, RebuildRecentMenu, () => { UpdateTitle(); UpdateStatus(); },
             AutoEnterCsvMode, new MessageBoxUserPrompt(), new WinFormsFileDialogService());
-        _announcer = new UiaAnnouncer(_announceLabel);
         _search = new SearchController(_docs, this, _announcer, cb => new FindReplaceDialog(cb));
         _grep = new GrepController(
             docs: _docs,

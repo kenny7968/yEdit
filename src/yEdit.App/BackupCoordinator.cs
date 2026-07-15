@@ -35,6 +35,9 @@ public sealed class BackupCoordinator : IDisposable
     private readonly ConcurrentQueue<string> _failed = new(); // 背景書込が失敗した Id(UI スレッドで回収)
     private bool _shutDown;
 
+    /// <summary>テスト観測用: 現在の Timer.Interval(ms)。UpdateSettings/ctor の Clamp 結果を assert 化する seam。</summary>
+    internal int TimerIntervalMs => _timer.Interval;
+
     public BackupCoordinator(
         DocumentManager docs,
         bool enabled,

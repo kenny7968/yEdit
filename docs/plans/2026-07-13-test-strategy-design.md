@@ -29,6 +29,8 @@
 - リポジトリはローカル中心運用(local main は origin より大幅に先行・未 push)。フェーズ作業は「フィーチャーブランチ→main へ no-ff マージ」。
 - したがって GitHub Actions だけでは普段のマージを守れない。**ローカルゲートを正とし、GitHub CI は push 時・リリース時の防衛線として拡充する**(両方やる)。
 
+**開発者向けガイド**: 新規テストの書き方・コピペ元の正典・レビュー標準チェックリスト・LocalOnly 方針の実務は `tests/README.md` を参照。本書は戦略設計、README は「使い方」の実用ガイドという住み分け。
+
 ## 1. テストピラミッドと各層の責務
 
 テストは「可能な限り下層(高速・安定な層)に置く」を原則とし、5 層で構成する。
@@ -62,6 +64,7 @@
 - ステップ: setup-dotnet(9.x)→ Release ビルド(0 警告チェック)→ Core.Tests → Editor.Tests。
 - **既知リスク**: Editor.Tests のクリップボード/UIA イベント系はホステッドランナーで不安定な可能性がある。
   - 対策: 初回 CI 実行で不安定テストを洗い出し、`[Trait("Category", "LocalOnly")]` で隔離。CI ではフィルタ除外し、ローカルゲートでは全件実行する。隔離したテストは一覧を本書 §6 の申し送りとして管理する。
+  - **LocalOnly 隔離(現在の運用)**: カスタム属性の xUnit v2 プラミングは YAGNI=**素の `[Trait("Category", "LocalOnly")]` を正**とする。**現在の付与**: `tests/yEdit.Editor.Tests/ClipboardTests.cs`(クラスレベル・2026-07-15 ブランチ 4 で先行付与=実クリップボードは CI 他プロセスと衝突する可能性が高いため)。**追加は予防的にしない=CI 初回 push の実測で赤化・不安定化したものだけ付与する**(候補: UiaFocusEventTests / UiaHostTests / BoundingRects / OffsetFromPoint 等)。`pre-merge-check.ps1` はフィルタ**なし**で全数実行(ローカル網羅を維持)、CI(ci.yml/release.yml)は `--filter "Category!=LocalOnly"` で隔離する二相運用。詳細は `tests/README.md` §4。
 
 ### 2.3 `release.yml` の拡張
 
@@ -106,7 +109,8 @@
 ## 6. 申し送り・未決事項
 
 - **2026-07-13 追記(PC-Talker サポート廃止の影響)**: `docs/plans/2026-07-13-pctalker-removal-design.md` により、§1 の L5 実機マトリクスから PC-Talker を除外・§4 の `verify-msaa-client.ps1` は削除済み(統合対象外)・Phase 2 Stage 2 は縮小(同 Phase 2 設計書の「Stage 2 再スコープ」参照)。
-- CI 初回実行で判明した `LocalOnly` 隔離テストの一覧は、判明次第この節に追記する。
+- **2026-07-15 追記(ブランチ 4)**: `tests/yEdit.Editor.Tests/ClipboardTests.cs` に `[Trait("Category", "LocalOnly")]` を付与済み(実クリップボードの CI 他プロセス競合対策・先行付与)。追加候補は CI 初回 push 実測後に判断する(§2.2 参照)。
+- CI 初回実行で判明した追加の `LocalOnly` 隔離テストは、判明次第この節に追記する。
 - Phase 2 の Controller ごとの詳細設計(インターフェース名・分割単位)は、各ブランチ着手時に個別の実装計画で確定する。本書の §3 は方針レベルの合意。
 - `tools/verify-msaa-client.ps1` は現在未コミット(untracked)。Phase 3 でスイート統合する際に扱いを確定する。
 - ci.yml / release.yml 拡張の実機検証は未実施(未公開履歴の公開を避けるため push しない方針)。ユーザーが次回 origin へ push した際に初回 CI 実行を確認し、不安定テストがあれば LocalOnly 隔離を行うこと。あわせて初回実行の所要時間を確認し、timeout-minutes(ci.yml=20/release.yml=30)が窮屈なら調整すること。

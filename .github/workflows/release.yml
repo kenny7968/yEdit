@@ -23,14 +23,22 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
+      # タグ直 push 時にも 0 警告ゲートが必ず走る形にする
+      # (implicit build 経由の dotnet test は -warnaserror が伝播しないため素通り経路になっていた)。
+      # ci.yml と対称形。以降のテスト 3 ステップは --no-build で二重ビルドを回避する。
+      - name: ビルド(警告=エラー)
+        run: dotnet build yEdit.sln -c Release -warnaserror
+
+      # テストプロジェクトを追加/削除する場合は 3 箇所同期: tools/pre-merge-check.ps1・.github/workflows/ci.yml・.github/workflows/release.yml
+      # (sln 一括ステップ寄せは検討済みだが、dotnet test yEdit.sln が Editor/App 両 UI アセンブリを並列実行するため現状維持)
       - name: "テスト(リリース前ゲート: Core)"
-        run: dotnet test tests/yEdit.Core.Tests -c Release
+        run: dotnet test tests/yEdit.Core.Tests -c Release --no-build
 
       - name: "テスト(リリース前ゲート: Editor・LocalOnly 除外)"
-        run: dotnet test tests/yEdit.Editor.Tests -c Release --filter "Category!=LocalOnly"
+        run: dotnet test tests/yEdit.Editor.Tests -c Release --no-build --filter "Category!=LocalOnly"
 
       - name: "テスト(リリース前ゲート: App・LocalOnly 除外)"
-        run: dotnet test tests/yEdit.App.Tests -c Release --filter "Category!=LocalOnly"
+        run: dotnet test tests/yEdit.App.Tests -c Release --no-build --filter "Category!=LocalOnly"
 
       - name: バージョン抽出 (v1.2.3 → 1.2.3)
         id: ver

@@ -16,7 +16,16 @@ namespace yEdit.Editor.Tests;
 /// <remarks>
 /// 各テスト冒頭で <c>Clipboard.SetText("SENTINEL")</c> 等の既知値を書き込み、
 /// テスト間の順序依存を避ける(SENTINEL がそのまま残っていれば「Copy/Cut が触らなかった」判定になる)。
+///
+/// LocalOnly 分類: 実クリップボードはプロセス横断のグローバル資源で、CI ランナー上で他プロセス
+/// (エージェントの clipboard ヘルパ・IME 等)と衝突する可能性が高い。
+/// <see cref="SetClipboardTextAndWait"/> の 30×10ms リトライは短命 STA 上での WM_CLIPBOARDUPDATE
+/// 反映遅延を吸収する目的で、CI 他プロセス競合の完全解決はできない(=フレーク源候補筆頭)。
+/// pre-merge-check は Category フィルタなしで全数実行するためローカルでは常時走る。
+/// ci.yml / release.yml 側は <c>--filter "Category!=LocalOnly"</c> で除外し、
+/// 実機での退行検知はローカルゲート+実機 SR 検証に委ねる。
 /// </remarks>
+[Trait("Category", "LocalOnly")]
 public class ClipboardTests
 {
     private static (Form f, EditorControl c) MakeControl(string text)

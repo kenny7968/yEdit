@@ -15,9 +15,8 @@ public class EditorControlUiaGetObjectTests
         {
             using var ctrl = new EditorControl();
             ctrl.SetSource(TextBuffer.FromString("hi"));
-            using var form = new Form();
+            using var form = HostForm.CreateVisible();
             form.Controls.Add(ctrl);
-            form.Show();
             try
             {
                 // WM_GETOBJECT(UiaRootObjectId) を送る
@@ -38,9 +37,8 @@ public class EditorControlUiaGetObjectTests
         {
             using var ctrl = new EditorControl();
             ctrl.SetSource(TextBuffer.FromString("hi"));
-            using var form = new Form();
+            using var form = HostForm.CreateVisible();
             form.Controls.Add(ctrl);
-            form.Show();
             try
             {
                 // WM_GETOBJECT(OBJID_CLIENT=-4)は base に流す=自前応答しない

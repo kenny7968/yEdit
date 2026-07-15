@@ -23,6 +23,8 @@ jobs:
       - name: ビルド(警告=エラー)
         run: dotnet build yEdit.sln -c Release -warnaserror
 
+      # テストプロジェクトを追加/削除する場合は 3 箇所同期: tools/pre-merge-check.ps1・.github/workflows/ci.yml・.github/workflows/release.yml
+      # (sln 一括ステップ寄せは検討済みだが、dotnet test yEdit.sln が Editor/App 両 UI アセンブリを並列実行するため現状維持)
       - name: Core.Tests
         run: dotnet test tests/yEdit.Core.Tests -c Release --no-build
 

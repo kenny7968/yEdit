@@ -12,7 +12,7 @@ public class EditorControlContractTests
 {
     private static (Form f, EditorControl c) MakeControl(string text)
     {
-        var f = new Form();
+        var f = new HostForm();
         var c = new EditorControl();
         f.Controls.Add(c);
         _ = f.Handle;
@@ -25,7 +25,7 @@ public class EditorControlContractTests
     [Fact]
     public void CurrentLine_ReturnsZero_BeforeSetSource() => Sta.Run(() =>
     {
-        using var f = new Form();
+        using var f = new HostForm();
         using var c = new EditorControl();
         f.Controls.Add(c);
         _ = f.Handle;

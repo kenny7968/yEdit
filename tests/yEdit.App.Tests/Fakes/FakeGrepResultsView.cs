@@ -21,6 +21,7 @@ public sealed class FakeGrepResultsView : IGrepResultsView
         => PopulateLog.Add((pattern, folder, outcome));
     public void ShowResults(IWin32Window owner) => ShowResultsCount++;
 
-    /// <summary>結果一覧の「アクティベート」相当を発火(コールバックが Controller の jumpTo に届くかを検証)。</summary>
+    /// <summary>結果一覧の「アクティベート」相当を発火(<see cref="GrepResultsCallbacks.OnActivate"/> 経由で
+    /// 登録先=テストでは Host.Jumps.Add に届くかを検証)。</summary>
     public void FireActivate(GrepHit hit) => _cb.OnActivate(hit);
 }

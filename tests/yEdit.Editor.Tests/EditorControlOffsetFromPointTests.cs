@@ -31,6 +31,10 @@ public class EditorControlOffsetFromPointTests
         });
     }
 
+    // LocalOnly 化候補: HostForm 方式(off-screen -32000,-32000)では OnPaint が抑止され
+    // ComputeCaretPoint が visible=false を返す=PointFromCharOffset が Point.Empty に落ちる。
+    // 座標系の往復を検証する本テストは on-screen での実描画が必須のため、
+    // 従来どおり new Form() + form.Show() で on-screen アクティブ化する(CI 非対話では要注意)。
     [Fact]
     public void OffsetFromScreenPoint_MidLine_ReturnsMidChar()
     {

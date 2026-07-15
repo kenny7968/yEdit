@@ -1,3 +1,4 @@
+using System.Reflection;
 using yEdit.App.Tests.Fakes;
 using yEdit.Core.Csv;
 
@@ -551,6 +552,149 @@ public class CsvControllerTests
 
         host.Csv.AbortEdit(); // 2 回目=冪等(例外を出さない)
         Assert.False(host.Csv.IsEditing);
+    });
+
+    // ===== BeginEdit の Commit/Cancel 経路(Task 7・F2 UX 保護=L3 で厚めに固定) =====
+    // CsvCellEditor は internal(Task 7 で公開表面を削減)。テストは InternalsVisibleTo 経由で
+    // 直接 Commit()/CancelEdit() を呼び、キー入力の実機化(SendKeys 等)を挟まずに
+    // F2 経路の観測を決定的に固定する(Sta.Run はメッセージポンプを回さないため、
+    // TextBox.KeyDown 経由の実キー配送は再現しない)。
+    // refocusTarget の Focus() 副作用は非アクティブ HostForm 上で観測困難だが、
+    // Teardown が最後まで走ったことは IsEditing=false + 本文の反映有無で十分検出できる
+    // (Close→Teardown が途中で早退すると IsEditing/本文の少なくとも一方が期待と食い違う)。
+
+    /// <summary>CsvController の内部 CsvCellEditor(private field _editor)へ到達する。
+    /// F2 経路のフルワイヤ(BeginEdit→CsvCellEditor.Begin→Commit/CancelEdit→onCommit/onCancel)
+    /// をテストで観測するため、Fake で置換せず実インスタンスを取り出す。</summary>
+    private static CsvCellEditor GetCellEditor(CsvController controller)
+    {
+        var field = typeof(CsvController).GetField("_editor",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        return (CsvCellEditor)field.GetValue(controller)!;
+    }
+
+    /// <summary>CsvCellEditor の内部 TextBox(private field _box)を取り出す。
+    /// Begin 中はセル値で初期化された TextBox が入っており、Commit 前に Text を書き換えると
+    /// 「編集後の確定値」が onCommit へ伝わる。IsEditing=false 時は null が返る想定なので、
+    /// 呼び出し側は BeginEdit 直後にのみ使う。</summary>
+    private static TextBox GetOverlayBox(CsvCellEditor editor)
+    {
+        var field = typeof(CsvCellEditor).GetField("_box",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        return (TextBox)field.GetValue(editor)!;
+    }
+
+    // kill 対象: onCommit 内の ReplaceCharRange の削除/引数取り違え・serialized 未反映・
+    // Commit の onCommit 呼び出し漏れ(Close だけして早退)・_box.Text ではなく初期値を渡す変異。
+    [Fact]
+    public void BeginEdit_ThenCommit_ReplacesCurrentCell_WithEditedText_AndEndsEditing() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        // 初期位置 (0,0)="a1" を編集対象にする(セル境界 [0,2) を "NEW" で置換=長さ変化あり)。
+        host.Csv.BeginEdit();
+        Assert.True(host.Csv.IsEditing);
+
+        var editor = GetCellEditor(host.Csv);
+        var box = GetOverlayBox(editor);
+        box.Text = "NEW";     // ユーザーが編集した状態を再現(セル内改行なし=EscapeField は素通し)
+        editor.Commit();      // Enter 相当
+
+        Assert.False(host.Csv.IsEditing);
+        // (0,0)="a1"(len=2) → "NEW"(len=3) に置換され、以降のセルは相対位置がズレるだけ
+        Assert.Equal("NEW,a2,a3\nb1,b2,b3\nc1,c2,c3", doc.Editor.SnapshotText);
+    });
+
+    // kill 対象: onCancel が本文へ触ってしまう変異(CancelEdit が誤って onCommit を呼ぶ)・
+    // CancelEdit の early return 削除で TextBox.Text が本文に漏れる変異・二重解放。
+    [Fact]
+    public void BeginEdit_ThenCancel_LeavesCellContentUnchanged_AndEndsEditing() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        host.Csv.BeginEdit();
+        Assert.True(host.Csv.IsEditing);
+
+        var editor = GetCellEditor(host.Csv);
+        var box = GetOverlayBox(editor);
+        box.Text = "SHOULD_NOT_APPLY"; // 変更を入力した後で Cancel=本文に混ざってはならない
+        editor.CancelEdit();           // Esc 相当
+
+        Assert.False(host.Csv.IsEditing);
+        Assert.Equal(Grid3x3, doc.Editor.SnapshotText); // Cancel は本文へ一切書き込まない
+    });
+
+    // ===== GoToCell の列側境界(Task 8・行側は ReadCurrent 経由で ClampRow 側を固定済) =====
+    // GoToCell は picker が返した Ok(row1,col1) を csv.GoTo(row1-1, col1-1) に投げ、
+    // 範囲外なら OutOfRange 通知(=クランプではない)。ここで列側の巨大値/負値を pin する。
+
+    // kill 対象: csv.GoTo 内の col 上限判定(`col < Rows[row].Count`)削除で ApplyCell に落ち、
+    // CannotMove に化ける変異(OutOfRange と別文言なので検出可能)。
+    [Fact]
+    public void GoToCell_ColumnBeyondMax_AnnouncesOutOfRange_NoChange() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        host.Csv.Move(Direction.Right); host.Csv.Move(Direction.Down); // (0,0)→(1,1)
+        host.Announcer.Said.Clear();
+        host.Picker.NextResult = CellPickResult.Ok(1, 9999);  // 行は範囲内・列だけ巨大
+
+        host.Csv.GoToCell();
+
+        Assert.Equal(CsvAnnounceFormatter.OutOfRange, host.Announcer.Said[^1]);
+        Assert.Equal(1, doc.State.CsvRow);  // 位置変化なし=(1,1) のまま
+        Assert.Equal(1, doc.State.CsvCol);
+    });
+
+    // kill 対象: csv.GoTo 内の col 下限判定(`col >= 0`)削除で ApplyCell に落ち CannotMove 化する変異・
+    // 列を無条件で 0 にクランプする「(不正な)防御コード追加」も OutOfRange と食い違うので落ちる。
+    [Fact]
+    public void GoToCell_NegativeColumn_AnnouncesOutOfRange_NoChange() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        host.Csv.Move(Direction.Right); host.Csv.Move(Direction.Down); // (0,0)→(1,1)
+        host.Announcer.Said.Clear();
+        host.Picker.NextResult = CellPickResult.Ok(1, -1);   // col1=-1 → 内部 col=-2
+
+        host.Csv.GoToCell();
+
+        Assert.Equal(CsvAnnounceFormatter.OutOfRange, host.Announcer.Said[^1]);
+        Assert.Equal(1, doc.State.CsvRow);  // 位置変化なし
+        Assert.Equal(1, doc.State.CsvCol);
+    });
+
+    // ===== GoToCell の default: throw(Task 9・switch 完全被覆) =====
+    // 現行 3 相(Canceled/InvalidFormat/Ok)以外の Kind を返す不正な ICellPicker を注入し、
+    // switch の default 分岐(=想定外 Kind への防御的 throw)まで踏む。
+
+    /// <summary>未定義の <see cref="CellPickKind"/> 値を返す不正 ICellPicker(default: 分岐の踏み台)。
+    /// enum のキャストで defined 外の値を返すため、record ctor の非バリデート性に依存する
+    /// (<see cref="CellPickResult.Ok"/> ファクトリを避けて record ctor 直呼び)。</summary>
+    private sealed class UnknownKindPicker : ICellPicker
+    {
+        public CellPickResult Pick(IWin32Window owner, int currentRow1, int currentCol1)
+            => new CellPickResult((CellPickKind)99, 0, 0);
+    }
+
+    // kill 対象: default: の throw を return / break に化かす変異(=無音で戻る=switch カバレッジ穴)。
+    // 実装が InvalidOperationException を投げることも同時に固定(実装:CsvController.cs の default 節)。
+    [Fact]
+    public void GoToCell_UnknownResultKind_Throws() => Sta.Run(() =>
+    {
+        var (form, docs) = HostForm.CreateWithDocs();
+        using var _ = form;
+        var announcer = new FakeAnnouncer();
+        var csv = new CsvController(docs: docs, announcer: announcer, cellPicker: new UnknownKindPicker());
+        var doc = docs.CreateNew();
+        doc.Editor.Text = Grid3x3;
+        Assert.True(csv.TryEnterMode(doc));
+
+        Assert.Throws<InvalidOperationException>(() => csv.GoToCell());
     });
 
     // ===== クランプ(本文編集で行/列が減った後の補正) =====

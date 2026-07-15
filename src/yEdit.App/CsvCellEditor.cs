@@ -9,8 +9,11 @@ namespace yEdit.App;
 /// 確定文字列の本文反映は呼び出し元（CsvController）が CSV 直列化して行う。本クラスは
 /// TextBox の生成・配置・キー処理（Enter=確定 / Alt+Enter=改行 / Esc=取消）・フォーカス復帰のみ担う。
 /// フォーカスの復帰先は呼び出し元が指定する(P6: Document.FocusTarget=Editor 固定)。
+/// アクセシビリティ: 唯一の呼び出し元は同一アセンブリ内の <see cref="CsvController"/> のみで
+/// アセンブリ外部への表面ではないため <c>internal</c>。テストは <c>InternalsVisibleTo</c> 経由で
+/// F2 経路(<see cref="Commit"/>/<see cref="CancelEdit"/>)を直接ドライブする(Task 7)。
 /// </summary>
-public sealed class CsvCellEditor
+internal sealed class CsvCellEditor
 {
     private TextBox? _box;
     private bool _closing;
@@ -18,10 +21,10 @@ public sealed class CsvCellEditor
     private Action<string>? _onCommit;
     private Action? _onCancel;
 
-    public bool IsEditing => _box is not null;
+    internal bool IsEditing => _box is not null;
 
     /// <summary>セル編集を開始する。onCommit は確定値（改行は \n 正規化済み）、onCancel は取消で呼ぶ。</summary>
-    public void Begin(EditorControl ed, CsvField field, Control refocusTarget, Action<string> onCommit, Action onCancel)
+    internal void Begin(EditorControl ed, CsvField field, Control refocusTarget, Action<string> onCommit, Action onCancel)
     {
         if (IsEditing) return;
         _refocus = refocusTarget; _onCommit = onCommit; _onCancel = onCancel; _closing = false;
@@ -86,7 +89,10 @@ public sealed class CsvCellEditor
         if (!_closing) CancelEdit();
     }
 
-    private void Commit()
+    /// <summary>Enter 相当=編集内容を確定する。<see cref="_box"/> の現在テキストを
+    /// (\r\n/\r を \n に正規化した上で) <c>onCommit</c> へ渡し、オーバーレイを閉じる。
+    /// Task 7 でテストからも呼べるよう internal 化(F2 経路の観測ポイント)。</summary>
+    internal void Commit()
     {
         if (_box is null || _closing) return;
         string text = _box.Text.Replace("\r\n", "\n").Replace("\r", "\n");
@@ -95,7 +101,9 @@ public sealed class CsvCellEditor
         cb?.Invoke(text);
     }
 
-    private void CancelEdit()
+    /// <summary>Esc 相当=編集を破棄する。<c>onCancel</c> を呼びオーバーレイを閉じる。
+    /// Task 7 でテストからも呼べるよう internal 化(F2 経路の観測ポイント)。</summary>
+    internal void CancelEdit()
     {
         if (_box is null || _closing) return;
         var cb = _onCancel;
@@ -107,7 +115,7 @@ public sealed class CsvCellEditor
 
     /// <summary>進行中の編集を強制破棄する（タブ閉じ/切替時）。コールバックは呼ばず、
     /// フォーカスも戻さない純粋な破棄。編集していなければ何もしない（冪等）。</summary>
-    public void Abort()
+    internal void Abort()
     {
         if (!IsEditing) return;
         Teardown(refocus: false);

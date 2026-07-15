@@ -78,7 +78,9 @@ public sealed partial class MainForm : Form
         _grep = new GrepController(
             docs: _docs,
             owner: this,
-            viewFactory: cb => new GrepDialog(cb),
+            // Batch D Task 12: GrepDialog は new UiaAnnouncer(_status) の直生成を廃止し
+            // 共有 _announcer(SearchController と同型経路)を注入する。
+            viewFactory: cb => new GrepDialog(cb, _announcer),
             resultsFactory: () => new GrepResultsWindow(
                 new GrepResultsCallbacks(hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength))));
         _backup = new BackupCoordinator(

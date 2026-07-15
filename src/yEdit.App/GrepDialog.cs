@@ -26,9 +26,10 @@ public sealed class GrepDialog : Form, IGrepView
     private readonly Label _status = new() { AutoSize = true, Text = "", AccessibleName = "状態" };
     private readonly IAnnouncer _announcer;
 
-    public GrepDialog(GrepCallbacks callbacks)
+    public GrepDialog(GrepCallbacks callbacks, IAnnouncer announcer)
     {
         _cb = callbacks;
+        _announcer = announcer;
         Text = "フォルダ検索 (grep)";
         FormBorderStyle = FormBorderStyle.FixedToolWindow;
         StartPosition = FormStartPosition.CenterParent;
@@ -38,7 +39,6 @@ public sealed class GrepDialog : Form, IGrepView
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
 
         BuildLayout();
-        _announcer = new UiaAnnouncer(_status);
 
         _browse.Click += (_, _) => BrowseFolder();
         _run.Click += async (_, _) => await _cb.RunAsync();  // fire-and-forget=UI 都合(戻り値は捨てる・例外は Controller 内で処理済み)
@@ -78,8 +78,16 @@ public sealed class GrepDialog : Form, IGrepView
 
     public void SetStatus(string text) => _status.Text = text;
 
-    /// <summary>ステータス Label を視覚表示しつつ SR 別手段で読ませる。</summary>
-    public void RaiseNotification(string message) => _announcer.Say(message);
+    /// <summary>ステータス Label を視覚表示しつつ SR 別手段で読ませる。
+    /// Batch D Task 12: `new UiaAnnouncer(_status)` の直生成を廃止して IAnnouncer を注入する構成に変更。
+    /// 従来は AnnouncerBase 側の視覚副作用で `_status.Text` が更新されていたが、共有 Announcer
+    /// (MainForm._announceLabel 経路)注入後は視覚更新も明示する必要があるため、
+    /// SearchController.Announce と同型の「SR 発声は共有 Announcer / 視覚は view 内 label」パターンに揃える。</summary>
+    public void RaiseNotification(string message)
+    {
+        _status.Text = message;
+        _announcer.Say(message);
+    }
 
     private void BrowseFolder()
     {

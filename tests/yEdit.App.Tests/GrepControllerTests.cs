@@ -463,6 +463,21 @@ public class GrepControllerTests
         Assert.DoesNotContain(fields, f => f.FieldType == typeof(GrepResultsCallbacks));
     }
 
+    [Fact]
+    public void GrepController_Ctor_DoesNotAccept_LegacyJumpToDelegate()
+    {
+        // Batch D Task 10: field のみを見る Controller_HasNoJumpToField_... と対で ctor 引数側も機械固定。
+        // ctor 経由の閉じ込め回帰(引数に Action<GrepHit> が復活し private フィールドで受ける)を検出できるよう
+        // param 型スキャンで補強する(field 反射だけでは param→field 経路を跨ぐ mutation を漏らす)。
+        // 併せて resultsFactory の型が Func<IGrepResultsView> のままであることも固定
+        // (Func<GrepResultsCallbacks, IGrepResultsView> への戻し=Stage 8 Task C 差戻しを機械検出)。
+        var ctor = typeof(GrepController).GetConstructors()[0];
+        var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToArray();
+
+        Assert.DoesNotContain(paramTypes, t => t == typeof(Action<GrepHit>));
+        Assert.Contains(paramTypes, t => t == typeof(Func<IGrepResultsView>));
+    }
+
     // ===== Cancel/Dispose の副作用網羅(Stage 8 Task D-1) =====
 
     // Note: 計画原案の `Cancel_AfterOutcomeReturned_DoesNotAnnounceSummary_NorPopulate` は
@@ -636,6 +651,39 @@ public class GrepControllerTests
 
         // catch 内 guard の ReferenceEquals(_cts, cts) により、旧 run の例外はエラー通知しない
         Assert.DoesNotContain(host.View.Notifications, n => n.Contains("boom (from old run)"));
+    });
+
+    // ===== GrepDialog の IAnnouncer 注入(Batch D Task 12) =====
+
+    [Fact]
+    public void GrepDialog_RaiseNotification_ForwardsToInjectedAnnouncer() => Sta.Run(() =>
+    {
+        // Batch D Task 12: GrepDialog は `new UiaAnnouncer(_status)` の直生成を廃止し ctor で IAnnouncer 受け取り。
+        // 従来は「直生成 UiaAnnouncer が _status を掴む」ため FakeAnnouncer 経由で発声を観測できなかった。
+        // 本テストは注入経路の配線を機械固定する: RaiseNotification が注入 IAnnouncer.Say を呼ぶこと・
+        // 複数回・順序が維持されること。
+        // kill 対象:
+        //  - RaiseNotification 内の `_announcer.Say(message)` 削除 → Said が空・Assert.Equal で赤
+        //  - 引数取り違え(`_announcer.Say("")` などハードコード)→ Said 内容不一致で赤
+        //  - ctor で受け取った announcer を別インスタンス(new UiaAnnouncer 復活等)に差し替え → fake に届かず赤
+        // 視覚側(_status.Text) の pin=晴眼/弱視 first-class 契約(SR 発声だけでなく dialog 内視覚更新も保存)。
+        // 従来 AnnouncerBase.Say が持っていた `_status.Text = message` 副作用を明示追加した line を kill 対象化:
+        //  - RaiseNotification の `_status.Text = message` 削除 → 最終メッセージが _status に反映されず赤
+        var fake = new FakeAnnouncer();
+        var cb = new GrepCallbacks(() => Task.CompletedTask, () => { });
+        using var dialog = new GrepDialog(cb, fake);
+
+        dialog.RaiseNotification("検索を開始しました");
+        dialog.RaiseNotification("見つかりません");
+
+        Assert.Equal(new[] { "検索を開始しました", "見つかりません" }, fake.Said);
+
+        // 視覚側 pin: 最後に発声したメッセージが _status label に反映されている
+        var statusField = typeof(GrepDialog).GetField("_status",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(statusField);
+        var statusLabel = (Label)statusField!.GetValue(dialog)!;
+        Assert.Equal("見つかりません", statusLabel.Text);
     });
 
     // ===== ShowResults の _resultsView.IsDisposed 分岐被覆(Batch B Task 6) =====

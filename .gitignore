@@ -38,3 +38,7 @@ TestResults/
 
 # Git worktrees (isolated workspaces)
 .worktrees/
+
+# Build/deploy outputs (dotnet publish + Inno Setup)
+publish/
+installer/Output/

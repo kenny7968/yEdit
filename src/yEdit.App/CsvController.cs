@@ -230,9 +230,10 @@ public sealed class CsvController
     }
 
     /// <summary>EditorControl の親 Form を契約集中で解決する(Batch D Task 11)。
-    /// BeginEdit/GoToCell の呼び出し文脈では ed は必ず MainForm 上に載っている(CSV モード進入=タブ配置済み)ため
-    /// FindForm() は非 null。null になれば CSV モード未進入=そもそも本メソッドに到達しないという実装契約を
-    /// null-forgiving `!` ではなく明示例外で固定する(NRT 抑止の意図を型レベルで表現)。</summary>
+    /// 現状の呼び出しは GoToCell のみ。呼び出し文脈では ed は必ず MainForm 上に載っている
+    /// (CSV モード進入=タブ配置済み)ため FindForm() は非 null。null になれば CSV モード未進入=
+    /// そもそも本メソッドに到達しないという実装契約を null-forgiving `!` ではなく明示例外で固定する
+    /// (NRT 抑止の意図を型レベルで表現)。将来 BeginEdit がダイアログ経路を持てば同契約で流用可。</summary>
     private static Form OwnerFormOf(EditorControl ed)
         => ed.FindForm() ?? throw new InvalidOperationException("EditorControl is not hosted in a Form");
 

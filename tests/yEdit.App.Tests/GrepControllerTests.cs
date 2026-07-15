@@ -666,6 +666,9 @@ public class GrepControllerTests
         //  - RaiseNotification 内の `_announcer.Say(message)` 削除 → Said が空・Assert.Equal で赤
         //  - 引数取り違え(`_announcer.Say("")` などハードコード)→ Said 内容不一致で赤
         //  - ctor で受け取った announcer を別インスタンス(new UiaAnnouncer 復活等)に差し替え → fake に届かず赤
+        // 視覚側(_status.Text) の pin=晴眼/弱視 first-class 契約(SR 発声だけでなく dialog 内視覚更新も保存)。
+        // 従来 AnnouncerBase.Say が持っていた `_status.Text = message` 副作用を明示追加した line を kill 対象化:
+        //  - RaiseNotification の `_status.Text = message` 削除 → 最終メッセージが _status に反映されず赤
         var fake = new FakeAnnouncer();
         var cb = new GrepCallbacks(() => Task.CompletedTask, () => { });
         using var dialog = new GrepDialog(cb, fake);
@@ -674,6 +677,13 @@ public class GrepControllerTests
         dialog.RaiseNotification("見つかりません");
 
         Assert.Equal(new[] { "検索を開始しました", "見つかりません" }, fake.Said);
+
+        // 視覚側 pin: 最後に発声したメッセージが _status label に反映されている
+        var statusField = typeof(GrepDialog).GetField("_status",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(statusField);
+        var statusLabel = (Label)statusField!.GetValue(dialog)!;
+        Assert.Equal("見つかりません", statusLabel.Text);
     });
 
     // ===== ShowResults の _resultsView.IsDisposed 分岐被覆(Batch B Task 6) =====

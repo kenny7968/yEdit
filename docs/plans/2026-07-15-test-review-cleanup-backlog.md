@@ -400,6 +400,8 @@ public void GoToCell_UnknownResultKind_Throws()
 **Files:**
 - Test: `tests/yEdit.App.Tests/GrepControllerTests.cs`
 
+**着手時 pivot(2026-07-16)**: 計画本文の例示コードは `Action<GrepMatch>` を pin していたが、実 API は `GrepHit`(Stage 7〜 の実装で `GrepMatch` 型は存在しない)。実装は `Action<GrepHit>` に pivot(Batch A/B/C の教訓「計画の premise を鵜呑みにしない」に整合)。既存 field 反射テスト(Stage 8 由来)と対で ctor 経路の閉じ込め回帰を機械検出する目的は不変。
+
 **Background:** Stage 8 C 由来。現状の反射テスト(`_jumpTo` が field に含まれないこと)は field のみを見ている。ctor 経由の閉じ込め回帰(ctor 引数に `Action<GrepMatch>` 等が復活する)を検出できない。
 
 **Step 1: 反射クエリの追加**

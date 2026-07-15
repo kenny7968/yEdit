@@ -265,8 +265,22 @@ public sealed class FileController
     /// 改行を State.LineEnding に正規化してから本文を取得し、原子的に保存する。
     /// 例外は _prompt.Error で通知し false を返す。
     /// </summary>
+    /// <remarks>
+    /// Batch A Task 1(2026-07-15): WriteToPath 失敗時に ConvertEols で書き換わった本文と保存点(Modified)
+    /// をロールバックする。ConvertEols(非 fast-path)は <c>ReplaceSource(builder.Build())</c> で新規
+    /// TextBuffer に差し替えるため、失敗しても本文の EOL が新値に変わったまま/新規バッファは fresh
+    /// (Modified=false)で保存点が破壊されたままになる 2 重の静音喪失導線があった。
+    /// 旧 <see cref="TextBuffer"/> 参照を保存前に握っておき、失敗時に <see cref="EditorControl.SetOrReplaceSource"/>
+    /// で参照だけを戻せば <see cref="TextBuffer"/> 内部の <c>_savedRoot</c>/<c>_current</c> は
+    /// ConvertEols で不変=Modified も本文も一括で復元される(旧バッファの内部状態は
+    /// ReplaceSource で置換されただけで書き換わっていない)。
+    /// </remarks>
     private bool WriteToPath(Document doc, string path)
     {
+        // ConvertEols 前のバッファ参照を保持(失敗時ロールバック用=バグ 1+2 対策)。
+        // 旧 TextBuffer は不変=このハンドルを保持している限り、内部の _savedRoot/_current は
+        // ConvertEols/ReplaceSource で書き換わらない。成功パスでは使わない。
+        var snapshotBefore = doc.Editor.CurrentBuffer;
         try
         {
             ApplyEol(doc);
@@ -284,6 +298,12 @@ public sealed class FileController
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Security.SecurityException or NotSupportedException)
         {
+            // バグ 1+2 修正: ConvertEols が非 fast-path で新規 TextBuffer に差し替えている場合は
+            // 旧バッファ参照へ戻す(fast-path 済み=同一参照ならキャレット/スクロールリセットを避けて no-op)。
+            if (!ReferenceEquals(doc.Editor.CurrentBuffer, snapshotBefore))
+            {
+                doc.Editor.SetOrReplaceSource(snapshotBefore);
+            }
             _prompt.Error($"保存できませんでした: {ex.Message}", "エラー");
             return false;
         }

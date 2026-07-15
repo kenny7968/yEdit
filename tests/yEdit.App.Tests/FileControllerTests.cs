@@ -573,24 +573,31 @@ public class FileControllerTests
         Assert.Equal("* b.txt", doc.Page.Text);
     });
 
-    // ===== EOL 非ロールバックの特徴付け(既知挙動・修正要否は別途判断) =====
+    // ===== EOL 非ロールバックの修正確認(Batch A Task 1・2026-07-15) =====
     //
-    // 既知挙動: WriteToPath (:265-290) は保存直前に doc.Editor.ConvertEols(EolMode) で本文中の
-    // 改行を State.LineEnding に一括変換してから TextFileService.Save を呼ぶ。書込が例外で失敗すると
-    // SaveAsDocument (:231-236) は State(Encoding/LineEnding/HasBom)を元値へロールバックするが、
-    // ConvertEols で正規化済みの本文はロールバックされない=改行入り本文を保存失敗するとバッファの
-    // 改行文字だけが別 EOL に変わって残る(以後の Ctrl+S 成功で新 EOL が確定・ユーザーは意図しない
-    // EOL 変更に気付けない)。既存 SaveAs 系ロールバックテスト(本ファイル上部)は fixture の本文が
-    // "abc"(改行なし)で ConvertEols が no-op のため、この既知挙動を特徴付けるテストが存在しない。
-    // Phase 2 レビュー Important 由来の残り宿題を Stage 3 方式(バグ注記付き特徴付け)で 2 件回収する。
-    // 修正時に赤化して気付ける形で固定=修正すべきと判断されたときに壁になる。
+    // 経緯: WriteToPath (:268-) は保存直前に doc.Editor.ConvertEols(EolMode) で本文中の
+    // 改行を State.LineEnding に一括変換してから TextFileService.Save を呼ぶ。以前は書込失敗時に
+    // SaveAsDocument (:231-236) が State(Encoding/LineEnding/HasBom)を元値へロールバックするだけで、
+    // 本文の EOL(バグ 1)と、ConvertEols 非 fast-path の ReplaceSource で fresh 化された
+    // TextBuffer の保存点(バグ 2=Save 前 dirty が Save 後 Modified=false に落ちる)が
+    // ロールバックされない静音喪失導線があった。既存 SaveAs 系ロールバックテスト(本ファイル上部)は
+    // fixture の本文が "abc"(改行なし)で ConvertEols が no-op のため、この 2 バグを検出できていなかった。
+    //
+    // 修正(2026-07-15・fix(app) コミット): WriteToPath は ConvertEols 前に旧 TextBuffer 参照を握り、
+    // 失敗時にその参照へ戻す。TextBuffer 内部の _savedRoot/_current は ConvertEols/ReplaceSource で
+    // 書き換わらないため、参照を戻すだけで本文も Modified も一括で復元される。以下の 2 テストは
+    // かつて「バグ を pin する ★修正時に赤化」だったものを反転させ、修正後の担保として固定するもの。
+    //
+    // 【★★履歴】旧テスト名は SaveAs_WriteFailure_LeavesEolConverted_KnownBehavior /
+    // Save_WriteFailure_LeavesEolNormalized_KnownBehavior。assertion は "a\nb"/"x\r\ny"/Modified=false を
+    // pin していた(バグ固定)。修正後は "a\r\nb"/"x\ny"/Modified=true(ロールバック担保)に反転。
 
     [Fact]
-    public void SaveAs_WriteFailure_LeavesEolConverted_KnownBehavior() => Sta.Run(() =>
+    public void SaveAs_WriteFailure_RollsBackContentEol() => Sta.Run(() =>
     {
-        // 既知挙動(修正要否は別途判断): WriteToPath 失敗時、State(Encoding/LineEnding/HasBom)は
-        // ロールバックされるが、Editor.ConvertEols で正規化済みの本文はロールバックされない。
-        // 改行入り本文で保存に失敗するとバッファの改行文字が別 EOL に変わったまま残る。
+        // 修正確認(旧: SaveAs_WriteFailure_LeavesEolConverted_KnownBehavior):
+        // WriteToPath 失敗時、State(Encoding/LineEnding/HasBom)だけでなく、Editor.ConvertEols で
+        // 正規化済みの本文もロールバックされる(バグ 1 の修正担保)。
         using var host = new Host();
         using var tmp = new TempDir();
         var doc = host.Docs.CreateNew();
@@ -609,19 +616,17 @@ public class FileControllerTests
         Assert.Null(doc.State.Path);                         // Path は旧のまま維持(:238 は失敗時通らない)
         Assert.Contains(host.Prompt.Log, e => e.Kind == "Error" && e.Text.StartsWith("保存できませんでした"));
 
-        // ---- 本文はロールバックされない(既知バグの特徴付け=修正時に赤化) ----
-        // ConvertEols(Lf) で "a\r\nb" → "a\nb" に変換済み。State.LineEnding は CRLF に戻ったが
-        // バッファの改行は LF のまま=以後の Ctrl+S を成功させると LF で保存される(データ静音変更)。
-        Assert.Equal("a\nb", doc.Editor.SnapshotText);       // ★修正時に赤化=バグを積極的に固定する ★
-        Assert.NotEqual("a\r\nb", doc.Editor.SnapshotText);  // 元の CRLF に戻っていないことを明示
+        // ---- 本文ロールバック(バグ 1 修正で緑化=修正後の担保) ----
+        // ConvertEols(Lf) で "a\r\nb" → "a\nb" に一旦変換されたが、Save 失敗の catch で WriteToPath が
+        // ConvertEols 前の TextBuffer 参照へ戻すため CRLF に復元される(以前は LF のまま残っていた=バグ 1)。
+        Assert.Equal("a\r\nb", doc.Editor.SnapshotText);     // ★バグ 1 修正で緑化=ConvertEols 済み本文の復元 ★
     });
 
     [Fact]
-    public void Save_WriteFailure_LeavesEolNormalized_KnownBehavior() => Sta.Run(() =>
+    public void Save_WriteFailure_RollsBackContentEol_And_KeepsModifiedFlag() => Sta.Run(() =>
     {
-        // 既知挙動(修正要否は別途判断): WriteToPath 失敗時、State(Encoding/LineEnding/HasBom)は
-        // ロールバックされるが、Editor.ConvertEols で正規化済みの本文はロールバックされない。
-        // 改行入り本文で保存に失敗するとバッファの改行文字が別 EOL に変わったまま残る。
+        // 修正確認(旧: Save_WriteFailure_LeavesEolNormalized_KnownBehavior):
+        // WriteToPath 失敗時、本文の EOL(バグ 1)と Modified フラグ(バグ 2)の両方がロールバックされる。
         using var host = new Host();
         using var tmp = new TempDir();
         string path = tmp.File("a.txt");
@@ -635,20 +640,20 @@ public class FileControllerTests
             doc.State.Path = path;
             Assert.Equal(LineEnding.Crlf, doc.State.LineEnding); // 前提: 既定は CRLF(Save 経路は State を変えない)
 
-            // Save 前に必ず dirty 状態を作る(=バグ 2 pin のための必須前提):
+            // Save 前に必ず dirty 状態を作る(=バグ 2 検出のための必須前提):
             // Text setter は TextBuffer.FromString で fresh buffer(_savedRoot=root=Modified=false)を差し込む
-            // ため、そのままだと Save 前も後も Modified=false で「差替で dirty が消える」を pin できない
-            // (レビュー指摘)。1 文字挿入→即削除で content は "x\ny" のまま _current.Root だけ進める=
+            // ため、そのままだと Save 前も後も Modified=false で「差替で dirty が消える」を検出できない。
+            // 1 文字挿入→即削除で content は "x\ny" のまま _current.Root だけ進める=
             // 保存点(_savedRoot)からズレて Modified=true になる。この状態で Save 失敗させ、
-            // ConvertEols(Crlf) の非 fast-path が ReplaceSource で新規 TextBuffer に差し替えると
-            // 保存点情報が消えて Modified=false に落ちる=バグ 2 の実効 pin。
+            // ConvertEols(Crlf) の非 fast-path が ReplaceSource で新規 TextBuffer に差し替えても、
+            // 修正後は WriteToPath catch で旧 TextBuffer 参照へ戻すため Modified=true が復元される。
             doc.Editor.ReplaceCharRange(0, 0, "z");              // "zx\ny", root=B, Modified=true
             doc.Editor.ReplaceCharRange(0, 1, "");               // "x\ny", root=C, Modified=true(_savedRoot=A のまま)
             Assert.Equal("x\ny", doc.Editor.SnapshotText);       // 前提: content は元に戻っている
             Assert.True(doc.Editor.Modified);                    // 前提: Save 前は dirty(_current.Root != _savedRoot)
 
             // 保存先ファイルの ReadOnly 属性で AtomicFile.Write が UnauthorizedAccessException を投げ、
-            // WriteToPath の catch フィルタ(:285)で false 返却+prompt.Error 通知される。
+            // WriteToPath の catch フィルタで false 返却+prompt.Error 通知される。
             Assert.False(host.File.Save());
 
             // ---- State は元々変わらない(Save 経路は SaveAsDocument と違い State を触らない) ----
@@ -656,22 +661,18 @@ public class FileControllerTests
             Assert.Equal("orig", File2.ReadAllText(path));       // 原本は不変(AtomicFile の契約)
             Assert.Contains(host.Prompt.Log, e => e.Kind == "Error" && e.Text.StartsWith("保存できませんでした"));
 
-            // ---- 本文はロールバックされない(既知バグ 1 の特徴付け=修正時に赤化) ----
-            // ConvertEols(Crlf) で "x\ny" → "x\r\ny" に変換済み。State.LineEnding は元々 CRLF なので
-            // State だけ見ると齟齬が見えないが、失敗前は LF だった改行が CRLF に書き換わっている=
-            // 以後の Ctrl+S 成功で CRLF が確定してしまう(ユーザーが期待した LF は失われる)。
-            Assert.Equal("x\r\ny", doc.Editor.SnapshotText);     // ★修正時に赤化=バグ 1 を積極的に固定する ★
-            Assert.NotEqual("x\ny", doc.Editor.SnapshotText);    // 元の LF に戻っていないことを明示
+            // ---- 本文ロールバック(バグ 1 修正で緑化=修正後の担保) ----
+            // ConvertEols(Crlf) で "x\ny" → "x\r\ny" に一旦変換されたが、Save 失敗の catch で
+            // WriteToPath が ConvertEols 前の TextBuffer 参照へ戻すため LF に復元される
+            // (以前は CRLF のまま残り、以後の Ctrl+S 成功で意図しない CRLF が確定していた=バグ 1)。
+            Assert.Equal("x\ny", doc.Editor.SnapshotText);       // ★バグ 1 修正で緑化=ConvertEols 済み本文の復元 ★
 
-            // ---- Modified が失われる(既知バグ 2 の特徴付け=修正時に赤化) ----
-            // 本来は「保存失敗=Save 前の dirty のまま」であってほしいが、ConvertEols の非 fast-path が
-            // ReplaceSource で新規 TextBuffer(_savedRoot=root=Modified=false)に差し替えるため、
-            // Save 前に true だった Modified が Save 後に false へ落ちる(セーブポイント破壊)。
-            // ユーザーの本文が LF→CRLF に静音書換された状態にも関わらず「未変更」表示になる=
-            // タブ「*」印/タイトルバーで「変更なし」に見え、次回終了時にも保存確認が出ない=別次元のデータ喪失導線。
-            // ★修正時(バッファ差替を成功パスに寄せる/ConvertEols の副作用を絞る等)にこの assertion も
-            // 赤化する=Save 前 true→Save 後 true(dirty のまま)へ変わるはず。
-            Assert.False(doc.Editor.Modified);                   // ★修正時に赤化=バグ 2 を積極的に固定する ★
+            // ---- Modified 保持(バグ 2 修正で緑化=修正後の担保) ----
+            // 以前は ConvertEols の非 fast-path が ReplaceSource で新規 TextBuffer(Modified=false)に
+            // 差し替えるため Save 失敗後に Modified=false へ落ちていた(セーブポイント破壊=バグ 2)。
+            // 修正後は WriteToPath catch で旧 TextBuffer 参照へ戻すため、_savedRoot は保持され
+            // Save 前 dirty のままの状態が復元される(タブ「*」・終了時の保存確認が正しく動く)。
+            Assert.True(doc.Editor.Modified);                    // ★バグ 2 修正で緑化=保存点の復元 ★
         }
         finally
         {

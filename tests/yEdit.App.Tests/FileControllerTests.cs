@@ -572,4 +572,98 @@ public class FileControllerTests
         Assert.True(doc.Editor.Modified);                  // 復元 dirty 化バグの修正で本来意図へ
         Assert.Equal("* b.txt", doc.Page.Text);
     });
+
+    // ===== EOL 非ロールバックの特徴付け(既知挙動・修正要否は別途判断) =====
+    //
+    // 既知挙動: WriteToPath (:265-290) は保存直前に doc.Editor.ConvertEols(EolMode) で本文中の
+    // 改行を State.LineEnding に一括変換してから TextFileService.Save を呼ぶ。書込が例外で失敗すると
+    // SaveAsDocument (:231-236) は State(Encoding/LineEnding/HasBom)を元値へロールバックするが、
+    // ConvertEols で正規化済みの本文はロールバックされない=改行入り本文を保存失敗するとバッファの
+    // 改行文字だけが別 EOL に変わって残る(以後の Ctrl+S 成功で新 EOL が確定・ユーザーは意図しない
+    // EOL 変更に気付けない)。既存 SaveAs 系ロールバックテスト(本ファイル上部)は fixture の本文が
+    // "abc"(改行なし)で ConvertEols が no-op のため、この既知挙動を特徴付けるテストが存在しない。
+    // Phase 2 レビュー Important 由来の残り宿題を Stage 3 方式(バグ注記付き特徴付け)で 2 件回収する。
+    // 修正時に赤化して気付ける形で固定=修正すべきと判断されたときに壁になる。
+
+    [Fact]
+    public void SaveAs_WriteFailure_LeavesEolConverted_KnownBehavior() => Sta.Run(() =>
+    {
+        // 既知挙動(修正要否は別途判断): WriteToPath 失敗時、State(Encoding/LineEnding/HasBom)は
+        // ロールバックされるが、Editor.ConvertEols で正規化済みの本文はロールバックされない。
+        // 改行入り本文で保存に失敗するとバッファの改行文字が別 EOL に変わったまま残る。
+        using var host = new Host();
+        using var tmp = new TempDir();
+        var doc = host.Docs.CreateNew();
+        // 既定 State=UTF-8/BOM なし/CRLF。本文は CRLF 改行(意図的に SaveAs で LF を選ぶ=非デフォルト)。
+        doc.Editor.Text = "a\r\nb";
+        Assert.Equal(LineEnding.Crlf, doc.State.LineEnding); // 前提: 既定は CRLF
+        // 存在しないサブディレクトリ配下=TextFileService.Save が DirectoryNotFoundException(IOException 派生)
+        // で失敗する(既存 SaveAs_WriteFailure_RollsBackEncodingBomEol_AndKeepsPath と同型の失敗導線)。
+        // ダイアログ側で LineEnding.Lf を選ばせる=ConvertEols(Lf) で本文 "a\r\nb" が "a\nb" に変換される。
+        host.Dialogs.SaveAs = new SaveAsResult(tmp.File(@"no-such-dir\a.txt"), 65001, HasBom: false, LineEnding.Lf);
+
+        Assert.False(host.File.SaveAs());
+
+        // ---- State ロールバック側(既存テストと同じ担保・回帰防止のため再確認) ----
+        Assert.Equal(LineEnding.Crlf, doc.State.LineEnding); // CRLF へロールバック(SaveAsDocument :234)
+        Assert.Null(doc.State.Path);                         // Path は旧のまま維持(:238 は失敗時通らない)
+        Assert.Contains(host.Prompt.Log, e => e.Kind == "Error" && e.Text.StartsWith("保存できませんでした"));
+
+        // ---- 本文はロールバックされない(既知バグの特徴付け=修正時に赤化) ----
+        // ConvertEols(Lf) で "a\r\nb" → "a\nb" に変換済み。State.LineEnding は CRLF に戻ったが
+        // バッファの改行は LF のまま=以後の Ctrl+S を成功させると LF で保存される(データ静音変更)。
+        Assert.Equal("a\nb", doc.Editor.SnapshotText);       // ★修正時に赤化=バグを積極的に固定する ★
+        Assert.NotEqual("a\r\nb", doc.Editor.SnapshotText);  // 元の CRLF に戻っていないことを明示
+    });
+
+    [Fact]
+    public void Save_WriteFailure_LeavesEolNormalized_KnownBehavior() => Sta.Run(() =>
+    {
+        // 既知挙動(修正要否は別途判断): WriteToPath 失敗時、State(Encoding/LineEnding/HasBom)は
+        // ロールバックされるが、Editor.ConvertEols で正規化済みの本文はロールバックされない。
+        // 改行入り本文で保存に失敗するとバッファの改行文字が別 EOL に変わったまま残る。
+        using var host = new Host();
+        using var tmp = new TempDir();
+        string path = tmp.File("a.txt");
+        File2.WriteAllText(path, "orig"); // ReadOnly 属性を付けるため一旦実在させる
+        File2.SetAttributes(path, System.IO.FileAttributes.ReadOnly);
+        try
+        {
+            var doc = host.Docs.CreateNew();
+            // 既定 State=CRLF。本文は LF のみ(意図的な非デフォルト=ConvertEols(Crlf) で "x\ny" → "x\r\ny")。
+            doc.Editor.Text = "x\ny";
+            doc.State.Path = path;
+            Assert.Equal(LineEnding.Crlf, doc.State.LineEnding); // 前提: 既定は CRLF(Save 経路は State を変えない)
+
+            // 保存先ファイルの ReadOnly 属性で AtomicFile.Write が UnauthorizedAccessException を投げ、
+            // WriteToPath の catch フィルタ(:285)で false 返却+prompt.Error 通知される。
+            Assert.False(host.File.Save());
+
+            // ---- State は元々変わらない(Save 経路は SaveAsDocument と違い State を触らない) ----
+            Assert.Equal(LineEnding.Crlf, doc.State.LineEnding); // 契約: Save は State 不変
+            Assert.Equal("orig", File2.ReadAllText(path));       // 原本は不変(AtomicFile の契約)
+            Assert.Contains(host.Prompt.Log, e => e.Kind == "Error" && e.Text.StartsWith("保存できませんでした"));
+
+            // ---- 本文はロールバックされない(既知バグの特徴付け=修正時に赤化) ----
+            // ConvertEols(Crlf) で "x\ny" → "x\r\ny" に変換済み。State.LineEnding は元々 CRLF なので
+            // State だけ見ると齟齬が見えないが、失敗前は LF だった改行が CRLF に書き換わっている=
+            // 以後の Ctrl+S 成功で CRLF が確定してしまう(ユーザーが期待した LF は失われる)。
+            Assert.Equal("x\r\ny", doc.Editor.SnapshotText);     // ★修正時に赤化=バグを積極的に固定する ★
+            Assert.NotEqual("x\ny", doc.Editor.SnapshotText);    // 元の LF に戻っていないことを明示
+
+            // Modified 観測: 本来は「保存失敗=dirty のまま」であってほしいが、ConvertEols の非 fast-path が
+            // ReplaceSource で新規 TextBuffer(_savedRoot=root=Modified=false)に差し替えるため
+            // false に落ちる。ユーザーの本文が LF→CRLF に静音書換された状態にも関わらず「未変更」
+            // 表示になる=別次元のバグ(EOL 非ロールバックと同源のセーブポイント破壊)。本件も特徴付ける。
+            // ★修正時(バッファ差替を成功パスに寄せる/ConvertEols の副作用を絞る等)にこの assertion も
+            // 見直しが必要=Modified==true になるはず。
+            Assert.False(doc.Editor.Modified);                   // ★既知バグ 2: 差替で dirty が失われる ★
+        }
+        finally
+        {
+            // TempDir の再帰削除が ReadOnly 属性で失敗するのを避け、テスト成否に関わらず属性を戻す
+            // (必須の後始末=既存 Save_ReadOnlyDocument_WriteFailure_StillRestoresReadOnly と同旨)。
+            File2.SetAttributes(path, System.IO.FileAttributes.Normal);
+        }
+    });
 }

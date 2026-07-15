@@ -46,11 +46,17 @@ public sealed class SerialBackupWriter : IBackupWriter
         catch { /* 一括削除失敗は致命でない・無音 */ }
     });
 
-    /// <summary>ジョブを投入する(締め切り後・破棄後は無視)。実装詳細。</summary>
+    /// <summary>ジョブを投入する(締め切り後・破棄後は無視)。実装詳細。呼び出しは UI スレッド前提。</summary>
+    // _disposed は volatile 不要: 書き込み(Dispose)も読み取り(Enqueue)も UI スレッドのみ。
     private void Enqueue(Action job)
     {
-        if (_queue.IsAddingCompleted) return;
-        // 競合で AddingCompleted 済み／破棄済み(ObjectDisposedException は InvalidOperationException 派生)。
+        // Dispose 開始後は無視(_disposed=true → CompleteAdding → Join → _queue.Dispose の順で進むため
+        // この一読で破棄済み・締切済みの両方をカバー)。従来は _queue.IsAddingCompleted を try 外で読んで
+        // いたが、_queue.Dispose 後は getter 自体が ObjectDisposedException を投げるため
+        // 呼び出し元に伝播していた(xmldoc「破棄後は無視」の意図との乖離)。_disposed で先に遮断する。
+        if (_disposed) return;
+        // 競合で AddingCompleted 済み／破棄済み(ObjectDisposedException は InvalidOperationException 派生
+        // のため 1 つの catch で両方拾える)。UI スレッド前提のため race window はごく狭いが防御的に残す。
         try { _queue.Add(job); }
         catch (InvalidOperationException) { }
     }

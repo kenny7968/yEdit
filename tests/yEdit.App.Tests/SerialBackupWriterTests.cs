@@ -163,6 +163,52 @@ public class SerialBackupWriterTests
         Assert.Empty(BackupStore.LoadAll(tmp.Root));
     }
 
+    /// <summary>
+    /// Task 2 追加: <see cref="SerialBackupWriter.OnWriteFailed"/> が record.Id を引数として
+    /// 背景スレッドから発火する契約を、<see cref="ManualResetEventSlim"/> で「発火その場」で
+    /// 直接観測して固定する。決定性: sleep/リトライ 0=イベント駆動のみ(MRE.Set の memory
+    /// barrier が capturedId の可視性も保証するため lock 不要)。
+    ///
+    /// <see cref="WriteFailure_InvokesOnWriteFailed_AndWorkerSurvives"/>(複合テスト)との差:
+    /// - 複合側は Dispose ドレイン完了後に failures リストを検査(post-drain observation)。
+    /// - 本テストは発火の瞬間に MRE.Set → その場で assert(during-drain observation)。
+    /// 実装が「失敗を記録して Dispose 時にまとめて発火」に変質した回帰を本テストが検出する
+    /// (複合側は post-drain 観測のため見逃す)。SerialBackupWriter.cs:34 の
+    /// `OnWriteFailed?.Invoke(record.Id)` を null 差替/削除に変異させれば、本テストが red
+    /// 化することを実測確認済み。
+    ///
+    /// 失敗機構の注記: 計画書は「TempDir を削除して I/O 失敗を起こす」を提案していたが、
+    /// <see cref="BackupStore.Write"/> は先頭で <see cref="Directory.CreateDirectory(string)"/>
+    /// を呼ぶため dir 削除では失敗しない(=書込は成功してしまう)。決定的に失敗を起こせるのは
+    /// <c>&lt;id&gt;.json</c> 同名ディレクトリで File.Move をブロックする経路(複合テストと
+    /// 同じ)なので、そちらを流用する。タイムアウト 15s は Dispose の Join 上限と揃えた完全な
+    /// 保険値(実測では ms オーダーで発火)。
+    /// </summary>
+    [Fact]
+    public void Write_Failure_Invokes_OnWriteFailed_WithRecordId()
+    {
+        using var tmp = new TempDir();
+        // 対象パス "id-mre.json" と同名のディレクトリを事前作成 → BackupStore.Write の
+        // 新規経路(AtomicFile.Write 内の File.Move(tmp, "id-mre.json"))が決定的に IOException を投げる。
+        Directory.CreateDirectory(Path.Combine(tmp.Root, "id-mre.json"));
+
+        string? capturedId = null;
+        var doneEvent = new ManualResetEventSlim(initialState: false);
+        // OnWriteFailed は背景スレッドから同期発火する(SerialBackupWriter.cs:34 の
+        // Write catch 内 Invoke)。capturedId=id → doneEvent.Set の順で書けば、
+        // Wait 側の後続参照は Set の memory barrier で確実に可視化される=lock 不要。
+        using var writer = new SerialBackupWriter(tmp.Root)
+        {
+            OnWriteFailed = id => { capturedId = id; doneEvent.Set(); }
+        };
+
+        writer.Write(Rec("id-mre", "boom"));
+
+        Assert.True(doneEvent.Wait(TimeSpan.FromSeconds(15)),
+            "OnWriteFailed が背景スレッドから発火しなかった(タイムアウト)");
+        Assert.Equal("id-mre", capturedId);
+    }
+
     // ===== Enqueue 締切後ガード(xmldoc「破棄後は無視」契約) =====
 
     /// <summary>

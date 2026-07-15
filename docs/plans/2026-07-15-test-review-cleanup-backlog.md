@@ -506,6 +506,50 @@ MainForm が `_announcer`(既に UiaAnnouncer を生成)を GrepDialog に渡す
 
 **Step 4: 判断のみで src 変更なしなら commit 不要**
 
+### 判断結果(2026-07-16)
+
+**判断**: **見送り**(継続バックログとして条件付きで再検討可能)
+
+**根拠**:
+
+- **現状の呼び出し元数**: **src 内で 2 箇所のみ**(`BackupCoordinator.OfferRestoreOnStartup` の line 113=`SweepTempFiles(_dir)`・line 116=`LoadAll(_dir)`)。`MainForm.cs` から直接呼ぶ経路はゼロ(Stage 5 で既に `BackupCoordinator` 経由に集約済み)。テストからは Core=6 箇所・App=5 箇所で `BackupStore.LoadAll` を直呼び。
+
+- **現状 L2 (Core) で cover 済みの分岐**:
+  - `BackupStoreTests`(6 件)が `LoadAll`/`SweepTempFiles` の I/O 契約を実 I/O で網羅:
+    - Write→LoadAll round-trip・untitled(null path)・overwrite atomicity(`.tmp` 残骸なし=SweepTempFiles 相当を含意)・Delete/DeleteAll(内部で SweepTempFiles を呼ぶ)・corrupt-file skip・missing-dir empty
+  - `LoadAll` の `!Directory.Exists → return []` と loop 内 `catch { }`(破損 JSON スキップ)は L2 で kill 済み。
+
+- **現状 L3 (App.Tests) で cover 済みの分岐**:
+  - `BackupCoordinatorTests` の `OfferRestoreOnStartup` 系 8 件が**実 `BackupStore` + 実 tempdir** で 4+2 分岐を網羅:
+    - disabled early-return・no-records 早期 return・confirm=false 全復元(件数戻し)・confirm=false で 1 件不正の巻き添えなし・confirm=true Restore(Id 引継ぎ)・confirm=true 1 件不正の巻き添えなし・DiscardAll・Later
+  - `PlantBackup` ヘルパで `BackupStore.Write` を直呼びして LoadAll に実ファイルを読ませる=static のままでも配線分岐は完全に固定できている。
+
+- **現状 L3 で cover 不能な分岐(=抽象化して初めて cover 可能)**:
+  1. `BackupCoordinator.cs:113` の `try { SweepTempFiles }; catch { /* 無害 */ }` の catch(実 I/O 失敗の防波堤)
+  2. `BackupCoordinator.cs:117` の `catch { return 0; }` (LoadAll が例外を throw した場合の防波堤=OfferRestoreOnStartup が 0 で早期 return)
+
+  いずれも **「復元提案がその 1 回スキップされるだけ・データ喪失なし」の低優先度防波堤 catch**。実 I/O では deterministic に例外を発生させにくく、現状 L4/L5 でも踏んでいない。
+
+- **変更コスト見積**:
+  - `IBackupStore` interface(5 メソッド: Write/LoadAll/Delete/DeleteAll/SweepTempFiles)追加 ≒ 15 行
+  - `BackupStore` static → instance 化(既存 static は互換 shim として残すか全置換)= 呼び出し元の書換 12 箇所以上(Core Tests 6+App Tests 5+src 2+SerialBackupWriter 経由の間接依存)
+  - `BackupCoordinator` の DI ワイヤリング更新(ctor 引数追加・`_dir` の扱い変更)= 数行
+  - `FakeBackupStore` 新設 ≒ 30 行
+  - `MainForm` ctor で `IBackupStore` 生成/注入 ≒ 数行
+  - 既存テスト(11 箇所)の書き換え=既存の `PlantBackup` パターンとの互換維持工数
+  - **総計 100〜150 行の src+テスト変更**
+
+- **期待テスト増分**: **2 件のみ**(SweepTempFiles 失敗の catch kill + LoadAll 失敗の catch kill)。しかも防波堤 catch=データ安全性への寄与は小。
+
+**結論の理由**: 現状 Core L2(6 件)+App L3(8 件)で LoadAll/SweepTempFiles の**契約側は実 I/O で完全に固定済み**、配線側も実 `PlantBackup` で網羅済み。抽象化して踏めるのは低優先度の防波堤 catch 2 経路のみで、100〜150 行の変更コストに見合わない(Task 5 と同型の YAGNI 判定=Batch D 学び「実装読解で YAGNI 判定が正しいこともある」に該当)。
+
+**継続バックログ**:
+- **抽象化を将来検討する条件**(いずれか成立時):
+  1. `OfferRestoreOnStartup` に**新規分岐が追加**され、L4/L5 で回帰観測が発生した場合
+  2. `BackupStore` に**副作用のある新規 API**(例: 遠隔バックエンド連携=OneNote 連携等)が追加され、単体で mock したい必然性が生まれた場合
+  3. `BackupCoordinator.cs:113/117` の catch を実際に踏む回帰が本番で観測された場合(現状は防波堤で無害)
+- **再検討時の scope**: `LoadAll`/`SweepTempFiles` の 2 メソッドだけの限定抽象化(`Write`/`Delete`/`DeleteAll` は `IBackupWriter` 経由で既に注入化済み=Stage 5)で十分。5 メソッドまとめて interface 化する必要はない。
+
 ---
 
 ## 全体スケジュール(推奨)

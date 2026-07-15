@@ -13,6 +13,23 @@ namespace yEdit.App.Tests;
 /// </summary>
 public class GrepControllerTests
 {
+    /// <summary>
+    /// Progress&lt;T&gt; を同期発火にするための SC(Stage 8 Task D-2)。
+    /// Progress&lt;T&gt; は ctor 時点の SynchronizationContext.Current を捕捉し、Report 時に Post する。
+    /// Sta.Run の裸 STA は SC=null で ThreadPool 経由=非決定的になるため、テストが `_cts=null` 化と
+    /// 競合して guard 効果を観測できない。Post を同期実行に置換して、
+    /// Report が返るまでに guard の評価結果(SetStatus 呼ぶ/呼ばない)を確定させる。
+    ///
+    /// 復元不要: <see cref="Sta.Run"/> は各テストで新規 STA スレッドを立てて join するため、
+    /// SC は同スレッドの寿命で消える(=テスト間で leak しない)。将来 Sta.Run を
+    /// 「常駐スレッド+Post 待機」等に refactor する場合はこの前提が崩れるため、
+    /// D-2 テスト側で try/finally による SetSynchronizationContext(previous) 復元が必要になる。
+    /// </summary>
+    private sealed class SynchronousSyncContext : SynchronizationContext
+    {
+        public override void Post(SendOrPostCallback d, object? state) => d(state);
+    }
+
     /// <summary>GrepController を Fake 境界で配線したテストホスト(共通 HostForm.CreateWithDocs を使う)。</summary>
     private sealed class Host : IDisposable
     {
@@ -34,9 +51,13 @@ public class GrepControllerTests
             Grep = new GrepController(
                 docs: Docs,
                 owner: Form,
-                jumpTo: hit => Jumps.Add(hit),
                 viewFactory: _ => { ViewFactoryCalls++; return View; },
-                resultsFactory: cb => { ResultsFactoryCalls++; Results = new FakeGrepResultsView(cb); return Results; },
+                resultsFactory: () =>
+                {
+                    ResultsFactoryCalls++;
+                    Results = new FakeGrepResultsView(new GrepResultsCallbacks(hit => Jumps.Add(hit)));
+                    return Results;
+                },
                 searchFn: SearchFn.Invoke);
         }
 
@@ -401,5 +422,197 @@ public class GrepControllerTests
 
         Assert.Single(host.Jumps);
         Assert.Same(hit, host.Jumps[0]);
+    });
+
+    // ===== 設計不変(GrepController は GrepHit ジャンプ経路を知らない) =====
+
+    [Fact]
+    public void Controller_HasNoJumpToField_NorActionOfGrepHitField()
+    {
+        // 目的: Stage 8 Task C の設計改善(GrepResultsCallbacks 組立を factory 側に移す)が
+        // 後退リファクタで戻らないよう機械的に固定。
+        // GrepController は「grep 結果を結果窓へ反映」責務のみで、ジャンプ経路(Action<GrepHit>)を知らない。
+        var fields = typeof(GrepController).GetFields(
+            System.Reflection.BindingFlags.Instance |
+            System.Reflection.BindingFlags.NonPublic |
+            System.Reflection.BindingFlags.Public);
+
+        Assert.DoesNotContain(fields, f => f.FieldType == typeof(Action<GrepHit>));
+        Assert.DoesNotContain(fields, f => f.FieldType == typeof(GrepResultsCallbacks));
+    }
+
+    // ===== Cancel/Dispose の副作用網羅(Stage 8 Task D-1) =====
+
+    // Note: 計画原案の `Cancel_AfterOutcomeReturned_DoesNotAnnounceSummary_NorPopulate` は
+    // 「Cancel 後に到着した outcome の Populate/Summary が抑止される」ことを主張していたが、
+    // 実装の Cancel は `_cts?.Cancel()` のみで _cts を差し替えない=await 後の追い越し guard
+    // (`d.IsDisposed || !ReferenceEquals(_cts, cts) || _closing`)は Cancel 単独では true にならない
+    // ため、Cancel 単独では Populate/Summary は現に抑止されない。よって計画名を維持したままの
+    // アサートは真ではない。ここでは追い越し guard の d.IsDisposed 分岐(既存テストが未被覆)を
+    // 埋める Dispose 経路のテストに置換し、mutation 5(guard 全消し)の kill を IsDisposed 分岐で成立させる。
+
+    [Fact]
+    public void Dispose_DuringRun_SuppressesShowResults_AndSummary() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        var tcs = new TaskCompletionSource<GrepOutcome>();
+        host.SearchFn.Pending.Enqueue(tcs);
+
+        var task = host.Grep.RunAsync();
+        host.View.IsDisposed = true;                                // owner クローズ等でダイアログ破棄
+        tcs.SetResult(FakeGrepSearchFn.OutcomeWith(hits: 5));       // 破棄後に outcome 到着
+        task.GetAwaiter().GetResult();
+
+        // 追い越し guard の d.IsDisposed 分岐で早期 return=結果窓生成・Populate・Summary はすべて抑止
+        Assert.Equal(0, host.ResultsFactoryCalls);
+        Assert.DoesNotContain(host.View.Notifications, n => n.Contains("行 /") || n.Contains("見つかりません"));
+    });
+
+    // 元 `Cancel_DoesNotChangeViewVisibility` はレビュー由来で削除(Task D レビュー Minor #1):
+    // IGrepView に Hide がなく GrepController も Visible に書き込まないため、Cancel 有無に
+    // 関係なく trivially true=coverage 0。将来 Hide 経路が追加された時点で defensive テストを
+    // 再検討(YAGNI)。
+
+    // ===== Progress 追い越し guard 3 条件(Stage 8 Task D-2) =====
+
+    [Fact]
+    public void Progress_AfterDispose_DoesNotUpdateStatus() => Sta.Run(() =>
+    {
+        // Progress<T> は ctor 時点の SC を捕捉するため、RunAsync 前に SyncSC を仕込む(同期発火化)
+        SynchronizationContext.SetSynchronizationContext(new SynchronousSyncContext());
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        var tcs = new TaskCompletionSource<GrepOutcome>();
+        host.SearchFn.Pending.Enqueue(tcs);
+
+        var task = host.Grep.RunAsync();
+        var progress = host.SearchFn.Invocations[0].Progress!;
+        host.View.IsDisposed = true;   // owner クローズ等でダイアログ破棄相当
+        int statusCountBefore = host.View.StatusLog.Count;
+
+        // SyncSC により Report は同期発火 → Return 前に guard 評価が確定
+        progress.Report(new GrepProgress(FilesScanned: 10, HitCount: 3, CurrentFile: "x"));
+
+        // Progress ラムダの d.IsDisposed guard(1 条件目)により SetStatus は呼ばれない
+        Assert.Equal(statusCountBefore, host.View.StatusLog.Count);
+
+        // task の後始末(finally=SetRunning(false) は Disposed 時スキップ・_cts=null)
+        tcs.SetResult(FakeGrepSearchFn.OutcomeWith(hits: 3));
+        task.GetAwaiter().GetResult();
+    });
+
+    [Fact]
+    public void Progress_AfterCtsSwappedByNewRun_DoesNotUpdateStatus() => Sta.Run(() =>
+    {
+        SynchronizationContext.SetSynchronizationContext(new SynchronousSyncContext());
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        var tcs1 = new TaskCompletionSource<GrepOutcome>();
+        var tcs2 = new TaskCompletionSource<GrepOutcome>();
+        host.SearchFn.Pending.Enqueue(tcs1);
+        host.SearchFn.Pending.Enqueue(tcs2);
+
+        var task1 = host.Grep.RunAsync();
+        var progress1 = host.SearchFn.Invocations[0].Progress!;   // 旧 Progress(旧 cts に対応)
+        var task2 = host.Grep.RunAsync();                          // _cts を差し替え(cts2 に)
+
+        // 旧 Progress による報告(distinctive な数字を選び後段の Assert で識別)
+        // SyncSC により Report は同期発火 → guard 評価は「旧 Progress のクロージャが持つ cts1 と現 _cts=cts2」の不一致を見て早期 return
+        progress1.Report(new GrepProgress(FilesScanned: 999, HitCount: 42, CurrentFile: null));
+
+        // Progress ラムダの !ReferenceEquals(_cts, cts) guard(2 条件目)により、
+        // 旧 Progress の内容(999 ファイル・42 件)は StatusLog に現れない
+        Assert.DoesNotContain(host.View.StatusLog, s => s.Contains("999 ファイル") || s.Contains("42 件"));
+
+        // 後始末
+        tcs1.SetResult(FakeGrepSearchFn.OutcomeWith(hits: 3));
+        tcs2.SetResult(FakeGrepSearchFn.OutcomeWith(hits: 5));
+        task1.GetAwaiter().GetResult();
+        task2.GetAwaiter().GetResult();
+    });
+
+    [Fact]
+    public void Progress_DuringBeginClose_DoesNotUpdateStatus() => Sta.Run(() =>
+    {
+        SynchronizationContext.SetSynchronizationContext(new SynchronousSyncContext());
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        var tcs = new TaskCompletionSource<GrepOutcome>();
+        host.SearchFn.Pending.Enqueue(tcs);
+
+        var task = host.Grep.RunAsync();
+        var progress = host.SearchFn.Invocations[0].Progress!;
+        host.Grep.BeginClose();   // 終了開始(_closing=true・_cts.Cancel)
+        int statusCountBefore = host.View.StatusLog.Count;
+
+        // SyncSC により Report は同期発火 → guard 評価は _closing=true を見て早期 return
+        progress.Report(new GrepProgress(FilesScanned: 777, HitCount: 11, CurrentFile: "y"));
+
+        // Progress ラムダの _closing guard(3 条件目)により SetStatus は呼ばれない
+        Assert.Equal(statusCountBefore, host.View.StatusLog.Count);
+
+        // 後始末
+        tcs.SetResult(FakeGrepSearchFn.OutcomeWith(hits: 1));
+        task.GetAwaiter().GetResult();
+    });
+
+    // ===== catch 内 guard の分岐被覆(Stage 8 Task D-3・準等価変異 kill) =====
+
+    [Fact]
+    public void Catch_AfterDispose_DoesNotAnnounceError() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        var tcs = new TaskCompletionSource<GrepOutcome>();
+        host.SearchFn.Pending.Enqueue(tcs);
+
+        var task = host.Grep.RunAsync();
+        host.View.IsDisposed = true;   // 検索完了前に Dispose
+        tcs.SetException(new InvalidOperationException("boom"));
+        task.GetAwaiter().GetResult();
+
+        // catch 内 guard の !d.IsDisposed により、Disposed 済み view には RaiseNotification しない
+        Assert.DoesNotContain(host.View.Notifications, n => n.StartsWith("検索エラー:"));
+    });
+
+    [Fact]
+    public void Catch_AfterCtsSwapped_DoesNotAnnounceError() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        var tcs1 = new TaskCompletionSource<GrepOutcome>();
+        var tcs2 = new TaskCompletionSource<GrepOutcome>();
+        host.SearchFn.Pending.Enqueue(tcs1);
+        host.SearchFn.Pending.Enqueue(tcs2);
+
+        var task1 = host.Grep.RunAsync();   // 旧 run(cts1)
+        var task2 = host.Grep.RunAsync();   // 追い越し=_cts=cts2(cts1 は Cancel 済み)
+
+        tcs1.SetException(new InvalidOperationException("boom (from old run)"));
+        tcs2.SetResult(FakeGrepSearchFn.OutcomeWith(hits: 0));
+        task1.GetAwaiter().GetResult();
+        task2.GetAwaiter().GetResult();
+
+        // catch 内 guard の ReferenceEquals(_cts, cts) により、旧 run の例外はエラー通知しない
+        Assert.DoesNotContain(host.View.Notifications, n => n.Contains("boom (from old run)"));
     });
 }

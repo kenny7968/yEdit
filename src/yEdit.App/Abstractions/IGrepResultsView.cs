@@ -3,9 +3,10 @@ using yEdit.Core.Search;
 namespace yEdit.App;
 
 /// <summary>
-/// GrepResultsWindow 生成時に渡す Controller 側コールバック束(Phase 2 Stage 7・上位文書 §2.2)。
-/// 結果一覧のアクティベート(Enter/ダブルクリック)からジャンプ動作(<see cref="GrepController"/> ctor 引数の
-/// jumpTo)への 1 経路を delegate 化する。GrepCallbacks と対称。
+/// GrepResultsWindow 生成時に渡すコールバック束(Phase 2 Stage 7・上位文書 §2.2)。
+/// 結果一覧のアクティベート(Enter/ダブルクリック)からジャンプ動作への 1 経路を delegate 化する。
+/// Stage 8 Task C 以降は結果窓生成側(MainForm)が組み立てる=<see cref="GrepController"/> はジャンプ経路を知らない。
+/// GrepCallbacks と対称。
 /// </summary>
 public sealed record GrepResultsCallbacks(Action<GrepHit> OnActivate);
 

@@ -17,6 +17,7 @@ public sealed partial class MainForm : Form
     private GrepController _grep = null!;     // コンストラクタで生成
     private BackupCoordinator _backup = null!; // コンストラクタで生成
     private CsvController _csv = null!;        // コンストラクタで生成
+    private KinsokuFormatController _kinsoku = null!; // コンストラクタで生成(FormatWithKinsoku を委譲)
     private bool _restoreOffered;             // 起動時の復元提案を一度だけ行う
     private readonly ToolStripStatusLabel _posLabel = new("行 1, 桁 1");
     private readonly ToolStripStatusLabel _encLabel = new("UTF-8");
@@ -27,7 +28,7 @@ public sealed partial class MainForm : Form
         Dock = DockStyle.Bottom, Height = 22, AutoSize = false,
         TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "通知",
     };
-    private IAnnouncer _announcer = null!; // コンストラクタで UiaAnnouncer を直接生成（下記参照）
+    private readonly IAnnouncer _announcer; // コンストラクタで UiaAnnouncer を直接生成（下記参照）
     private ToolStripMenuItem _recentMenu = null!; // BuildMenu で生成
     private readonly string _settingsPath = SettingsStore.DefaultPath;
     private AppSettings _settings = new();
@@ -46,28 +47,40 @@ public sealed partial class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
 
         _docs = new DocumentManager(CreateEditor);
+        // Announcer は KeyBasedSwitch のラムダで参照されるため、event 購読より前に確定させる
+        // (readonly 化に伴い null! 初期化を廃止 → definite assignment を先に済ませる)。
+        _announcer = new UiaAnnouncer(_announceLabel);
         _docs.ActiveDocumentChanged += (_, _) => { UpdateTitle(); UpdateStatus(); };
         _docs.KeyBasedSwitch += (_, doc) => _announcer.Say(doc.TabLabel);
         _docs.ActiveDirtyChanged += (_, _) => UpdateTitle();
         _docs.ActiveCaretChanged += (_, _) => UpdateStatus();
         // 設定は OpenSettings で参照が差し替わるため Func で都度解決させる。
-        _file = new FileController(_docs, this, () => _settings,
-            SaveSettingsSafe, RebuildRecentMenu, () => { UpdateTitle(); UpdateStatus(); },
-            AutoEnterCsvMode, new MessageBoxUserPrompt(), new WinFormsFileDialogService());
-        _announcer = new UiaAnnouncer(_announceLabel);
+        // Stage 8 A.3: delegate 4 個(saveSettings/recentChanged/metaChanged/openedFresh)が同型 Action で
+        // 入れ替わっても検出不能なため、名前付き引数化で自己ドキュメント化(Stage 4 の教訓)。
+        _file = new FileController(
+            docs: _docs,
+            owner: this,
+            settings: () => _settings,
+            saveSettings: SaveSettingsSafe,
+            recentChanged: RebuildRecentMenu,
+            metaChanged: () => { UpdateTitle(); UpdateStatus(); },
+            openedFresh: AutoEnterCsvMode,
+            prompt: new MessageBoxUserPrompt(),
+            fileDialogs: new WinFormsFileDialogService());
         _search = new SearchController(_docs, this, _announcer, cb => new FindReplaceDialog(cb));
         _grep = new GrepController(
             docs: _docs,
             owner: this,
-            jumpTo: hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength),
             viewFactory: cb => new GrepDialog(cb),
-            resultsFactory: cb => new GrepResultsWindow(cb));
+            resultsFactory: () => new GrepResultsWindow(
+                new GrepResultsCallbacks(hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength))));
         _backup = new BackupCoordinator(
             _docs, _settings.BackupEnabled, _settings.BackupIntervalSeconds,
             TimeProvider.System,
             () => new SerialBackupWriter(BackupStore.DefaultDirectory),
             new WinFormsRestorePrompt());
         _csv = new CsvController(docs: _docs, announcer: _announcer, cellPicker: new WinFormsCellPicker());
+        _kinsoku = new KinsokuFormatController(_docs, _announcer);
         _docs.BeforeActiveChange = () => _csv.AbortEdit(); // タブ切替直前に F2 編集を中断（焦点の引き戻し防止）
         // P6 で編集エンジンが自作 EditorControl (v2 UIA 単一経路) に統一されたため、
         // CSVモード中に Editor がフォーカスを得た瞬間にシンクへ強制退避していた仕組みは撤去。
@@ -462,37 +475,9 @@ public sealed partial class MainForm : Form
         _docs.Active?.FocusTarget.Focus();                     // 戻り後は編集領域へフォーカス
     }
 
-    /// <summary>選択範囲（無ければ全文）を WrapColumn 桁で禁則整形する（実改行挿入・1 Undo）。</summary>
-    private void FormatWithKinsoku()
-    {
-        var doc = _docs.Active;
-        var ed = doc?.Editor;
-        if (ed is null) return;
-        // CSVモード中は本文が読取専用で整形が無反映になるため抑止（誤成功通知を防ぐ）。
-        if (doc!.State.CsvMode) { _announcer.Say(CsvAnnounceFormatter.BlockedInCsvMode); return; }
-
-        string text = ed.SnapshotText;
-        var (selStart, selEnd) = ed.GetSelectionCharRange();
-        bool whole = selStart == selEnd;
-        int start = whole ? 0 : selStart;
-        int len = whole ? text.Length : selEnd - selStart;
-        if (len <= 0) return;
-
-        string target = text.Substring(start, len);
-        string eol = doc!.State.LineEnding.ToEolString();
-        string formatted = KinsokuFormatter.Format(
-            target, _settings.WrapColumn,
-            _settings.KinsokuLineStartChars, _settings.KinsokuLineEndChars, _settings.KinsokuHangChars,
-            eol, _settings.TabWidth);   // タブ幅は表示設定と連動（画面の見た目どおりに整形する。従来は既定 8 固定）
-
-        if (formatted == target) { _announcer.Say("変更なし"); return; }
-        ed.ReplaceCharRange(start, len, formatted);   // 1 Undo で置換
-        // 部分選択なら変化箇所を選択して提示。全文整形では全選択を避け、先頭へキャレットを置く。
-        if (whole) ed.SelectCharRange(0, 0);
-        else ed.SelectCharRange(start, formatted.Length);
-        ed.Focus();
-        _announcer.Say("整形しました");
-    }
+    /// <summary>選択範囲（無ければ全文）を WrapColumn 桁で禁則整形する（Stage 8 で <see cref="KinsokuFormatController"/> へ委譲）。
+    /// AppSettings は OpenSettings で参照が差し替わるため Run 引数(呼び出し時解決)で渡す。</summary>
+    private void FormatWithKinsoku() => _kinsoku.Run(_settings);
 
     /// <summary>アクティブタブを閉じる。変更確認→クローズ。最後の1つを閉じたらアプリ終了（Q1=B）。</summary>
     private void CloseActiveTab()

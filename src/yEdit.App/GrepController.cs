@@ -5,16 +5,16 @@ namespace yEdit.App;
 
 /// <summary>
 /// grep の統括。ダイアログ入力を検索デリゲート(既定=<see cref="GrepService"/>・別スレッド)へ渡し、
-/// 結果を結果窓へ反映し件数を SR 通知する。結果のジャンプは jumpTo デリゲートへ委譲(MainForm が
-/// ファイルを開いて該当を選択)。Core はスレッド非依存のため、スレッド制御は本クラスに閉じる(§4.1)。
+/// 結果を結果窓へ反映し件数を SR 通知する。ジャンプ経路は結果窓生成側(MainForm)が
+/// <see cref="GrepResultsCallbacks"/> に組み込む=Controller はジャンプ経路を知らない。
+/// Core はスレッド非依存のため、スレッド制御は本クラスに閉じる(§4.1)。
 /// </summary>
 public sealed class GrepController
 {
     private readonly DocumentManager _docs;
-    private readonly Form _owner;
-    private readonly Action<GrepHit> _jumpTo;
+    private readonly IWin32Window _owner;
     private readonly Func<GrepCallbacks, IGrepView> _viewFactory;
-    private readonly Func<GrepResultsCallbacks, IGrepResultsView> _resultsFactory;
+    private readonly Func<IGrepResultsView> _resultsFactory;
     private readonly Func<GrepRequest, IProgress<GrepProgress>?, CancellationToken, Task<GrepOutcome>> _searchFn;
     private IGrepView? _view;
     private IGrepResultsView? _resultsView;
@@ -23,15 +23,13 @@ public sealed class GrepController
 
     public GrepController(
         DocumentManager docs,
-        Form owner,
-        Action<GrepHit> jumpTo,
+        IWin32Window owner,
         Func<GrepCallbacks, IGrepView> viewFactory,
-        Func<GrepResultsCallbacks, IGrepResultsView> resultsFactory,
+        Func<IGrepResultsView> resultsFactory,
         Func<GrepRequest, IProgress<GrepProgress>?, CancellationToken, Task<GrepOutcome>>? searchFn = null)
     {
         _docs = docs;
         _owner = owner;
-        _jumpTo = jumpTo;
         _viewFactory = viewFactory;
         _resultsFactory = resultsFactory;
         // 既定=現行の `await Task.Run(() => GrepService.Search(...))` と 1:1(await 位置と例外セマンティクス不変)
@@ -148,7 +146,7 @@ public sealed class GrepController
     private void ShowResults(string pattern, string folder, GrepOutcome outcome)
     {
         if (_resultsView is null || _resultsView.IsDisposed)
-            _resultsView = _resultsFactory(new GrepResultsCallbacks(_jumpTo));
+            _resultsView = _resultsFactory();
         _resultsView.Populate(pattern, folder, outcome);
         if (outcome.Hits.Count > 0) _resultsView.ShowResults(_owner);
     }

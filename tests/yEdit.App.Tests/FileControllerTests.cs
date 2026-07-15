@@ -39,9 +39,16 @@ public class FileControllerTests
             var (form, docs) = HostForm.CreateWithDocs();
             Form = form;
             Docs = docs;
-            File = new FileController(Docs, Form, () => Settings,
-                () => SaveSettingsCount++, () => RecentChangedCount++, () => MetaChangedCount++,
-                d => OpenedFresh.Add(d), Prompt, Dialogs);
+            File = new FileController(
+                docs: Docs,
+                owner: Form,
+                settings: () => Settings,
+                saveSettings: () => SaveSettingsCount++,
+                recentChanged: () => RecentChangedCount++,
+                metaChanged: () => MetaChangedCount++,
+                openedFresh: d => OpenedFresh.Add(d),
+                prompt: Prompt,
+                fileDialogs: Dialogs);
         }
 
         public void Dispose() => Form.Dispose();

@@ -319,6 +319,41 @@ public class SearchControllerTests
         Assert.Equal(0, host.FactoryCalls);     // 勝手にビューを作らない
     });
 
+    // ===== 検索オプション配線(MatchCase/WholeWord) =====
+    // 件数 assert は引数 swap で対称になり得るため、FindNext 後の選択位置で判別する。
+
+    [Fact]
+    public void FindNext_MatchCaseTrue_SkipsCaseMismatch() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("ABC abc");
+        host.View.Pattern = "abc";
+        host.View.MatchCase = true;
+        host.Search.OpenFind();
+
+        Assert.True(host.Search.FindNext());
+
+        // swap 変異(WholeWord=true/MatchCase=false 扱い)だと先頭の ABC=単語一致 (0,3) を選択するため選択位置で赤になる
+        Assert.Equal((4, 7), doc.Editor.GetSelectionCharRange());
+        Assert.Equal("1 件中 1 件目", host.Announcer.Said[^1]);   // ABC は数えない(大小区別を件数でも固定)
+    });
+
+    [Fact]
+    public void FindNext_WholeWordTrue_SkipsPartialWord() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abcx abc");
+        host.View.Pattern = "abc";
+        host.View.WholeWord = true;
+        host.Search.OpenFind();
+
+        Assert.True(host.Search.FindNext());
+
+        // swap 変異(MatchCase=true/WholeWord=false 扱い)だと abcx 内の部分一致 (0,3) を選択するため選択位置で赤になる
+        Assert.Equal((5, 8), doc.Editor.GetSelectionCharRange());
+        Assert.Equal("1 件中 1 件目", host.Announcer.Said[^1]);   // abcx 内の部分一致は数えない(単語境界を件数でも固定)
+    });
+
     // ===== 文書切替(_lastHit/_selectionScope のリセット+件数の追随) =====
 
     [Fact]
@@ -577,5 +612,21 @@ public class SearchControllerTests
 
         Assert.Equal("abc", doc.Editor.Text);
         Assert.Equal(CsvAnnounceFormatter.BlockedInCsvMode, host.Announcer.Said[^1]);
+    });
+
+    [Fact]
+    public void ReplaceAll_InvalidRegex_AnnouncesAndDoesNotModify() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewDoc("abc");
+        host.View.Pattern = "(";
+        host.View.UseRegex = true;
+        host.View.Replacement = "X";
+        host.Search.OpenReplace();
+
+        host.Search.ReplaceAll();    // Find/ReplaceOne と別コードパスの同ガード(削除すると「見つかりません」の誤通知になる)
+
+        Assert.Equal("正規表現が正しくありません", host.Announcer.Said[^1]);
+        Assert.Equal("abc", doc.Editor.Text);
     });
 }

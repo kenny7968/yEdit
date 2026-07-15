@@ -7,8 +7,8 @@ namespace yEdit.App.Tests;
 /// Phase 2 レビュー Critical 級の回収: SerialBackupWriter の実書込パイプライン統合テスト。
 /// BackupCoordinator の Fake 差し替えテストでは触れられない「実 I/O(BackupStore.Write)・
 /// 実背景スレッド(BlockingCollection+ Thread)・実 Dispose ドレイン(CompleteAdding+Join)」を
-/// 統合レベルで固定する。責務=ワーカー外側 catch:62-70(ワーカー死の防波堤)・Dispose ドレイン
-/// 契約:73-84・Enqueue 締切後ガード:50-55・Write catch→OnWriteFailed 実発火。
+/// 統合レベルで固定する。責務=ワーカー外側 catch(ワーカー死の防波堤)・Dispose ドレイン契約・
+/// Enqueue 締切/破棄後ガード(xmldoc「破棄後は無視」)・Write catch→OnWriteFailed 実発火。
 ///
 /// 決定化の原則:待ちは一切入れない。全テストは「投入 → Dispose(=CompleteAdding+Join で
 /// ドレイン完了が同期確定)→ ディスク/コールバックを assert」の形に統一。Sleep/リトライループ
@@ -40,10 +40,10 @@ public class SerialBackupWriterTests
         Content: content,
         TimestampUtc: new DateTime(2026, 07, 15, 12, 0, 0, DateTimeKind.Utc));
 
-    // ===== ドレイン契約:73-84(CompleteAdding+Join で保留ジョブがディスクに現れる) =====
+    // ===== ドレイン契約(CompleteAdding+Join で保留ジョブがディスクに現れる) =====
 
     /// <summary>
-    /// Dispose ドレイン契約(:73-84)の核。Write を 2 件投入して Dispose で締切→ Join(15s)で
+    /// Dispose ドレイン契約の核。Write を 2 件投入して Dispose で締切→ Join(15s)で
     /// 背景スレッドが CompleteAdding 後の残ジョブを全消化 → BackupStore.LoadAll が両方見える。
     /// これが崩れると「終了直前の未保存文書が退避漏れ」の重篤バグに直結する。
     /// </summary>
@@ -106,11 +106,11 @@ public class SerialBackupWriterTests
         Assert.Empty(BackupStore.LoadAll(tmp.Root));
     }
 
-    // ===== 失敗回復:33-34 & ワーカー生存:62-70(1 件の書込失敗が worker を殺さない) =====
+    // ===== 失敗回復 & ワーカー生存(1 件の書込失敗が worker を殺さない・外側 catch の防波堤) =====
 
     /// <summary>
     /// BackupStore.Write の実失敗経路を OnWriteFailed が実発火し、かつ後続ジョブが処理される
-    /// (=ワーカー外側 catch:62-70=ワーカー死の防波堤が有効)ことを固定する。
+    /// (=ワーカー外側 catch=ワーカー死の防波堤が有効)ことを固定する。
     ///
     /// 失敗経路の設計: BackupStore.Write は AtomicFile.Write を呼び、tmp を書いてから
     /// File.Move(tmp, "&lt;id&gt;.json") する(初回書込=File.Exists=false 分岐)。ターゲットの
@@ -158,44 +158,44 @@ public class SerialBackupWriterTests
         Assert.Empty(BackupStore.LoadAll(tmp.Root));
     }
 
-    // ===== Enqueue 締切後ガード:50-55(現行実装の実挙動固定) =====
+    // ===== Enqueue 締切後ガード(xmldoc「破棄後は無視」契約) =====
 
     /// <summary>
-    /// Dispose 後の Write/Delete/DeleteAll の現行挙動を固定する。
+    /// Dispose 後の Enqueue は xmldoc の契約どおり無例外・無効果であることを固定する
+    /// (bbb51c9 で一時的に pin していた src バグを直近コミットで修正=Enqueue 冒頭の
+    /// `if (_disposed) return;` 早期リターン)。
     ///
-    /// 意図(src コメント:49「破棄後は無視」)と実装のギャップ: Enqueue:52 の
-    /// `if (_queue.IsAddingCompleted) return;` は try/catch の外側にあり、
-    /// _queue.Dispose 後は IsAddingCompleted の getter 自体が ObjectDisposedException を
-    /// 投げるため(実測: BlockingCollection&lt;T&gt;.IsAddingCompleted の CheckDisposed で throw)、
-    /// この例外が呼び出し元に伝播する(ODE は InvalidOperationException 派生だが try 内ではない)。
+    /// 元のバグ: Enqueue が `if (_queue.IsAddingCompleted) return;` を try/catch 外で読み、
+    /// _queue.Dispose 後は getter 自体が ObjectDisposedException を投げるため呼び出し元に伝播。
+    /// 修正後: _disposed フラグを先に読むことで、_queue.Dispose 済でも安全に早期リターン。
     ///
-    /// 本テストは現行挙動を pin する(=将来 src を修正して "破棄後も無例外" とする際に、
-    /// 挙動変更が明示的にこのテストの red で表れるようにする=退行検出のアンカー)。
-    /// 追跡課題: Enqueue で先に `_disposed` フラグを見る or IsAddingCompleted を try 内に
-    /// 移すいずれかで解消可能(src 変更禁止のため本ブランチでは修正しない)。
-    ///
-    /// LoadAll に影響なし=そもそも Enqueue が Add する前に throw するため、ジョブが積まれない
-    /// (worker は Dispose 時点で既に foreach を抜けているのでどのみち何も起きない)。
+    /// LoadAll に影響なし=Enqueue が early-return するのでジョブが積まれない。
+    /// (worker は Dispose 時点で既に foreach を抜けているのでどのみち何も起きない。)
     /// </summary>
     [Fact]
-    public void Enqueue_AfterDispose_ThrowsObjectDisposed_AndLeavesDiskUnaffected()
+    public void Enqueue_AfterDispose_IsIgnored()
     {
         using var tmp = new TempDir();
         var w = new SerialBackupWriter(tmp.Root);
         w.Dispose();
 
-        Assert.Throws<ObjectDisposedException>(() => w.Write(Rec("z", "zzz")));
-        Assert.Throws<ObjectDisposedException>(() => w.Delete("y"));
-        Assert.Throws<ObjectDisposedException>(() => w.DeleteAll());
+        // 3 呼び出しとも無例外(_disposed early-return で _queue に一切触らない)。
+        var writeEx = Record.Exception(() => w.Write(Rec("z", "zzz")));
+        var deleteEx = Record.Exception(() => w.Delete("y"));
+        var deleteAllEx = Record.Exception(() => w.DeleteAll());
 
-        // ジョブは 1 件も enqueue されていない=ディスクに何も書かれていない。
+        Assert.Null(writeEx);
+        Assert.Null(deleteEx);
+        Assert.Null(deleteAllEx);
+
+        // ジョブが積まれていない=ディスクに何も書かれていない。
         Assert.Empty(BackupStore.LoadAll(tmp.Root));
     }
 
-    // ===== Dispose 冪等:74-84(_disposed early-return) =====
+    // ===== Dispose 冪等(_disposed early-return) =====
 
     /// <summary>
-    /// Dispose:74「if (_disposed) return;」の冪等契約。2 回目以降の Dispose が例外なく戻る
+    /// Dispose 先頭「if (_disposed) return;」の冪等契約。2 回目以降の Dispose が例外なく戻る
     /// (2 回目に _queue.CompleteAdding や _worker.Join に再突入して ObjectDisposedException を
     /// 起こさないこと=BackupCoordinator.Dispose が using 内・using 外の二経路から呼ぶ現実対応)。
     /// </summary>

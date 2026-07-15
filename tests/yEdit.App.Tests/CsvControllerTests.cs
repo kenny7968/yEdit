@@ -641,4 +641,78 @@ public class CsvControllerTests
 
         Assert.Contains(CsvAnnounceFormatter.ParseError, host.Announcer.Said);
     });
+
+    // ===== CsvCommands.ByKey(素キー表=SR ユーザーの主要動線。キー→コマンドの対応固定) =====
+
+    // kill 対象: 表エントリの追加/削除の黙殺(Theory 側は ByKey.Keys 列挙+default throw で自動追随)。
+    // 17 = 隣接 4+読み上げ 3(Tab/C/R)+端ジャンプ 6+G/F2+別名 2(Shift+Tab/Ctrl+G)。
+    [Fact]
+    public void ByKey_HasExactly17Entries() => Assert.Equal(17, CsvCommands.ByKey.Count);
+
+    /// <summary>ByKey の全キーを列挙する(表にエントリが増えると Theory の default 分岐が落ちる=網羅の機械保証)。</summary>
+    public static TheoryData<Keys> ByKeyAllKeys()
+    {
+        var data = new TheoryData<Keys>();
+        foreach (var key in CsvCommands.ByKey.Keys) data.Add(key);
+        return data;
+    }
+
+    // kill 対象: キー→delegate の取り違え全般(変異 B=Home↔End 入替など)。
+    // 全 17 エントリを (2,2) 起点の独立セットアップで invoke し、キーごとの期待効果
+    // (到達セル/現在セル読み/見出し読み/Picker 移動/F2 編集開始)を assert する。
+    // 隣接(Up/Down/Left/Right)と端ジャンプ(Home/End/PageUp/PageDown)は到達先が必ず異なる。
+    [Theory]
+    [MemberData(nameof(ByKeyAllKeys))]
+    public void ByKey_MapsAllEntriesToExpectedCommands(Keys key) => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = EnterAt22(host);
+        if (key is Keys.G or (Keys.Control | Keys.G))
+            host.Picker.NextResult = CellPickResult.Ok(4, 4);   // 1 始まり (4,4)=0 始まり (3,3)="r3c3"
+
+        CsvCommands.ByKey[key](host.Csv);
+
+        switch (key)
+        {
+            // 隣接セルへの移動
+            case Keys.Up:    AssertAt(host, doc, 1, 2); break;
+            case Keys.Down:  AssertAt(host, doc, 3, 2); break;
+            case Keys.Left:  AssertAt(host, doc, 2, 1); break;
+            case Keys.Right: AssertAt(host, doc, 2, 3); break;
+            // 行/列の端へのジャンプ(隣接と異なる到達先=取り違え kill)
+            case Keys.Home:     AssertAt(host, doc, 2, 0); break;
+            case Keys.End:      AssertAt(host, doc, 2, 4); break;
+            case Keys.PageUp:   AssertAt(host, doc, 0, 2); break;
+            case Keys.PageDown: AssertAt(host, doc, 4, 2); break;
+            case Keys.Control | Keys.Home: AssertAt(host, doc, 0, 0); break;
+            case Keys.Control | Keys.End:  AssertAt(host, doc, 4, 4); break;
+            // 読み上げのみ(移動なし。AssertAt の State assert が「動かない」も固定する)
+            case Keys.Tab:
+            case Keys.Shift | Keys.Tab:
+                AssertAt(host, doc, 2, 2);
+                break;
+            case Keys.C:   // 列の見出し=(0,2)
+                Assert.Equal(CsvAnnounceFormatter.Header("r0c2"), host.Announcer.Said[^1]);
+                Assert.Equal(2, doc.State.CsvRow);
+                Assert.Equal(2, doc.State.CsvCol);
+                break;
+            case Keys.R:   // 行の見出し=(2,0)
+                Assert.Equal(CsvAnnounceFormatter.Header("r2c0"), host.Announcer.Said[^1]);
+                Assert.Equal(2, doc.State.CsvRow);
+                Assert.Equal(2, doc.State.CsvCol);
+                break;
+            // セル指定・編集
+            case Keys.G:
+            case Keys.Control | Keys.G:
+                Assert.Equal(1, host.Picker.PickCount);   // Picker 経由であることも固定
+                AssertAt(host, doc, 3, 3);
+                break;
+            case Keys.F2:
+                Assert.True(host.Csv.IsEditing);           // 後始末は Host.Dispose の AbortEdit
+                break;
+            default:
+                throw new Xunit.Sdk.XunitException(
+                    $"ByKey に本テスト表に無いキーがあります: {key}。エントリ追加時はここへ期待効果を追記すること。");
+        }
+    });
 }

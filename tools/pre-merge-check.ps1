@@ -6,6 +6,8 @@
 .EXAMPLE
   powershell -File tools\pre-merge-check.ps1
 #>
+# テストプロジェクトを追加/削除する場合は 3 箇所同期: tools/pre-merge-check.ps1・.github/workflows/ci.yml・.github/workflows/release.yml
+# (sln 一括ステップ寄せは検討済みだが、dotnet test yEdit.sln が Editor/App 両 UI アセンブリを並列実行するため現状維持=2026-07-15 実測 sln 14s vs 個別合計 18s)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 

@@ -85,13 +85,33 @@ public class BackupCoordinatorTests
     });
 
     [Fact]
-    public void UpdateSettings_IntervalClamp_TooSmall_And_TooLarge() => Sta.Run(() =>
+    public void Ctor_ClampsIntervalToLowerBound() => Sta.Run(() =>
+    {
+        using var host = new Host(enabled: true, intervalSeconds: 1);
+        Assert.Equal(5_000, host.Backup.TimerIntervalMs);          // 5 未満は下端 5s へクランプ
+    });
+
+    [Fact]
+    public void Ctor_ClampsIntervalToUpperBound() => Sta.Run(() =>
+    {
+        using var host = new Host(enabled: true, intervalSeconds: 99_999);
+        Assert.Equal(3_600_000, host.Backup.TimerIntervalMs);      // 3600 超は上端 3600s へクランプ
+    });
+
+    [Fact]
+    public void UpdateSettings_ClampsIntervalToLowerBound() => Sta.Run(() =>
     {
         using var host = new Host(enabled: true, intervalSeconds: 30);
-        host.Backup.UpdateSettings(true, 1);        // 5 未満はクランプ(下端 5s)
-        host.Backup.UpdateSettings(true, 99_999);   // 3600 超はクランプ(上端 3600s)
-        // 直接観測はできないが、int オーバーフローで例外にならないこと自体が保証(現行の Clamp を維持)。
-        // 実効間隔の観測は Timer 抽象化を持たない本 Stage の範囲外。
+        host.Backup.UpdateSettings(true, 1);
+        Assert.Equal(5_000, host.Backup.TimerIntervalMs);          // 設定ダイアログ経由でも下端クランプ
+    });
+
+    [Fact]
+    public void UpdateSettings_ClampsIntervalToUpperBound() => Sta.Run(() =>
+    {
+        using var host = new Host(enabled: true, intervalSeconds: 30);
+        host.Backup.UpdateSettings(true, 99_999);
+        Assert.Equal(3_600_000, host.Backup.TimerIntervalMs);      // 設定ダイアログ経由でも上端クランプ
     });
 
     [Fact]
@@ -326,6 +346,40 @@ public class BackupCoordinatorTests
     });
 
     [Fact]
+    public void OfferRestore_ConfirmTrue_OneBadRecord_DoesNotAbortOthers() => Sta.Run(() =>
+    {
+        // confirm=false 側の同型テスト(OfferRestore_ConfirmFalse_OneBadRecord_DoesNotBlockOthers)と
+        // 対称形。ダイアログの Checked に 2 件並べ、片方の restore が throw しても他方は完了する
+        // ことを検証(BackupCoordinator §confirm=true 内側 catch:151-154 の実 assert 化)。
+        using var host = new Host();
+        PlantBackup(host.TempDir, Rec("bad", "boom"));
+        PlantBackup(host.TempDir, Rec("good", "ok"));
+
+        var rec1 = Rec("bad", "boom");
+        var rec2 = Rec("good", "ok");
+        host.Prompt.NextOutcome = new RestoreOutcome(RestoreAction.Restore, new[] { rec1, rec2 });
+
+        int restoreCalls = 0;
+        host.Backup.OfferRestoreOnStartup(host.Form, r =>
+        {
+            restoreCalls++;
+            if (r.Id == "bad") throw new InvalidOperationException("restore failed");
+            var d = host.Docs.CreateNew();
+            d.Editor.Text = r.Content;
+            d.Editor.ClearSavePoint();
+            return d;                                    // "good" は成功=タブに登録される
+        }, confirm: true);                                // 例外が伝播しないこと自体が assert(赤なら Test Runner が拾う)
+
+        Assert.Equal(2, restoreCalls);                    // 1 件目の失敗で 2 件目を巻き添えにしない
+        var restored = host.Docs.Documents.Single();      // 成功した "good" の文書が map/tab に登録済み
+        // 元 Id "good" の引き継ぎまで検証(confirm=false 側と異なり、confirm=true は _map 登録も走る)。
+        restored.Editor.Text = "ok edited";
+        restored.Editor.ClearSavePoint();
+        host.Backup.Reconcile();
+        Assert.Contains(host.Writer.Writes, w => w.Id == "good");
+    });
+
+    [Fact]
     public void OfferRestore_ConfirmTrue_DiscardAll_InvokesWriterDeleteAll() => Sta.Run(() =>
     {
         using var host = new Host();
@@ -386,7 +440,9 @@ public class BackupCoordinatorTests
     [Fact]
     public void Dispose_WithoutShutdown_DisposesWriter_WithoutDeletingBackups() => Sta.Run(() =>
     {
-        var host = new Host();
+        // 後始末は他テストと同じく using var host に統一(BackupCoordinator.Dispose は _shutDown で
+        // 冪等=Host.Dispose 内の 2 回目 Dispose は writer/timer に再突入しない)。
+        using var host = new Host();
         host.NewDoc("hello");
         host.Backup.Reconcile();
 
@@ -394,8 +450,6 @@ public class BackupCoordinatorTests
 
         Assert.Empty(host.Writer.Deletes);           // 管理分の削除は行わない(孤児として次回復元)
         Assert.Equal(1, host.Writer.DisposeCount);
-        host.Form.Dispose();
-        try { Directory.Delete(host.TempDir, recursive: true); } catch { }
     });
 
     // ===== TimeProvider(BackupRecord.TimestampUtc が clock 由来) =====

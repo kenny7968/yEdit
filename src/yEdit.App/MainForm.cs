@@ -30,15 +30,22 @@ public sealed partial class MainForm : Form
     };
     private readonly IAnnouncer _announcer; // コンストラクタで UiaAnnouncer を直接生成（下記参照）
     private ToolStripMenuItem _recentMenu = null!; // BuildMenu で生成
-    private readonly string _settingsPath = SettingsStore.DefaultPath;
+    private readonly string _settingsPath;
     private AppSettings _settings = new();
     // Alt 等でメニューがアクティブな間は CSV の素キー横取りを止め、矢印/文字キーをメニュー操作へ通す。
     // メニューモードに入っても本文(EditorControl)はフォーカスを保持するため ContainsFocus では判別できず、
     // MenuStrip の Activate/Deactivate イベントで明示的に追跡する。
     private bool _menuActive;
 
-    public MainForm(AppSettings settings)
+    public MainForm(AppSettings settings) : this(settings, SettingsStore.DefaultPath) { }
+
+    /// <summary>
+    /// テストで実設定ファイルを汚さないため internal 経由で settingsPath を注入可能に
+    /// (既存の public コンストラクタ経路は不変=Program.Main は DefaultPath へチェーン)。
+    /// </summary>
+    internal MainForm(AppSettings settings, string settingsPath)
     {
+        _settingsPath = settingsPath;
         _settings = settings;   // Program.Main が読込済み
 
         Text = "yEdit";
@@ -404,6 +411,12 @@ public sealed partial class MainForm : Form
         SaveSettingsSafe();
         _announcer.Say("設定を適用しました");
     }
+
+    /// <summary>
+    /// スモークテストの導線=Active 経由の TryOpenOrActivate/Save を Test から叩くため
+    /// (MainForm 内では _file を直接使い、テスト側は FileForTest を通す)。
+    /// </summary>
+    internal FileController FileForTest => _file;
 
     /// <summary>
     /// grep ジャンプ用: path を開き（既存タブがあれば再利用）、文字オフセット範囲を選択して

@@ -383,6 +383,35 @@ Stage 8 完了で Phase 2 は終了とする。以下は Phase 2 外の恒久バ
 - Phase 3(SR 性能ゲート・任意)着手条件は上位文書に従い、実機 SR で退行が観測された場合のみ検討。
 - ci.yml / release.yml の実機 CI 初回検証は次回 push 時。
 
-## 7. 実施記録(執筆時点=未完)
+## 7. 実施記録(2026-07-15・main マージ `fb9159b`)
 
-本文書の commit 後、実装計画 `2026-07-15-test-strategy-phase2-stage8.md` を writing-plans skill で作成し、ブランチ `feature/test-strategy-phase2-stage8` で SDD 実行。各 Task 完了・最終レビュー・マージ後に本節へ追記する。
+- **完了**: 実装計画=`docs/plans/2026-07-15-test-strategy-phase2-stage8.md`(SDD・各 Task 2 段レビュー+最終ブランチレビュー「Ready to merge」)。ブランチ `feature/test-strategy-phase2-stage8` で 10 コミット→main へ no-ff マージ。
+- **コミット構成**:
+  - `b225956` Task A.1 = Controller の `_owner` を Form → IWin32Window 狭化(3 Controller 一括)
+  - `04df93f` Task A.2 = MainForm._announcer readonly 化(ctor 内で `_announcer` 代入を KeyBasedSwitch 購読より前に再順序=CS8602 lambda キャプチャ対策=設計書 §2 A.1 に含意された唯一の実装調整)
+  - `d44fe49` Task A.3 = FileController ctor 呼び出しを名前付き引数化(MainForm+FileControllerTests の 2 箇所)
+  - `c2b365d` Task A.4 = SearchController.FindPrev の `_lastHit` 三項式デッドコード除去(`before = selStart` 1 行簡約)
+  - `0757622` Task B = KinsokuFormatController 抽出+テスト 8 件(5 Fact+3 Theory rows)
+  - `6b3a185` Task B fix = PartialSelection の mutation 実効性強化(レビュー由来 +1 件)+WholeText コメント整合
+  - `522c382` Task C = GrepController から `_jumpTo` 除去+resultsFactory 型変更+反射テスト 1 件
+  - `18a7ebc` Task C fix = IGrepResultsView・FakeGrepResultsView の古い xmldoc 追随(レビュー由来)
+  - `5c025c2` Task D = Stage 7 由来の高価値テスト 7 件+FakeGrepSearchFn.Invocations に Progress 追加+SynchronousSyncContext テストヘルパ
+  - `14a106a` Task D fix = Cancel_DoesNotChangeViewVisibility 削除(tautological=YAGNI)+SynchronousSyncContext xmldoc に安全性根拠追記(レビュー由来)
+- **テスト数**: 938 → **954**(Core 573+Editor 218+App 163=純増 +16=Kinsoku 9 件+反射 1 件+Grep guard 6 件)。**Release 0 warnings**。マージ後ゲート `tools/pre-merge-check.ps1` 全緑。
+- **計画からの逸脱(いずれも実装は挙動不変)**:
+  1. Task A.2 ctor 再順序(計画外の実装調整): `_announcer = null!` 廃止で lambda キャプチャの CS8602 が発火 → `_announcer` 代入を `_docs = new DocumentManager(...)` の直後(event 購読より前)へ移動。定義済み代入を先に済ませる形。挙動不変(lambda 発火は ctor 完了後で従来と同じインスタンス参照)。
+  2. Task B の 1 件追加(レビュー由来): 元計画 `PartialSelection_Formats_...` は 20 char doc の `SelectCharRange(0, 20)` で `start=0`+`len=text.Length` になり whole/partial の start/len 計算を区別不能=`start = whole ? 0 : 0` 変異が生存。**新規** `PartialSelection_OnlyFormatsSelectedRange_LeavingPrefixAndSuffixUnchanged`(prefix+CJK 40 chars+suffix)で partial 経路の `start != 0` かつ `len != text.Length` を強制的に作り、prefix/suffix バイト不変で mutation kill 化。Task B 計 8 → 9 件。
+  3. Task B の WholeText コメント整合(レビュー由来): `SelectCharRange(5,5) → (0,0)` は net-zero(実効的に新規 EditorControl と同じ)で Stage 6 標準を偽装。`SelectCharRange(3, 0)` に変更し、非既定位置の空選択(キャレット=3)を作る形に修正+コメントを実態に整合。
+  4. Task C の追加コミット(レビュー由来): `IGrepResultsView` の `GrepResultsCallbacks` xmldoc と `FakeGrepResultsView.FireActivate` xmldoc が「GrepController ctor 引数の jumpTo」に言及していた=Task C で消失。新設計「結果窓生成側(MainForm)が組み立てる」に書き換え。
+  5. Task D の D-1 テスト名変更+削除(レビュー由来): 元計画 `Cancel_AfterOutcomeReturned_DoesNotAnnounceSummary_NorPopulate` は前提誤り(`Cancel()` は `_cts?.Cancel()` のみで `_cts` 差し替え/`_closing`/Dispose を伴わない=overtake guard の 3 条件どれも発火しない)。真の未被覆分岐は `d.IsDisposed` → 名称を `Dispose_DuringRun_SuppressesShowResults_AndSummary` に変更して honest kill 化。また `Cancel_DoesNotChangeViewVisibility` は IGrepView に Hide なし+Controller が Visible に書き込まない=`Assert.True(Visible)` が trivially true(coverage 0)のためレビュー由来で削除。Task D 計 7 → 6 件(D-1×1・D-2×3・D-3×2)。
+  6. Task D の SynchronousSyncContext 追加(実装計画からの発展): `Progress<T>` は ctor 時点の SC を捕捉。Sta.Run の裸 STA は SC=null → Report が ThreadPool 経由=非決定的で `_cts=null` 化と競合し guard 効果を観測不能。Post を同期実行に置換するテストヘルパを追加(復元不要=Sta.Run が新規 STA スレッドで動くため SC は同スレッド寿命で消える=xmldoc 明記)。
+- **ミューテーション検証**: Task B(Kinsoku 7/7 kill=元 5+レビュー由来 2)+ Task D(Grep guard 5/5 kill・catch 内 guard 準等価変異を含む Stage 7 唯一の生存変異が kill 化)。いずれもレビュー時に独立検証で kill 確認済み。
+- **設計不変達成**: ①MainForm.FormatWithKinsoku が 1 行 dispatch(30 → 1 行) ②GrepController は `Action<GrepHit>`/`GrepResultsCallbacks` を code-level で持たない(xmldoc `<see cref>` のみ許容・grep 検証済み) ③3 Controller の `_owner` は `IWin32Window` ④`MainForm._announcer` は `readonly` ⑤反射テストで Controller_HasNoJumpToField 機械固定。
+- **L5 スポット確認**: 不要(§5 のとおり Task B は UiaAnnouncer 単一経路のまま・文言不変・SR 経路不変。Task C/D は SR 経路無関与)。
+- **申し送り(Stage 8 完了 → Phase 2 終了後)**:
+  - Task B レビュー由来 Minor: `ed.Focus()` の呼び出しと順序が offscreen host では検証不能(既存の Controller テスト群と同じ制約)=Stage-wide test 基盤の申し送り。Controller テストで Focus() 呼び出しの検証を可能にする test infra 拡張が今後の課題。
+  - Task C レビュー由来 Minor: 反射テスト `Controller_HasNoJumpToField_NorActionOfGrepHitField` は field のみ検査。ctor param 経由で `Action<GrepHit>` を受けてクロージャに閉じ込める回帰は catch できない=`GetConstructors().SelectMany(c => c.GetParameters()).Select(p => p.ParameterType)` によるスキャン強化の余地。
+  - §1.2〜§1.4 の未回収項目(Stage 5/6/7 由来の小テスト追加)は引き続き個別 PR で必要に応じて対応。
+  - 原案の他コマンド抽出(§1.1)は現時点で見送り継続。将来 MainForm がさらに肥大化したら再評価。
+  - **Phase 2 完了**: Stage 8 で Phase 2 は終了。Phase 3(SR 性能ゲート)着手条件は上位文書に従い、実機 SR で退行が観測された場合のみ検討。
+- **マージ**: main へ no-ff マージ=**`fb9159b`**(2026-07-15・マージ直前の main=`4bd3b09`・ブランチ 10 コミット)。マージ後ゲート全緑 954(Release 0 警告・Core 573+Editor 218+App 163)。フィーチャーブランチ削除済み。local main は origin より先行(未 push)。

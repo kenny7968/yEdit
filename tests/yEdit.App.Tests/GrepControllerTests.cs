@@ -19,6 +19,11 @@ public class GrepControllerTests
     /// Sta.Run の裸 STA は SC=null で ThreadPool 経由=非決定的になるため、テストが `_cts=null` 化と
     /// 競合して guard 効果を観測できない。Post を同期実行に置換して、
     /// Report が返るまでに guard の評価結果(SetStatus 呼ぶ/呼ばない)を確定させる。
+    ///
+    /// 復元不要: <see cref="Sta.Run"/> は各テストで新規 STA スレッドを立てて join するため、
+    /// SC は同スレッドの寿命で消える(=テスト間で leak しない)。将来 Sta.Run を
+    /// 「常駐スレッド+Post 待機」等に refactor する場合はこの前提が崩れるため、
+    /// D-2 テスト側で try/finally による SetSynchronizationContext(previous) 復元が必要になる。
     /// </summary>
     private sealed class SynchronousSyncContext : SynchronizationContext
     {
@@ -467,26 +472,10 @@ public class GrepControllerTests
         Assert.DoesNotContain(host.View.Notifications, n => n.Contains("行 /") || n.Contains("見つかりません"));
     });
 
-    [Fact]
-    public void Cancel_DoesNotChangeViewVisibility() => Sta.Run(() =>
-    {
-        using var host = new Host();
-        host.NewDoc("body");
-        host.Grep.Open();
-        Assert.True(host.View.Visible);   // Open 直後は表示中
-
-        host.View.Pattern = "abc";
-        host.View.Folder = ExistingFolder;
-        var tcs = new TaskCompletionSource<GrepOutcome>();
-        host.SearchFn.Pending.Enqueue(tcs);
-
-        var task = host.Grep.RunAsync();
-        host.Grep.Cancel();
-        tcs.SetResult(FakeGrepSearchFn.OutcomeWith(hits: 0, cancelled: true));
-        task.GetAwaiter().GetResult();
-
-        Assert.True(host.View.Visible);   // Cancel はビュー表示状態を変えない(ダイアログの Hide 経路とは分離)
-    });
+    // 元 `Cancel_DoesNotChangeViewVisibility` はレビュー由来で削除(Task D レビュー Minor #1):
+    // IGrepView に Hide がなく GrepController も Visible に書き込まないため、Cancel 有無に
+    // 関係なく trivially true=coverage 0。将来 Hide 経路が追加された時点で defensive テストを
+    // 再検討(YAGNI)。
 
     // ===== Progress 追い越し guard 3 条件(Stage 8 Task D-2) =====
 

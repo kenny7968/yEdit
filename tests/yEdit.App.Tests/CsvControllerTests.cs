@@ -668,6 +668,35 @@ public class CsvControllerTests
         Assert.Equal(1, doc.State.CsvCol);
     });
 
+    // ===== GoToCell の default: throw(Task 9・switch 完全被覆) =====
+    // 現行 3 相(Canceled/InvalidFormat/Ok)以外の Kind を返す不正な ICellPicker を注入し、
+    // switch の default 分岐(=想定外 Kind への防御的 throw)まで踏む。
+
+    /// <summary>未定義の <see cref="CellPickKind"/> 値を返す不正 ICellPicker(default: 分岐の踏み台)。
+    /// enum のキャストで defined 外の値を返すため、record ctor の非バリデート性に依存する
+    /// (<see cref="CellPickResult.Ok"/> ファクトリを避けて record ctor 直呼び)。</summary>
+    private sealed class UnknownKindPicker : ICellPicker
+    {
+        public CellPickResult Pick(IWin32Window owner, int currentRow1, int currentCol1)
+            => new CellPickResult((CellPickKind)99, 0, 0);
+    }
+
+    // kill 対象: default: の throw を return / break に化かす変異(=無音で戻る=switch カバレッジ穴)。
+    // 実装が InvalidOperationException を投げることも同時に固定(実装:CsvController.cs の default 節)。
+    [Fact]
+    public void GoToCell_UnknownResultKind_Throws() => Sta.Run(() =>
+    {
+        var (form, docs) = HostForm.CreateWithDocs();
+        using var _ = form;
+        var announcer = new FakeAnnouncer();
+        var csv = new CsvController(docs: docs, announcer: announcer, cellPicker: new UnknownKindPicker());
+        var doc = docs.CreateNew();
+        doc.Editor.Text = Grid3x3;
+        Assert.True(csv.TryEnterMode(doc));
+
+        Assert.Throws<InvalidOperationException>(() => csv.GoToCell());
+    });
+
     // ===== クランプ(本文編集で行/列が減った後の補正) =====
 
     [Fact]

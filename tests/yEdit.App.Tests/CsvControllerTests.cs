@@ -626,6 +626,47 @@ public class CsvControllerTests
         Assert.Equal(Grid3x3, doc.Editor.SnapshotText); // Cancel は本文へ一切書き込まない
     });
 
+    // ===== GoToCell の列側境界(Task 8・行側は ReadCurrent 経由で ClampRow 側を固定済) =====
+    // GoToCell は picker が返した Ok(row1,col1) を csv.GoTo(row1-1, col1-1) に投げ、
+    // 範囲外なら OutOfRange 通知(=クランプではない)。ここで列側の巨大値/負値を pin する。
+
+    // kill 対象: csv.GoTo 内の col 上限判定(`col < Rows[row].Count`)削除で ApplyCell に落ち、
+    // CannotMove に化ける変異(OutOfRange と別文言なので検出可能)。
+    [Fact]
+    public void GoToCell_ColumnBeyondMax_AnnouncesOutOfRange_NoChange() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        host.Csv.Move(Direction.Right); host.Csv.Move(Direction.Down); // (0,0)→(1,1)
+        host.Announcer.Said.Clear();
+        host.Picker.NextResult = CellPickResult.Ok(1, 9999);  // 行は範囲内・列だけ巨大
+
+        host.Csv.GoToCell();
+
+        Assert.Equal(CsvAnnounceFormatter.OutOfRange, host.Announcer.Said[^1]);
+        Assert.Equal(1, doc.State.CsvRow);  // 位置変化なし=(1,1) のまま
+        Assert.Equal(1, doc.State.CsvCol);
+    });
+
+    // kill 対象: csv.GoTo 内の col 下限判定(`col >= 0`)削除で ApplyCell に落ち CannotMove 化する変異・
+    // 列を無条件で 0 にクランプする「(不正な)防御コード追加」も OutOfRange と食い違うので落ちる。
+    [Fact]
+    public void GoToCell_NegativeColumn_AnnouncesOutOfRange_NoChange() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = host.NewCsvDoc(Grid3x3);
+        host.Csv.TryEnterMode(doc);
+        host.Csv.Move(Direction.Right); host.Csv.Move(Direction.Down); // (0,0)→(1,1)
+        host.Announcer.Said.Clear();
+        host.Picker.NextResult = CellPickResult.Ok(1, -1);   // col1=-1 → 内部 col=-2
+
+        host.Csv.GoToCell();
+
+        Assert.Equal(CsvAnnounceFormatter.OutOfRange, host.Announcer.Said[^1]);
+        Assert.Equal(1, doc.State.CsvRow);  // 位置変化なし
+        Assert.Equal(1, doc.State.CsvCol);
+    });
 
     // ===== クランプ(本文編集で行/列が減った後の補正) =====
 

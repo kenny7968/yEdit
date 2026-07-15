@@ -463,6 +463,21 @@ public class GrepControllerTests
         Assert.DoesNotContain(fields, f => f.FieldType == typeof(GrepResultsCallbacks));
     }
 
+    [Fact]
+    public void GrepController_Ctor_DoesNotAccept_LegacyJumpToDelegate()
+    {
+        // Batch D Task 10: field のみを見る Controller_HasNoJumpToField_... と対で ctor 引数側も機械固定。
+        // ctor 経由の閉じ込め回帰(引数に Action<GrepHit> が復活し private フィールドで受ける)を検出できるよう
+        // param 型スキャンで補強する(field 反射だけでは param→field 経路を跨ぐ mutation を漏らす)。
+        // 併せて resultsFactory の型が Func<IGrepResultsView> のままであることも固定
+        // (Func<GrepResultsCallbacks, IGrepResultsView> への戻し=Stage 8 Task C 差戻しを機械検出)。
+        var ctor = typeof(GrepController).GetConstructors()[0];
+        var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToArray();
+
+        Assert.DoesNotContain(paramTypes, t => t == typeof(Action<GrepHit>));
+        Assert.Contains(paramTypes, t => t == typeof(Func<IGrepResultsView>));
+    }
+
     // ===== Cancel/Dispose の副作用網羅(Stage 8 Task D-1) =====
 
     // Note: 計画原案の `Cancel_AfterOutcomeReturned_DoesNotAnnounceSummary_NorPopulate` は

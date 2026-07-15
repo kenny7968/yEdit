@@ -127,7 +127,7 @@ public sealed class CsvController
     public void GoToCell()
     {
         if (!TryContext(out var ed, out var csv, out var row, out var col)) return;
-        var result = _cellPicker.Pick(ed.FindForm()!, row + 1, col + 1);
+        var result = _cellPicker.Pick(OwnerFormOf(ed), row + 1, col + 1);
         switch (result.Kind)
         {
             case CellPickKind.Canceled:
@@ -228,6 +228,13 @@ public sealed class CsvController
         doc.State.CsvCol = col;
         return true;
     }
+
+    /// <summary>EditorControl の親 Form を契約集中で解決する(Batch D Task 11)。
+    /// BeginEdit/GoToCell の呼び出し文脈では ed は必ず MainForm 上に載っている(CSV モード進入=タブ配置済み)ため
+    /// FindForm() は非 null。null になれば CSV モード未進入=そもそも本メソッドに到達しないという実装契約を
+    /// null-forgiving `!` ではなく明示例外で固定する(NRT 抑止の意図を型レベルで表現)。</summary>
+    private static Form OwnerFormOf(EditorControl ed)
+        => ed.FindForm() ?? throw new InvalidOperationException("EditorControl is not hosted in a Form");
 
     private static int ClampRow(CsvDocument csv, int r) =>
         r < 0 ? 0 : (r >= csv.Rows.Count ? csv.Rows.Count - 1 : r);

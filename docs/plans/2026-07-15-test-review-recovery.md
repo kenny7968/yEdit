@@ -200,4 +200,54 @@ Stage 3 方式(バグ注記付き特徴付け)。**修正はしない**。各テ
 
 ## 実施記録
 
-(各ブランチ完了時に追記)
+### ブランチ 1: `test/review-recovery` — 網羅性回収(配線系+ロジック系)
+
+- **main マージ**: `c73c226`(2026-07-15)
+- **規模**: 8 Task・15 コミット
+- **テスト数変動**: App **163 → 218**(+55)
+- **概要**: Task 1-1 SearchController の MatchCase/WholeWord 配線+ReplaceAll 不正 regex ガード 3 件 / Task 1-2 KinsokuFormatController の禁則パラメータ配線 3 件(swap/TabWidth/HangChars kill) / Task 1-3 CsvController の端ジャンプ 4 種+EdgeMessage 残 3 分岐+クランプ+ByKey 17 エントリの対応固定 / Task 1-4 GrepController.CancelClose の復帰配線 1 件 / Task 1-5 DocumentManager の BeforeActiveChange 発火 5 経路+直前性 6 件+Host フィクスチャ遡及統一 / Task 1-6 BackupCoordinator の confirm=true 巻き添え防止+クランプ実 assert 化(seam TimerIntervalMs) / Task 1-7 FileController の置換文字警告/ReadOnly 復元/Save 入口 4 件 / Task 1-8 MainForm に settingsPath/FileForTest の内部 seam+コンポジションルート・スモーク 4 件(AutoEnterCsvMode+OpenAndSelect)。
+- **逸脱・特記**: 実装 seam は最小限(MainForm=2 点/BackupCoordinator=1 点)。挙動不変。CsvCommands.ByKey は 17 エントリ(計画本文の「16 エントリ」はカウントミス=実装が正)。
+
+### ブランチ 2: `test/serial-backup-writer` — 実書込パイプライン統合テスト
+
+- **main マージ**: `def941b`(2026-07-15)
+- **規模**: 6 テスト + src バグ修正 1 件
+- **テスト数変動**: App **218 → 224**(+6)
+- **概要**: `SerialBackupWriterTests` を新設し、決定化原則(Sleep/リトライ禁止・`Dispose()` によるドレイン契約で観測)で 6 件を追加(Write→Dispose ドレイン / WriteThenDelete 同 Id 消失 / DeleteAll / WriteFailure ワーカー生存 / Enqueue_AfterDispose 無効化 / Dispose 冪等)。
+- **src 修正**: `SerialBackupWriter.Enqueue` の Dispose 後ガードを xmldoc の意図(Dispose 後は無例外・無効果)に一致させる修正(`e8aa3a8`)。テストが実装のバグを検出した実例。
+
+### ブランチ 3: `test/eol-characterization` — EOL 非ロールバックの特徴付け
+
+- **main マージ**: `ec7a988`(2026-07-15)
+- **規模**: 2 特徴付けテスト(修正はしない)
+- **テスト数変動**: App **224 → 226**(+2)
+- **概要**: Stage 3 方式(バグ注記付き特徴付け)で、EOL 保存失敗時の非ロールバック挙動 2 件を pin。
+- **既知バグ pin**: (a) SaveAs 失敗時に State.LineEnding はロールバックされるが `ConvertEols` 済み本文がロールバックされない / (b) 保存失敗時に混在 EOL 本文が正規化済みのまま残る。**修正要否は本計画完了後にユーザーへ提起**(下記「マージ後判断」参照)。
+
+### ブランチ 4: `chore/ci-prep` — CI 初回 push 前の準備
+
+- **main マージ**: `099a671`(2026-07-15)
+- **規模**: 6 コミット(9 ファイル対象+差し戻し 1 件)
+- **テスト数変動**: なし(準備作業)
+- **概要**: (1) `tests/yEdit.Editor.Tests/ClipboardTests.cs` に `[Trait("Category", "LocalOnly")]` 付与(素 Trait を正・カスタム属性は YAGNI) / (2) `tests/yEdit.App.Tests/Sta.cs` remarks を TCS 規律込みに更新(`RunContinuationsAsynchronously` 禁止・`searchFn` 内 `Task.Run` 禁止の明文化) / (3) `.github/workflows/release.yml` に `-warnaserror` ビルドステップ追加+テスト `--no-build` 化 / (4) ゲート 3 ファイル(pre-merge-check.ps1・ci.yml・release.yml)に同期コメント追記 / (5) Editor.Tests 9 ファイルに HostForm 方式適用+適用外テストへの差し戻しコメント。
+- **逸脱**: sln 一括ゲートへの寄せは検証結果に基づき見送り(現状のフィルタなしローカル+CI フィルタ有の二相を維持)。
+
+### ブランチ 5: `docs/test-suite-guide` — 文書整備(本ブランチ)
+
+- **規模**: 3 サブタスク・文書のみ
+- **テスト数変動**: なし
+- **概要**: (1) `tests/README.md` 新設(5 層ピラミッド / コピペ元の正典=GrepControllerTests+Host フィクスチャ+FakeGrepSearchFn / レビュー標準 6 点 / LocalOnly 方針・148 行) / (2) `docs/plans/2026-07-13-test-strategy-design.md` に README 参照+LocalOnly 現状(ClipboardTests のみ・追加は CI 実測ベース)を追記+§6 に付与済みの 1 行追記 / (3) 本ファイルへ全ブランチ実施記録を追記。
+
+### 総括(pre-merge-check 実測=2026-07-15)
+
+- **テスト数**: Core **573** + Editor **218** + App **226** = **1017 tests**(全緑)
+- **ビルド**: Release **0 警告**
+- **ゲート**: `tools/pre-merge-check.ps1` フィルタなし全数緑
+
+### マージ後判断(ユーザーへの提起)
+
+本計画のマージ完了後、以下の 3 点について要否をユーザー判断へ委ねる:
+
+1. **EOL 非ロールバック修正の要否**(ブランチ 3 で pin した既知バグ a): SaveAs 失敗時の `ConvertEols` 済み本文の非ロールバック。
+2. **ConvertEols 差替による保存点破壊の修正要否**(ブランチ 3 で pin した既知バグ b): 保存失敗時に混在 EOL 本文が正規化済みのまま残る。
+3. **追加 LocalOnly 付与の要否**(CI 初回 push 実測結果次第): UiaFocusEventTests / UiaHostTests / BoundingRects / OffsetFromPoint 等の候補について、CI で赤化・不安定化したものだけを付与する運用に従って判断。

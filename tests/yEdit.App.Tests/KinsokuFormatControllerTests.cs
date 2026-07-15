@@ -70,6 +70,40 @@ public class KinsokuFormatControllerTests
         Assert.True(e > 20, "整形で EOL が挿入され buffer が伸びるはず(20 -> >20)");
     });
 
+    // ===== 1b. 部分整形(prefix + 選択 + suffix)=====
+    // レビュー由来: (0, text.Length) の部分選択は whole/partial の start/len 計算が同値になり
+    // `start = whole ? 0 : 0` 変異(partial 経路のデータ破損)が生存するため、
+    // 選択範囲外の prefix/suffix がバイト不変であることを明示的に固定する。
+
+    [Fact]
+    public void PartialSelection_OnlyFormatsSelectedRange_LeavingPrefixAndSuffixUnchanged() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        // prefix + 40 CJK(WrapColumn=20 で 3 回改行挿入) + suffix。
+        // 選択部だけが整形され、prefix/suffix は物理位置ごと不変であることを検証する。
+        var prefix = "PREFIX";                     // 6 半角=partial 経路の外
+        var target = new string('あ', 40);         // 40 CJK=80 半角桁 → WrapColumn=20 で確実に改行挿入
+        var suffix = "SUFFIX";                     // 6 半角=partial 経路の外
+        var doc = host.NewDoc(prefix + target + suffix);
+        doc.Editor.SelectCharRange(prefix.Length, target.Length);   // [6, 46) を選択(partial 経路)
+
+        host.Kinsoku.Run(host.Settings);
+
+        Assert.Contains("整形しました", host.Announcer.Said);
+        string result = doc.Editor.SnapshotText;
+        // (a) prefix/suffix はバイト位置ごと不変(partial 経路が start/len を正しく使っている証明)
+        Assert.StartsWith(prefix, result);
+        Assert.EndsWith(suffix, result);
+        // (b) 中央部は改行が入って原文の target とは異なる
+        string middle = result.Substring(prefix.Length, result.Length - prefix.Length - suffix.Length);
+        Assert.NotEqual(target, middle);
+        Assert.True(middle.Length > target.Length, "整形で EOL が挿入され中央部が伸びるはず");
+        // (c) 選択範囲は変化後の中央部を指す(start=selStart=prefix.Length、length=formatted.Length=middle.Length)
+        var (s, e) = doc.Editor.GetSelectionCharRange();
+        Assert.Equal(prefix.Length, s);
+        Assert.Equal(prefix.Length + middle.Length, e);
+    });
+
     // ===== 2. 全文整形(選択なし=whole=true) =====
 
     [Fact]
@@ -77,9 +111,9 @@ public class KinsokuFormatControllerTests
     {
         using var host = new Host();
         var doc = host.NewDoc("あいうえおかきくけこさしすせそたちつてと");   // 折返し発生する 20 CJK
-        // 非既定位置から検証開始(Stage 6 レビュー標準): 一旦選択を作ってから (0,0) に戻す
-        doc.Editor.SelectCharRange(5, 5);   // [5, 10) に選択
-        doc.Editor.SelectCharRange(0, 0);   // 空選択=whole パス
+        // 非既定位置の空選択(キャレット=3・全文整形経路)から検証開始(Stage 6 標準)。
+        // 空選択でキャレットのみ位置 3 に置くと selStart == selEnd == 3 → whole=true 経路に入る。
+        doc.Editor.SelectCharRange(3, 0);
 
         host.Kinsoku.Run(host.Settings);
 

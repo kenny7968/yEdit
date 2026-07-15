@@ -51,6 +51,39 @@ public class CsvControllerTests
         "b1,b2,b3\n" +
         "c1,c2,c3";
 
+    // 5×5 の CSV。値 = "r{行0始まり}c{列0始まり}" で全セルユニーク(行/列の取り違えを文言で検出)。
+    // 開始位置 (2,2) は全方向に 2 以上の余地があり、隣接移動と端ジャンプの到達先が必ず異なる。
+    private const string Grid5x5 =
+        "r0c0,r0c1,r0c2,r0c3,r0c4\n" +
+        "r1c0,r1c1,r1c2,r1c3,r1c4\n" +
+        "r2c0,r2c1,r2c2,r2c3,r2c4\n" +
+        "r3c0,r3c1,r3c2,r3c3,r3c4\n" +
+        "r4c0,r4c1,r4c2,r4c3,r4c4";
+
+    /// <summary>CSV モードへ入り、開始セルを (row,col) に直接設定する(非既定位置からの検証開始標準)。
+    /// DocumentState が真実源(TryContext が読む)なので直接設定で十分。通知履歴はクリアして返す。</summary>
+    private static Document EnterAt(Host host, string csv, int row, int col)
+    {
+        var doc = host.NewCsvDoc(csv);
+        Assert.True(host.Csv.TryEnterMode(doc));
+        doc.State.CsvRow = row;
+        doc.State.CsvCol = col;
+        host.Announcer.Said.Clear();
+        return doc;
+    }
+
+    /// <summary>Grid5x5 の (2,2) から開始(端ジャンプ/ByKey 共通 fixture)。</summary>
+    private static Document EnterAt22(Host host) => EnterAt(host, Grid5x5, 2, 2);
+
+    /// <summary>Grid5x5 上で (row0,col0) に居ることを State と Cell 文言の両面で assert する。
+    /// 文言はセル値がユニーク("r{row}c{col}")なので行/列の取り違えも検出する。</summary>
+    private static void AssertAt(Host host, Document doc, int row0, int col0)
+    {
+        Assert.Equal(row0, doc.State.CsvRow);
+        Assert.Equal(col0, doc.State.CsvCol);
+        Assert.Equal(CsvAnnounceFormatter.Cell($"r{row0}c{col0}", row0 + 1, col0 + 1), host.Announcer.Said[^1]);
+    }
+
     // ===== ctor(対応固定=Picker は ctor で呼ばれない) =====
 
     [Fact]
@@ -219,6 +252,48 @@ public class CsvControllerTests
         Assert.Equal(CsvAnnounceFormatter.LeftEdge, host.Announcer.Said[^1]);
     });
 
+    // kill 対象: EdgeMessage の Right→LeftEdge 化(変異 C)・右端判定(列数-1)の破壊。
+    [Fact]
+    public void Move_AtRightEdge_AnnouncesRightEdge_NoChange() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = EnterAt(host, Grid5x5, 2, 4);   // 右端(2,4)
+
+        host.Csv.Move(Direction.Right);
+
+        Assert.Equal(2, doc.State.CsvRow);
+        Assert.Equal(4, doc.State.CsvCol);        // 動かない
+        Assert.Equal(CsvAnnounceFormatter.RightEdge, host.Announcer.Said[^1]);
+    });
+
+    // kill 対象: EdgeMessage の Up 分岐削除(default=BottomEdge へ落ちる)・先頭行判定の破壊。
+    [Fact]
+    public void Move_AtTopEdge_AnnouncesTopEdge_NoChange() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = EnterAt(host, Grid5x5, 0, 2);   // 先頭行(0,2)
+
+        host.Csv.Move(Direction.Up);
+
+        Assert.Equal(0, doc.State.CsvRow);        // 動かない
+        Assert.Equal(2, doc.State.CsvCol);
+        Assert.Equal(CsvAnnounceFormatter.TopEdge, host.Announcer.Said[^1]);
+    });
+
+    // kill 対象: EdgeMessage の default(BottomEdge)の他文言化・最終行判定の破壊。
+    [Fact]
+    public void Move_AtBottomEdge_AnnouncesBottomEdge_NoChange() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = EnterAt(host, Grid5x5, 4, 2);   // 最終行(4,2)
+
+        host.Csv.Move(Direction.Down);
+
+        Assert.Equal(4, doc.State.CsvRow);        // 動かない
+        Assert.Equal(2, doc.State.CsvCol);
+        Assert.Equal(CsvAnnounceFormatter.BottomEdge, host.Announcer.Said[^1]);
+    });
+
     [Fact]
     public void Move_NotInMode_IsNoOp() => Sta.Run(() =>
     {
@@ -263,6 +338,56 @@ public class CsvControllerTests
         Assert.Equal(2, doc.State.CsvRow);
         Assert.Equal(2, doc.State.CsvCol);
         Assert.Equal(CsvAnnounceFormatter.Cell("c3", 3, 3), host.Announcer.Said[^1]);
+    });
+
+    // ===== 端ジャンプ(第 2 弾=残り 4 API・(2,2) 起点で隣接移動との取り違えも kill) =====
+
+    // kill 対象: RowStart→RowEnd の取り違え(変異 A)・Left 隣接移動との混同((2,1) なら赤)。
+    [Fact]
+    public void MoveRowStart_From22_MovesToRowHead() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = EnterAt22(host);
+
+        host.Csv.MoveRowStart();
+
+        AssertAt(host, doc, 2, 0);
+    });
+
+    // kill 対象: RowEnd→RowStart の取り違え・Right 隣接移動との混同((2,3) なら赤)。
+    [Fact]
+    public void MoveRowEnd_From22_MovesToRowTail() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = EnterAt22(host);
+
+        host.Csv.MoveRowEnd();
+
+        AssertAt(host, doc, 2, 4);
+    });
+
+    // kill 対象: ColumnTop→ColumnBottom/RowStart の取り違え・Up 隣接移動との混同((1,2) なら赤)。
+    [Fact]
+    public void MoveColumnTop_From22_MovesToColumnHead() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = EnterAt22(host);
+
+        host.Csv.MoveColumnTop();
+
+        AssertAt(host, doc, 0, 2);
+    });
+
+    // kill 対象: ColumnBottom→ColumnTop/RowEnd の取り違え・Down 隣接移動との混同((3,2) なら赤)。
+    [Fact]
+    public void MoveColumnBottom_From22_MovesToColumnTail() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = EnterAt22(host);
+
+        host.Csv.MoveColumnBottom();
+
+        AssertAt(host, doc, 4, 2);
     });
 
     // ===== GoToCell(3 分岐+対応固定) =====
@@ -448,6 +573,53 @@ public class CsvControllerTests
         Assert.Equal(0, doc.State.CsvRow);
         Assert.Equal(2, doc.State.CsvCol);
         Assert.Equal(CsvAnnounceFormatter.Cell("x3", 1, 3), host.Announcer.Said[^1]);
+    });
+
+    // ragged CSV(1 行目 3 列・2 行目 1 列)。クランプは「その行の幅」基準であることの検証にも使う。
+    private const string Ragged =
+        "a,b,c\n" +
+        "d";
+
+    // kill 対象: ClampCol の上限クランプ除去(変異 D=範囲外のまま→CannotMove/例外)・書き戻し(State 更新)の削除。
+    [Fact]
+    public void ReadCurrent_ColBeyondRowWidth_ClampsToLastCol_AndWritesBack() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = EnterAt(host, Ragged, row: 0, col: 99);   // 幅 3 の行で列 99
+
+        host.Csv.ReadCurrent();
+
+        Assert.Equal(CsvAnnounceFormatter.Cell("c", 1, 3), host.Announcer.Said[^1]);
+        Assert.Equal(2, doc.State.CsvCol);   // クランプ結果の書き戻し
+        Assert.Equal(0, doc.State.CsvRow);
+    });
+
+    // kill 対象: ClampCol の下限(c<0→0)クランプ除去(負のまま→CannotMove/例外)・書き戻しの削除。
+    [Fact]
+    public void ReadCurrent_NegativeCol_ClampsToZero_AndWritesBack() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = EnterAt(host, Ragged, row: 0, col: -1);
+
+        host.Csv.ReadCurrent();
+
+        Assert.Equal(CsvAnnounceFormatter.Cell("a", 1, 1), host.Announcer.Said[^1]);
+        Assert.Equal(0, doc.State.CsvCol);   // クランプ結果の書き戻し
+    });
+
+    // kill 対象: ClampRow の下限(r<0→0)クランプ除去(負のまま→CannotMove/例外)・書き戻しの削除。
+    // 列は 1 に置き、行クランプ後も列が保存されること(原点フォールバックとの混同)も検出する。
+    [Fact]
+    public void ReadCurrent_NegativeRow_ClampsToRowZero_AndWritesBack() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        var doc = EnterAt(host, Ragged, row: -5, col: 1);
+
+        host.Csv.ReadCurrent();
+
+        Assert.Equal(CsvAnnounceFormatter.Cell("b", 1, 2), host.Announcer.Said[^1]);
+        Assert.Equal(0, doc.State.CsvRow);   // クランプ結果の書き戻し
+        Assert.Equal(1, doc.State.CsvCol);
     });
 
     // ===== parse-error 後始末(モード中に本文が引用符未終端になったケース) =====

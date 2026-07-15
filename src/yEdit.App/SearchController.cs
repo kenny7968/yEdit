@@ -111,9 +111,9 @@ public sealed class SearchController
             }
             else
             {
-                int before = (_lastHit is { } h && selStart == h.Start && selEnd == h.End)
-                    ? h.Start
-                    : selStart;
+                // 三項簡約: _lastHit 一致条件下で selStart == h.Start が成立するため両分岐同値。
+                // Forward 側の `h.Start + Math.Max(1, h.Length)` はゼロ幅前進の意味があり温存。
+                int before = selStart;
                 hit = searcher.FindPrev(snap, before);
             }
 

@@ -106,11 +106,12 @@ public class SerialBackupWriterTests
         Assert.Empty(BackupStore.LoadAll(tmp.Root));
     }
 
-    // ===== 失敗回復 & ワーカー生存(1 件の書込失敗が worker を殺さない・外側 catch の防波堤) =====
+    // ===== 失敗回復 & ワーカー生存(1 件の書込失敗が後続ジョブを巻き添えにしない=内側 catch 経路) =====
 
     /// <summary>
     /// BackupStore.Write の実失敗経路を OnWriteFailed が実発火し、かつ後続ジョブが処理される
-    /// (=ワーカー外側 catch=ワーカー死の防波堤が有効)ことを固定する。
+    /// (=Run の内側 catch=`try { job(); } catch { }` により、失敗ジョブの後も worker が生存して
+    /// 後続ジョブを実行できる)ことを固定する。
     ///
     /// 失敗経路の設計: BackupStore.Write は AtomicFile.Write を呼び、tmp を書いてから
     /// File.Move(tmp, "&lt;id&gt;.json") する(初回書込=File.Exists=false 分岐)。ターゲットの
@@ -120,8 +121,12 @@ public class SerialBackupWriterTests
     ///
     /// ワーカー生存検証: 失敗ジョブの後に Delete("harmless") を投入し、Dispose のドレインが
     /// 15s 以内に戻る(=worker が生きていて CompleteAdding 後に foreach を抜けた)ことを暗黙に確認。
-    /// worker が死んでいれば CompleteAdding してもスレッドは動かないが Join は先に終わった worker
-    /// を待つだけなので現在の実装では検出困難=代替として Dispose が例外なく戻ることを assert。
+    ///
+    /// 未固定領域(将来の別テスト): Run の外側 catch(MoveNext-vs-Dispose race の防波堤=
+    /// GetConsumingEnumerable の MoveNext 側で出る ObjectDisposedException を握り潰す)は、
+    /// 現行の Dispose 順序(_worker.Join → finished 時のみ _queue.Dispose)では race が
+    /// 実質発生せず、本テストからは直接固定できない。Dispose 順序を変更するリファクタが
+    /// 入るタイミングで、外側 catch を kill する別テストを立てる。
     /// </summary>
     [Fact]
     public void WriteFailure_InvokesOnWriteFailed_AndWorkerSurvives()
@@ -161,25 +166,32 @@ public class SerialBackupWriterTests
     // ===== Enqueue 締切後ガード(xmldoc「破棄後は無視」契約) =====
 
     /// <summary>
-    /// Dispose 後の Enqueue は xmldoc の契約どおり無例外・無効果であることを固定する
+    /// Dispose 後の Enqueue は xmldoc の契約どおり呼び出し元に例外を伝播させないことを固定する
     /// (bbb51c9 で一時的に pin していた src バグを直近コミットで修正=Enqueue 冒頭の
     /// `if (_disposed) return;` 早期リターン)。
     ///
     /// 元のバグ: Enqueue が `if (_queue.IsAddingCompleted) return;` を try/catch 外で読み、
     /// _queue.Dispose 後は getter 自体が ObjectDisposedException を投げるため呼び出し元に伝播。
-    /// 修正後: _disposed フラグを先に読むことで、_queue.Dispose 済でも安全に早期リターン。
+    /// 修正後: _disposed 早期リターンと、内側 catch(InvalidOperationException) の二重防御の
+    /// どちらでも「呼び出し元に例外を伝播させない」契約は満たせる。本テストはこの契約
+    /// (=呼び出し元の無例外)を固定するのみで、どちらの防御が働いているかは区別しない。
     ///
-    /// LoadAll に影響なし=Enqueue が early-return するのでジョブが積まれない。
-    /// (worker は Dispose 時点で既に foreach を抜けているのでどのみち何も起きない。)
+    /// _disposed early-return 自体は Dispose_IsIdempotent(_disposed による Dispose の
+    /// 二重呼び出し early-return)で間接的に守られる=フラグが役に立たなくなれば
+    /// 冪等テストが red 化するアンカー。
+    ///
+    /// LoadAll に影響なし=worker は Dispose 時点で既に foreach を抜けているためどのみち
+    /// 何も起きない(=このアサートは _disposed guard の kill には寄与しない・観察補助)。
     /// </summary>
     [Fact]
-    public void Enqueue_AfterDispose_IsIgnored()
+    public void Enqueue_AfterDispose_DoesNotPropagateException()
     {
         using var tmp = new TempDir();
         var w = new SerialBackupWriter(tmp.Root);
         w.Dispose();
 
-        // 3 呼び出しとも無例外(_disposed early-return で _queue に一切触らない)。
+        // 3 呼び出しとも呼び出し元に例外を伝播させない(_disposed early-return または
+        // catch (InvalidOperationException) の二重防御のいずれかで達成)。
         var writeEx = Record.Exception(() => w.Write(Rec("z", "zzz")));
         var deleteEx = Record.Exception(() => w.Delete("y"));
         var deleteAllEx = Record.Exception(() => w.DeleteAll());
@@ -188,7 +200,7 @@ public class SerialBackupWriterTests
         Assert.Null(deleteEx);
         Assert.Null(deleteAllEx);
 
-        // ジョブが積まれていない=ディスクに何も書かれていない。
+        // 補助観察: ディスクに何も書かれていない(worker は既に foreach を抜けているため当然)。
         Assert.Empty(BackupStore.LoadAll(tmp.Root));
     }
 

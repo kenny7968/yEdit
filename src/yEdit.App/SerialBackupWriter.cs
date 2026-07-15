@@ -47,6 +47,7 @@ public sealed class SerialBackupWriter : IBackupWriter
     });
 
     /// <summary>ジョブを投入する(締め切り後・破棄後は無視)。実装詳細。呼び出しは UI スレッド前提。</summary>
+    // _disposed は volatile 不要: 書き込み(Dispose)も読み取り(Enqueue)も UI スレッドのみ。
     private void Enqueue(Action job)
     {
         // Dispose 開始後は無視(_disposed=true → CompleteAdding → Join → _queue.Dispose の順で進むため

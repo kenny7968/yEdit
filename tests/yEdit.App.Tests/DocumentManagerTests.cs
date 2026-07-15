@@ -218,4 +218,105 @@ public class DocumentManagerTests
         Assert.Equal(0, switched);
         Assert.Same(doc, host.Docs.Active);
     });
+
+    // ===== BeforeActiveChange(切替直前フック) =====
+    // MainForm はこのフックで _csv.AbortEdit()(F2 オーバーレイの後始末)を配線している。
+    // 発火が消えると「編集中状態が他タブへ漏れる」退行が検出不能になるため、5 発火点を機械固定する。
+    //
+    // counter 設計: 可視ウィンドウではプログラム切替でも Deselecting が同期発火し(TestHost.cs の
+    // xmldoc=Stage 1 プローブ実測)、その配線(ctor)経由の二重発火が「>= 1」を常に満たしてしまう=
+    // 各メソッド内の明示発火点を削除しても検出できない(本 Stage の変異 A で実測確認)。
+    // そこで Deselecting 回数をテスト側でも計測し「fired >= deselecting + 1」を assert する。
+    // BeforeActiveChange 総数 = 明示発火 + Deselecting 由来(1:1 配線)なので、この差分 assert は
+    // 「明示発火 >= 1」と等価であり、Deselecting が発火する/しない環境の双方で変異を kill できる。
+
+    /// <summary>TabHost(実体 TabControl)の Deselecting 発火数を計測する購読を張る
+    /// (Deselecting 由来の BeforeActiveChange 二重発火分を差し引くための基準値)。</summary>
+    private static int[] CountDeselecting(Host host)
+    {
+        var count = new int[1];
+        ((TabControl)host.Docs.TabHost).Deselecting += (_, _) => count[0]++;
+        return count;
+    }
+
+    [Fact]
+    public void CreateNew_SecondTab_FiresBeforeActiveChange() => Sta.Run(() =>
+    {
+        // kill 対象: CreateNew 内(タブ切替直前)の BeforeActiveChange?.Invoke() 削除
+        using var host = new Host();
+        _ = host.Docs.CreateNew();
+        int fired = 0;
+        host.Docs.BeforeActiveChange = () => fired++;
+        var desel = CountDeselecting(host);
+        _ = host.Docs.CreateNew(); // 既存タブから切り替わる前に後始末フックが走る
+        Assert.True(fired >= desel[0] + 1); // Deselecting 由来分を除いても明示発火が 1 回以上
+    });
+
+    [Fact]
+    public void Activate_DifferentTab_FiresBeforeActiveChange() => Sta.Run(() =>
+    {
+        // kill 対象: Activate 内(別タブ guard 内)の BeforeActiveChange?.Invoke() 削除
+        using var host = new Host();
+        var doc1 = host.Docs.CreateNew();
+        _ = host.Docs.CreateNew(); // アクティブ=2 枚目
+        int fired = 0;
+        host.Docs.BeforeActiveChange = () => fired++;
+        var desel = CountDeselecting(host);
+        host.Docs.Activate(doc1);
+        Assert.True(fired >= desel[0] + 1); // Deselecting 由来分を除いても明示発火が 1 回以上
+    });
+
+    [Fact]
+    public void Activate_SameTab_DoesNotFire() => Sta.Run(() =>
+    {
+        // kill 対象: Activate の guard(SelectedTab != doc.Page)の無条件化
+        using var host = new Host();
+        var doc = host.Docs.CreateNew(); // アクティブ=doc
+        int fired = 0;
+        host.Docs.BeforeActiveChange = () => fired++;
+        host.Docs.Activate(doc); // SelectedTab 不変 → guard で発火しない(Deselecting も出ない)
+        Assert.Equal(0, fired);
+    });
+
+    [Fact]
+    public void SelectNext_FiresBeforeActiveChange() => Sta.Run(() =>
+    {
+        // kill 対象: SelectNext 内(キーボード経路)の BeforeActiveChange?.Invoke() 削除
+        using var host = new Host();
+        _ = host.Docs.CreateNew();
+        _ = host.Docs.CreateNew();
+        int fired = 0;
+        host.Docs.BeforeActiveChange = () => fired++;
+        var desel = CountDeselecting(host);
+        host.Docs.SelectNext(+1);
+        Assert.True(fired >= desel[0] + 1); // Deselecting 由来分を除いても明示発火が 1 回以上
+    });
+
+    [Fact]
+    public void SelectAt_FiresBeforeActiveChange() => Sta.Run(() =>
+    {
+        // kill 対象: SelectAt 内(キーボード経路)の BeforeActiveChange?.Invoke() 削除
+        using var host = new Host();
+        _ = host.Docs.CreateNew();
+        _ = host.Docs.CreateNew(); // アクティブ=index 1
+        int fired = 0;
+        host.Docs.BeforeActiveChange = () => fired++;
+        var desel = CountDeselecting(host);
+        host.Docs.SelectAt(0);
+        Assert.True(fired >= desel[0] + 1); // Deselecting 由来分を除いても明示発火が 1 回以上
+    });
+
+    [Fact]
+    public void BeforeActiveChange_FiresBeforeActiveSwitches() => Sta.Run(() =>
+    {
+        // kill 対象: 発火を切替「後」へ移す変異(直前フック契約の本体=旧アクティブを後始末できること)
+        using var host = new Host();
+        _ = host.Docs.CreateNew();
+        var doc2 = host.Docs.CreateNew(); // アクティブ=doc2
+        var seen = new List<Document?>();
+        host.Docs.BeforeActiveChange = () => seen.Add(host.Docs.Active);
+        host.Docs.SelectAt(0); // doc2 → doc1
+        Assert.NotEmpty(seen);
+        Assert.All(seen, d => Assert.Same(doc2, d)); // 全発火が切替前=旧アクティブを観測する
+    });
 }

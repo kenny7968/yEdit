@@ -7,7 +7,8 @@ namespace yEdit.App.Tests;
 
 /// <summary>
 /// Phase 2 Stage 8 Task B: KinsokuFormatController の抽出(MainForm.FormatWithKinsoku から)。
-/// 5 Fact + 3 Theory rows = 計 8 件: 部分整形/全文整形/変更なし/CSV 抑止/空 no-op/EOL 追随。
+/// 9 Fact + 3 Theory rows = 計 12 件: 部分整形(×2)/全文整形/変更なし/CSV 抑止/空 no-op/EOL 追随/
+/// 禁則パラメータ配線 3 件(行頭↔行末 swap・TabWidth・HangChars=Phase 2 レビュー回収)。
 /// 実 DocumentManager+実 EditorControl を STA 上で使い、通知(FakeAnnouncer)だけを偽物にする。
 /// AppSettings は Run 引数(=呼び出し時解決)なので POCO を直接渡す。
 /// </summary>
@@ -203,5 +204,86 @@ public class KinsokuFormatControllerTests
         if (eol == LineEnding.Lf) Assert.DoesNotContain("\r", result);
         if (eol == LineEnding.Cr) Assert.DoesNotContain("\n", result);
         if (eol == LineEnding.Crlf) Assert.Equal(result.Count(c => c == '\r'), result.Count(c => c == '\n'));
+    });
+
+    // ===== 7. 禁則パラメータ配線(Phase 2 レビュー回収) =====
+    // Run が Format の第3〜5・第7引数(行頭禁則/行末禁則/ぶら下げ/タブ幅)を settings から正しく
+    // 渡していることを固定する。期待値はすべてリテラル(テスト内で Format を正引数で呼んで期待値を
+    // 作ると、実装と同じ swap をした瞬間に同値になるため禁止)。導出根拠は Core の
+    // KinsokuFormatterTests(LineStart_kinsoku_pushes_forbidden_char_down ほか)と同型 fixture。
+
+    [Fact]
+    public void Run_WiresLineStartAndLineEndChars_Distinctly() => Sta.Run(() =>
+    {
+        // kill: Format 第3・第4引数(LineStartChars↔LineEndChars)の swap 変異。
+        using var host = new Host();
+        // WrapColumn=6(全角3文字で折返し)。2 論理行で swap の両方向を 1 fixture に固定する:
+        // 行1「あいう。え」: 折れ目の「。」が行頭禁則 →「う」ごと追い出し(正: あい/う。え・swap 時: あいう/。え)
+        // 行2「あい（うえ」: 行末の「（」が行末禁則 → 次行へ送る(正: あい/（うえ・swap 時: あい（/うえ)
+        var doc = host.NewDoc("あいう。え\nあい（うえ");
+        doc.State.LineEnding = LineEnding.Lf;   // 挿入 EOL をリテラル期待値("\n")に固定
+        var settings = new AppSettings
+        {
+            WrapColumn = 6,
+            KinsokuLineStartChars = "。",   // 行頭に置けない(追い出し)
+            KinsokuLineEndChars = "（",     // 行末に置けない(次行送り)
+            KinsokuHangChars = "",
+            TabWidth = 4,
+        };
+
+        host.Kinsoku.Run(settings);
+
+        Assert.Contains("整形しました", host.Announcer.Said);
+        Assert.Equal("あい\nう。え\nあい\n（うえ", doc.Editor.SnapshotText);
+    });
+
+    [Fact]
+    public void Run_WiresTabWidth() => Sta.Run(() =>
+    {
+        // kill: Format 第7引数 TabWidth の定数 4 化変異(および渡し忘れ=Format 既定 8 も同時に)。
+        using var host = new Host();
+        // WrapColumn=4・TabWidth=2: 行頭タブ 2 個=4 桁でちょうど収まり "ab" だけ次行 → "\t\t/ab"。
+        // TabWidth=4(AppSettings 既定)でも 8(Format 引数既定=渡し忘れ)でもタブ 1 個で行が
+        // 埋まり "\t/\t/ab" になるため、2 を使うことで両変異とも期待値と不一致=赤になる。
+        var doc = host.NewDoc("\t\tab");
+        doc.State.LineEnding = LineEnding.Lf;
+        var settings = new AppSettings
+        {
+            WrapColumn = 4,
+            KinsokuLineStartChars = "",     // 禁則は全て切ってタブ幅の効果だけを分離
+            KinsokuLineEndChars = "",
+            KinsokuHangChars = "",
+            TabWidth = 2,                   // 非既定値(AppSettings 既定 4 とも Format 既定 8 とも異なる)
+        };
+
+        host.Kinsoku.Run(settings);
+
+        Assert.Contains("整形しました", host.Announcer.Said);
+        Assert.Equal("\t\t\nab", doc.Editor.SnapshotText);
+    });
+
+    [Fact]
+    public void Run_WiresHangChars() => Sta.Run(() =>
+    {
+        // kill: Format 第5引数 KinsokuHangChars を "" に潰す変異(ぶら下げ無効化)。
+        using var host = new Host();
+        // WrapColumn=4(全角2)で「。」が次行頭に来る局面。ぶら下げ有効なら桁超過を許容して
+        // 行末に残す(Core: Hang_punctuation_exceeds_column と同型)→ "あい。/う"。
+        // "" 変異ではぶら下げが効かず幾何位置で折れて "あい/。う" になる=赤。
+        var doc = host.NewDoc("あい。う");
+        doc.State.LineEnding = LineEnding.Lf;
+        var settings = new AppSettings
+        {
+            WrapColumn = 4,
+            KinsokuLineStartChars = "",     // 行頭禁則は切る(ぶら下げの効果だけを分離)
+            KinsokuLineEndChars = "",
+            KinsokuHangChars = "。",
+            TabWidth = 4,
+        };
+
+        host.Kinsoku.Run(settings);
+
+        Assert.Contains("整形しました", host.Announcer.Said);
+        Assert.Equal("あい。\nう", doc.Editor.SnapshotText);
     });
 }

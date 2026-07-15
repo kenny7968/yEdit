@@ -230,12 +230,21 @@ public void Close_Without_Backup_DoesNotCall_Delete()
 
 ---
 
-## Task 5: `_view.Visible` BeginClose 経路の不変固定
+## Task 5: `_view.Visible` BeginClose 経路の不変固定 【キャンセル】
 
-**Files:**
-- Test: `tests/yEdit.App.Tests/GrepControllerTests.cs`
+**着手時判断=キャンセル(2026-07-15・Stage 8 D-1 Minor #1 と同じ YAGNI 判定)。**
 
-**Background:** Stage 8 D-1 で Cancel 側は削除(tautological=IGrepView に Hide なし)。BeginClose 側は Stage 7 で担保済みだが、`_view.Visible == false` を明示的に固定するテストが未追加。GrepController の grep ダイアログ恒久無言化を予防する。
+**キャンセル理由(実装者の実装読解による)**:
+
+- `GrepController.BeginClose()` 実装は `_closing=true; _cts?.Cancel();` の 2 行のみで、`_view` に触れない。
+- `IGrepView` interface に `Hide()` メソッド無し(`ShowAndFocus` のみ)。
+- 設計意図(MainForm.OnFormClosing の実装から): BeginClose は「結果窓抑止フラグ」であって「ダイアログ閉じ」ではない。**終了確認カスケード中も grep ダイアログは意図的に visible のまま**(終了取消なら `CancelClose` で `_closing=false` に戻す)。
+- Stage 8 D-1 Minor #1 レビューで同型の `Cancel_DoesNotChangeViewVisibility` が「trivially true=coverage 0」として削除済み。BeginClose 版も同様に coverage 0。
+
+**将来 IGrepView に Hide/BeginClose メソッドが追加された時点で、defensive テストの再検討候補としてバックログに残す。**
+
+**副次発見(別 backlog 候補・未着手)**:
+- `Open()` が `_closing` フラグをリセットしない implicit contract(復帰経路は `CancelClose` のみ)。将来 `Open()` に `_closing=false;` を紛れ込ませる回帰を pin するテストは valuable だが、正常フローで踏まれないため優先度低。
 
 **Step 1: FakeGrepView の Visible/Hide 対応確認**
 

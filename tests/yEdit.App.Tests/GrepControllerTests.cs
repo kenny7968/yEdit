@@ -637,4 +637,40 @@ public class GrepControllerTests
         // catch 内 guard の ReferenceEquals(_cts, cts) により、旧 run の例外はエラー通知しない
         Assert.DoesNotContain(host.View.Notifications, n => n.Contains("boom (from old run)"));
     });
+
+    // ===== ShowResults の _resultsView.IsDisposed 分岐被覆(Batch B Task 6) =====
+
+    [Fact]
+    public void ShowResults_RecreatesView_When_PreviousDisposed() => Sta.Run(() =>
+    {
+        // ShowResults(GrepController.cs:148)の分岐 `_resultsView is null || _resultsView.IsDisposed`
+        // の右辺(IsDisposed 側)を機械固定。左辺(is null 側)は他テストで既に踏んでいる。
+        // 想定: owner クローズ等で結果窓が破棄された後の 2 回目 Grep で factory が再度呼ばれ、
+        // 新しい resultsView が生成される。
+        // kill 対象: `|| _resultsView.IsDisposed` の削除で 2 回目の factory 呼び出しが起きず
+        // ResultsFactoryCalls が 1 のままになる=Assert.Equal(2, ...) が赤化する。
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        host.SearchFn.DefaultOutcome = FakeGrepSearchFn.OutcomeWith(hits: 1);
+
+        // 1 回目: resultsView 生成
+        host.Grep.RunAsync().GetAwaiter().GetResult();
+        Assert.Equal(1, host.ResultsFactoryCalls);
+        var firstResults = host.Results;
+
+        // Disposed 相当(owner クローズ等の破棄)。実 GrepResultsWindow は Form.Dispose で
+        // IsDisposed=true になるため Fake 側の setter で同等状態を再現。
+        firstResults.IsDisposed = true;
+
+        // 2 回目: `_resultsView.IsDisposed` 分岐で早期に factory 再呼び出し → 新規 view
+        host.Grep.RunAsync().GetAwaiter().GetResult();
+
+        Assert.Equal(2, host.ResultsFactoryCalls);
+        Assert.NotSame(firstResults, host.Results);       // Host.Results は最新の factory 戻り値で差し替わる
+        Assert.Single(host.Results.PopulateLog);           // 新規 view にだけ Populate(旧 view には触らない)
+        Assert.Single(firstResults.PopulateLog);           // 旧 view は 1 回目の Populate のまま(2 回目は届かない)
+    });
 }

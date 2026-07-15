@@ -13,6 +13,9 @@ namespace yEdit.App.Tests;
 /// FileController 個別の挙動(ロールバック等)は FileControllerTests で担保済み=再検証しない。
 /// 責務: MainForm↔FileController の配線が生きているか(=AutoEnterCsvMode を通す/通さない)
 /// の 4 分岐だけを固定する。
+/// 前提: public <see cref="MainForm(AppSettings)"/> 経路は internal <see cref="MainForm(AppSettings, string)"/>
+/// へチェーンする=このスモークでは internal ctor 経路のみ検証(public ctor 空化変異は
+/// Release=warnaserror の CS8618 か Program.cs 起動時クラッシュが拾うため対象外)。
 /// </summary>
 public class MainFormSmokeTests
 {
@@ -124,8 +127,9 @@ public class MainFormSmokeTests
         form.OpenAndSelect(path, offset: 2, length: 3);
 
         // OpenAndSelect 後の Active タブを取り戻す: 既に開いているため FileController.TryOpenOrActivate は
-        // 既存タブ再利用の fast path(FindByPath ヒット)を通り、_openedFresh を呼ばず副作用なしで同じ doc を返す
-        // (CsvMode/選択レンジは不変・観測に安全)。
+        // 既存タブ再利用の fast path(FindByPath ヒット)を通り _openedFresh を呼ばない=
+        // 観測対象(CsvMode/Path/選択レンジ)への副作用はない(内部で RegisterRecent →
+        // recentChanged/saveSettings は走るが観測外・実 %APPDATA% は tmp 隔離で汚染ゼロ)。
         var doc = form.FileForTest.TryOpenOrActivate(path);
         Assert.NotNull(doc);
 

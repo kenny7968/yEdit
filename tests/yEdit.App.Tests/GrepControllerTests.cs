@@ -385,6 +385,28 @@ public class GrepControllerTests
     });
 
     [Fact]
+    public void CancelClose_AfterBeginClose_RestoresResultDisplay() => Sta.Run(() =>
+    {
+        using var host = new Host();
+        host.NewDoc("body");
+        host.Grep.Open();
+        host.View.Pattern = "abc";
+        host.View.Folder = ExistingFolder;
+        host.SearchFn.DefaultOutcome = FakeGrepSearchFn.OutcomeWith(hits: 5);
+
+        host.Grep.BeginClose();    // アプリ終了開始(_closing=true)
+        host.Grep.CancelClose();   // 終了キャンセル=MainForm.OnFormClosing が呼ぶ唯一の復帰経路
+
+        host.Grep.RunAsync().GetAwaiter().GetResult();
+
+        // BeginClose_DuringRun_SuppressesResults(ResultsFactoryCalls=0・Results=null)の対称形:
+        // CancelClose 後の実行では結果窓が生成され Populate される(恒久無言化しない)。
+        // kill 対象: CancelClose の `_closing = false` が消える/`true` になる変異で赤。
+        Assert.Equal(1, host.ResultsFactoryCalls);
+        Assert.Single(host.Results.PopulateLog);
+    });
+
+    [Fact]
     public void Cancel_CancelsCurrentRun_TokenObserved() => Sta.Run(() =>
     {
         using var host = new Host();

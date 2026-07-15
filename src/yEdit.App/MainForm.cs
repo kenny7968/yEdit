@@ -71,9 +71,9 @@ public sealed partial class MainForm : Form
         _grep = new GrepController(
             docs: _docs,
             owner: this,
-            jumpTo: hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength),
             viewFactory: cb => new GrepDialog(cb),
-            resultsFactory: cb => new GrepResultsWindow(cb));
+            resultsFactory: () => new GrepResultsWindow(
+                new GrepResultsCallbacks(hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength))));
         _backup = new BackupCoordinator(
             _docs, _settings.BackupEnabled, _settings.BackupIntervalSeconds,
             TimeProvider.System,

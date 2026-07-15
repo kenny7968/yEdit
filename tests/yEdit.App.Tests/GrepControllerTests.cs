@@ -34,9 +34,13 @@ public class GrepControllerTests
             Grep = new GrepController(
                 docs: Docs,
                 owner: Form,
-                jumpTo: hit => Jumps.Add(hit),
                 viewFactory: _ => { ViewFactoryCalls++; return View; },
-                resultsFactory: cb => { ResultsFactoryCalls++; Results = new FakeGrepResultsView(cb); return Results; },
+                resultsFactory: () =>
+                {
+                    ResultsFactoryCalls++;
+                    Results = new FakeGrepResultsView(new GrepResultsCallbacks(hit => Jumps.Add(hit)));
+                    return Results;
+                },
                 searchFn: SearchFn.Invoke);
         }
 
@@ -402,4 +406,21 @@ public class GrepControllerTests
         Assert.Single(host.Jumps);
         Assert.Same(hit, host.Jumps[0]);
     });
+
+    // ===== 設計不変(GrepController は GrepHit ジャンプ経路を知らない) =====
+
+    [Fact]
+    public void Controller_HasNoJumpToField_NorActionOfGrepHitField()
+    {
+        // 目的: Stage 8 Task C の設計改善(GrepResultsCallbacks 組立を factory 側に移す)が
+        // 後退リファクタで戻らないよう機械的に固定。
+        // GrepController は「grep 結果を結果窓へ反映」責務のみで、ジャンプ経路(Action<GrepHit>)を知らない。
+        var fields = typeof(GrepController).GetFields(
+            System.Reflection.BindingFlags.Instance |
+            System.Reflection.BindingFlags.NonPublic |
+            System.Reflection.BindingFlags.Public);
+
+        Assert.DoesNotContain(fields, f => f.FieldType == typeof(Action<GrepHit>));
+        Assert.DoesNotContain(fields, f => f.FieldType == typeof(GrepResultsCallbacks));
+    }
 }

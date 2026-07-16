@@ -269,8 +269,14 @@ public static partial class TextFileService
     /// File.Replace／新規は File.Move）。「共有違反/ロック競合」で失敗した場合に限り in-place
     /// 上書きへフォールバックする。それ以外の I/O 失敗（ディスクフル等）は、原本に一切触れず
     /// そのまま例外を伝播する（= 原子的保存の目的＝原本喪失の回避を守る）。
+    ///
+    /// P7 I-3 以降、通常経路は Buffer 版
+    /// (<see cref="Save(string, TextBuffer, Encoding, bool)"/>) を使う。
+    /// 本 overload は共有違反フォールバック専用(Buffer 版の catch{} から委譲される)であり、
+    /// 新規呼び出し元を作らないこと(全文字列化=大容量で peak メモリ 2〜3 倍・OOM 要因)。
+    /// <c>InternalsVisibleTo(yEdit.Core.Tests)</c> によりテストからは呼べる。
     /// </summary>
-    public static void Save(string path, string text, Encoding encoding, bool hasBom)
+    internal static void Save(string path, string text, Encoding encoding, bool hasBom)
     {
         EncodingCatalog.EnsureRegistered();
 

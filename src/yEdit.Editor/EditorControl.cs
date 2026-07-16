@@ -55,17 +55,19 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     // 初期化は ctor で `_caretCtrl` 生成後に new する(先方参照を避けるため field 宣言も後ろに置く)。
     private readonly InputRouter _input;
 
-    // P4 Task 5: IME 未確定文字列の状態。WM_IME_STARTCOMPOSITION 受信で Start=現在キャレットに
-    // 初期化し、Task 6 以降の WM_IME_COMPOSITION / WM_IME_ENDCOMPOSITION で Text/Attrs/Clauses を
-    // 更新する。IsActive(=Text.Length > 0)の間は「未確定期間」で、外部から <see cref="IsComposing"/>
-    // で判定できる。純ロジックは <see cref="ImeCompositionState"/>(P4 Task 2)側。
-    private ImeCompositionState _ime = ImeCompositionState.Empty;
+    // Phase 3 (Task 3a) で抽出した IME controller。_ime (ImeCompositionState) の所有権をここに移譲し、
+    // WM_IME_* の状態機械 / Imm32 P/Invoke ラップ / overlay 描画を bit-perfect 移設した。
+    // 副作用 (Invalidate / PositionCaret / AfterEdit) は host (EditorControl 側 IImeOverlayHost 実装) に
+    // 委譲する契約=Controller は state 操作と P/Invoke ラップに専念する。
+    // 初期化は ctor で _caretCtrl / _font / _metrics 等が揃った後に new する (host=this を渡すため)。
+    private readonly ImeController _imeCtrl;
 
     /// <summary>
-    /// IME 未確定期間中か。Task 6 以降の描画/イベント発火の分岐に使う(現状 Task 5 では
-    /// 常に false=Start だけ立てて Text が空の状態から始まる)。
+    /// IME 未確定期間中か。Task 6 以降の描画/イベント発火の分岐に使う。
+    /// 純ロジックは <see cref="ImeCompositionState"/>(P4 Task 2)側で、
+    /// 状態と Imm32 P/Invoke ラップは <see cref="ImeController"/>(Phase 3 Task 3a)側。
     /// </summary>
-    private bool IsComposing => _ime.IsActive;
+    private bool IsComposing => _imeCtrl.IsActive;
 
     // Task 10: システムキャレットのフォーカス状態フラグ。CreateCaret/DestroyCaret はフォーカスを
     // 持つ間のみ有効なため、SetCaretCharOffset 等から PositionCaret を呼ぶ際にガードに使う。
@@ -173,6 +175,16 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         // Task 3c: InputRouter は _caretCtrl 生成後に組み立てる(dispatcher が保持する参照は
         // readonly なので後段で差し替えられない=ctor 内で 1 度だけ new する)。
         _input = new InputRouter(this, _caretCtrl);
+
+        // Task 3a: ImeController は host (this=IImeOverlayHost) + _caretCtrl + insertConfirmedText
+        // (private method group) を注入する。IImeContext は Handle 要り=呼び出し時に new する
+        // factory pattern (Handle は Control が lazy に materialize するが、IME イベント時には
+        // 既に materialize 済み)。
+        _imeCtrl = new ImeController(
+            contextFactory: () => new WinImeContext(Handle),
+            caret: _caretCtrl,
+            host: this,
+            insertConfirmedText: InsertConfirmedText);
     }
 
     /// <summary>ソースの <see cref="TextBuffer"/> を差し込む(1 度だけ)。</summary>
@@ -199,7 +211,7 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         }
         Invalidate();
         // Task 12: 初期化時に未確定文字列用フォントを IME に通知(候補窓/未確定描画のメトリクス整合)。
-        NotifyCompositionFont();
+        _imeCtrl.NotifyCompositionFont();
         // P5 Task 5: RPC スレッド用スナップショットキャッシュを初期化
         CacheSnapshot();
         // P6 Task 4: SavePointLeft 検出用の直前状態をバッファに同期
@@ -1222,24 +1234,9 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         // 失わせない)。ImmNotifyIME が届かない環境(IME 無効/取得失敗)でも overlay
         // (_ime)は必ず落として、base の後続処理(_hasFocus=false / DestroyCaret)より前に
         // フィールド状態を整えておく=直後の Invalidate/paint で古い overlay が浮かない。
-        if (IsComposing)
-        {
-            nint hIMC = NativeMethods.ImmGetContext(Handle);
-            if (hIMC != IntPtr.Zero)
-            {
-                try
-                {
-                    NativeMethods.ImmNotifyIME(hIMC, NativeMethods.NI_COMPOSITIONSTR,
-                                               NativeMethods.CPS_COMPLETE, 0);
-                }
-                finally { NativeMethods.ImmReleaseContext(Handle, hIMC); }
-            }
-            // ImmNotifyIME が届かない環境の保険=overlay を落とす。
-            // base.OnLostFocus / DestroyCaret は再描画を保証しないため Invalidate 明示
-            // (Task 8 レビュー I-1・CancelCompositionAndDefault と対称に揃える)。
-            _ime = ImeCompositionState.Empty;
-            Invalidate();
-        }
+        // Task 3a: 上記ロジックは ImeController.Complete() が bit-perfect に担う
+        // (IsActive ガード + Ctx.CompleteComposition + _ime クリア + host.Invalidate)。
+        _imeCtrl.Complete();
         base.OnLostFocus(e);
         _hasFocus = false;
         NativeMethods.DestroyCaret();
@@ -1280,21 +1277,25 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
             return;
         }
 
+        // Task 3a: WM_IME_* は ImeController に完全委譲する (旧 OnIme{SetContext,StartComposition,
+        // Composition,EndComposition} は削除)。SETCONTEXT のみ lParam マスク後に base.WndProc へ
+        // 流す必要があり、他 3 者は m.Result=Zero + return で消化する。
         switch (m.Msg)
         {
             case NativeMethods.WM_IME_SETCONTEXT:
-                OnImeSetContext(ref m);
+                _imeCtrl.MaskSetContextLParam(ref m);
+                base.WndProc(ref m);
                 return;
             case NativeMethods.WM_IME_STARTCOMPOSITION:
-                OnImeStartComposition();
+                _imeCtrl.OnStartComposition();
                 m.Result = IntPtr.Zero;
                 return;
             case NativeMethods.WM_IME_COMPOSITION:
-                OnImeComposition(m.LParam.ToInt64());
+                _imeCtrl.OnComposition(m.LParam.ToInt64());
                 m.Result = IntPtr.Zero;
                 return;
             case NativeMethods.WM_IME_ENDCOMPOSITION:
-                OnImeEndComposition();
+                _imeCtrl.OnEndComposition();
                 m.Result = IntPtr.Zero;
                 return;
         }
@@ -1414,9 +1415,11 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
 
         // P4 Task 11: 未確定中は IME 内カーソル位置 (_ime.Start + _ime.CursorPos) に SetCaretPos。
         // 非 IME 経路の前に分岐させる(視覚的にキャレット位置を反映する、というセマンティクスは同じ)。
+        // Task 3a: _ime は ImeController に移譲済=state は _imeCtrl.State 経由で読む。
         if (IsComposing)
         {
-            var (x, y, visible) = ComputeCaretPoint(_ime.Start);
+            var ime = _imeCtrl.State;
+            var (x, y, visible) = ComputeCaretPoint(ime.Start);
             if (!visible)
             {
                 // 非 IME 経路と対称: 不可視時は画面外に退避してゴースト残留を防ぐ(Task 11 レビュー M-2)。
@@ -1425,8 +1428,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
             }
             // _ime.CursorPos は SnapCursorPos で 0..Text.Length にクランプ済(Task 2/6)だが、
             // 悪意/誤動作 IME 対策として範囲外を防御的にクランプ(0 なら prefix="" で幅 0=OK)。
-            int cur = Math.Clamp(_ime.CursorPos, 0, _ime.Text.Length);
-            string prefix = _ime.Text[..cur];
+            int cur = Math.Clamp(ime.CursorPos, 0, ime.Text.Length);
+            string prefix = ime.Text[..cur];
             using var g = CreateGraphics();
             Size sz = TextRenderer.MeasureText(g, prefix, _underlineFontCache,
                 new Size(int.MaxValue, int.MaxValue),
@@ -1435,7 +1438,7 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
             // Task 12: スクロール変更等で IME 行の client 座標が動いた=候補窓も追従させる。
             // NotifyCandidateWindow は自前で ComputeCaretPoint を呼び直すため、visible 分岐は
             // ここで先に済んでいるが二重呼びは低コスト(未確定中のみ・GetContext 1 回)。
-            NotifyCandidateWindow();
+            _imeCtrl.NotifyCandidateWindow();
             return;
         }
 
@@ -1527,7 +1530,7 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         PositionCaret();
         Invalidate();
         // Task 12: フォント変更後に IME へ未確定文字列用フォントを再通知(本文と候補窓のメトリクス整合)。
-        NotifyCompositionFont();
+        _imeCtrl.NotifyCompositionFont();
         _lastLineSegs = null; // P8 Minor-5: metrics/wrap 変化でキャッシュ破棄
     }
 

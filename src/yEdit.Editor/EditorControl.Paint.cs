@@ -1,8 +1,8 @@
 // EditorControl.Paint.cs
 // Phase 2 (Task 2e) で切り出した描画分割。フィールドは EditorControl.cs 本体で宣言。
-// Phase 3 では Controller 移譲予定なし(render 専任・§C.5 に基づき state は Ime 側が保持)。
-// DrawImeOverlay も IME 状態 (_ime) を読むだけの純描画関数のため Paint 側に置く (§C.5)。
-using yEdit.Core.Editing;
+// Phase 3 Task 3a で DrawImeOverlay を ImeController.Draw() に移設 (IImeOverlayHost seam 経由・
+// 元の bit-perfect 描画コードは ImeController.cs 側に存在)。本ファイルは OnPaint / RenderFrame /
+// style/color helpers を担う。
 using yEdit.Core.Layout;
 using yEdit.Core.Settings;
 using SelectionRange = yEdit.Core.Layout.SelectionRange;
@@ -53,7 +53,9 @@ public sealed partial class EditorControl
             // ここ → システムキャレット の順序=設計 §3-3)。IsComposing=false(未確定期間外)は
             // 呼ばない=空描画のコストゼロ。節ハイライト(反転)は Task 10・
             // IME 内キャレット位置反映は Task 11 で扱う。
-            if (IsComposing) DrawImeOverlay(g);
+            // Task 3a: 描画ロジックは ImeController.Draw に bit-perfect 移設済 (IImeOverlayHost 経由で
+            // Font/Color/Metrics/ComputeCaretPoint を取得)。
+            if (IsComposing) _imeCtrl.Draw(g);
 
             // P5 Task 10: 描画完了時点の Frame を UIA 座標 API 用に公開(不変参照)。
             _lastFrame = frame;
@@ -66,77 +68,6 @@ public sealed partial class EditorControl
         // 本コントロールの描画を確定させた後に Paint イベント購読者に描かせる
         // (App 層の overlay 拡張余地を残す)。base.OnPaint は Paint イベントを発火する。
         base.OnPaint(e);
-    }
-
-    /// <summary>
-    /// IME 未確定文字列を本文の上に inline 合成する(P4 Task 9・Task 10 で節ごと描画に拡張)。
-    /// 節(<c>_ime.Clauses[i]..[i+1]</c>)ごとに Attrs を見て、変換対象節
-    /// (<see cref="ImeAttribute.TargetConverted"/>)は背景反転(<see cref="ViewportStyle.SelectionBack"/>)
-    /// + Underline|Bold で強調、それ以外は Underline のみで通常前景色で描く(設計 §3-3)。
-    /// Clauses が空 or 節境界が 2 未満(=1 節扱い)なら全体を通常下線で 1 度描く(Task 9 と同挙動)。
-    /// 描画位置は <c>_ime.Start</c> のクライアント座標(<see cref="ComputeCaretPoint"/> は
-    /// <c>_scrollX</c> 適用前を返すため、ここで差し引いてから <see cref="TextRenderer.DrawText"/>
-    /// に渡す=<see cref="PositionCaret"/>/<see cref="PointFromCharOffset"/> と同じ規約)。
-    /// 折り返しなし(右端を越えても 1 行に描画=Scintilla 同挙動)。可視外は no-op。
-    /// </summary>
-    /// <remarks>
-    /// <see cref="TextRenderer"/> を使う理由: 本文描画(<see cref="RenderFrame"/>)と同じ GDI 経路で
-    /// 描き、ClearType/背景合成のずれを避ける(<see cref="Graphics.DrawString"/> は GDI+ 経路で
-    /// 微妙にレンダリングが異なる)。<see cref="TextFormatFlags.NoPadding"/> と
-    /// <see cref="TextFormatFlags.NoPrefix"/> で本文の <see cref="RenderFrame"/> と同じ寸法規約に合わせる。
-    ///
-    /// Attrs の長さ不整合防御: 節先頭の <c>_ime.Attrs[s]</c> を代表 Attr として採用するが、
-    /// Attrs が Text より短い場合は <see cref="ImeAttribute.Input"/> で埋める(通常下線扱い)。
-    /// これは Task 2 レビュー M-5 の防御方針を踏襲したもの。
-    /// </remarks>
-    private void DrawImeOverlay(Graphics g)
-    {
-        if (_buffer is null || _ime.Text.Length == 0) return;
-        var (x, y, visible) = ComputeCaretPoint(_ime.Start);
-        if (!visible) return;   // 可視範囲外は no-op
-
-        int curX = x - _scrollX;   // 水平スクロール反映(Task 9 と同方針)
-
-        // Clauses が空 or 節境界が 2 未満なら 1 節扱い(全体を通常下線)=Task 9 と同挙動
-        if (_ime.Clauses.Length < 2)
-        {
-            TextRenderer.DrawText(g, _ime.Text, _underlineFontCache, new Point(curX, y), ForeColor,
-                TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
-            return;
-        }
-
-        for (int i = 0; i < _ime.Clauses.Length - 1; i++)
-        {
-            int s = _ime.Clauses[i], e = _ime.Clauses[i + 1];
-            if (s < 0) continue;                                  // 悪意/誤動作 IME の負値防御(Task 10 レビュー M-2)
-            if (e > _ime.Text.Length) e = _ime.Text.Length;
-            if (s >= e) continue;
-            string clause = _ime.Text[s..e];
-
-            // 節先頭の Attr を代表値として採用(Attrs 長不整合防御=Task 2 レビュー M-5)
-            byte attr = s < _ime.Attrs.Length ? _ime.Attrs[s] : ImeAttribute.Input;
-            bool isTarget = attr == ImeAttribute.TargetConverted;
-
-            // 描画フォントで測って背景 rect 幅と curX 進み幅を一致させる(Task 10 レビュー I-1)。
-            // Bold のグリフ幅は Underline のみより広くなり得るため、target 節は _targetFontCache で測る。
-            Font drawFont = isTarget ? _targetFontCache : _underlineFontCache;
-            Size sz = TextRenderer.MeasureText(g, clause, drawFont, new Size(int.MaxValue, int.MaxValue),
-                TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
-
-            if (isTarget)
-            {
-                using var brush = new SolidBrush(ToColor(_style.SelectionBack));
-                g.FillRectangle(brush, curX, y, sz.Width, _metrics.LineHeightPx);
-                TextRenderer.DrawText(g, clause, drawFont, new Point(curX, y), ForeColor,
-                    TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
-            }
-            else
-            {
-                TextRenderer.DrawText(g, clause, drawFont, new Point(curX, y), ForeColor,
-                    TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
-            }
-            curX += sz.Width;
-        }
     }
 
     /// <summary>

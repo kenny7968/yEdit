@@ -98,4 +98,47 @@ public class CsvParserTests
         var d = CsvParser.Parse("a,\"unterminated");
         Assert.False(d.Ok);
     }
+
+    [Fact]
+    public void Parse_TextSnapshotOverload_ProducesSameResultAsString()
+    {
+        string csv = "a,b,c\n1,\"quoted, comma\",3\n\"multi\nline\",x,y\n";
+        var expected = CsvParser.Parse(csv);
+
+        var buffer = yEdit.Core.Buffers.TextBuffer.FromString(csv);
+        var actual = CsvParser.Parse(buffer.Current);   // 新規オーバーロード
+
+        Assert.Equal(expected.Rows.Count, actual.Rows.Count);
+        for (int i = 0; i < expected.Rows.Count; i++)
+        {
+            Assert.Equal(expected.Rows[i].Count, actual.Rows[i].Count);
+            for (int j = 0; j < expected.Rows[i].Count; j++)
+                Assert.Equal(expected.Rows[i][j].Value, actual.Rows[i][j].Value);
+        }
+        Assert.Equal(expected.Ok, actual.Ok);
+    }
+
+    [Fact]
+    public void Parse_TextSnapshotOverload_HandlesQuotedFieldAcrossPieceBoundary()
+    {
+        // SnapshotReader は piece 境界を Read/Peek で透過的に跨ぐ(Ensure() 経由)。
+        // TextBufferBuilder に複数 Add で強制的に piece を分割し、quoted field / \r\n / "" が
+        // 境界を跨いでも状態機械が崩れないことを機械固定する。
+        var b = new yEdit.Core.Buffers.TextBufferBuilder();
+        // piece 1: "head,\"" (開き引用符でフィールド開始)
+        b.Add(System.Text.Encoding.UTF8.GetBytes("head,\""));
+        // piece 2: "with , comma\r\nand newline," (quoted 内に comma と CRLF)
+        b.Add(System.Text.Encoding.UTF8.GetBytes("with , comma\r\nand newline\","));
+        // piece 3: "tail\n" (次の field と行終端)
+        b.Add(System.Text.Encoding.UTF8.GetBytes("tail\n"));
+        var buffer = b.Build();
+
+        var parsed = CsvParser.Parse(buffer.Current);
+        Assert.Single(parsed.Rows);
+        Assert.Equal(3, parsed.Rows[0].Count);
+        Assert.Equal("head", parsed.Rows[0][0].Value);
+        Assert.Equal("with , comma\r\nand newline", parsed.Rows[0][1].Value);
+        Assert.Equal("tail", parsed.Rows[0][2].Value);
+        Assert.True(parsed.Ok);
+    }
 }

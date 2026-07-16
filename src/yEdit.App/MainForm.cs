@@ -12,12 +12,12 @@ namespace yEdit.App;
 public sealed partial class MainForm : Form
 {
     private readonly DocumentManager _docs;
-    private FileController _file = null!;      // コンストラクタで生成
-    private SearchController _search = null!; // コンストラクタで生成
-    private GrepController _grep = null!;     // コンストラクタで生成
-    private BackupCoordinator _backup = null!; // コンストラクタで生成
-    private CsvController _csv = null!;        // コンストラクタで生成
-    private KinsokuFormatController _kinsoku = null!; // コンストラクタで生成(FormatWithKinsoku を委譲)
+    private readonly FileController _file;      // コンストラクタで生成
+    private readonly SearchController _search; // コンストラクタで生成
+    private readonly GrepController _grep;     // コンストラクタで生成
+    private readonly BackupCoordinator _backup; // コンストラクタで生成
+    private readonly CsvController _csv;        // コンストラクタで生成
+    private readonly KinsokuFormatController _kinsoku; // コンストラクタで生成(FormatWithKinsoku を委譲)
     private bool _restoreOffered;             // 起動時の復元提案を一度だけ行う
     private readonly ToolStripStatusLabel _posLabel = new("行 1, 桁 1");
     private readonly ToolStripStatusLabel _encLabel = new("UTF-8");

@@ -140,4 +140,23 @@ public class MainFormSmokeTests
         // SelectCharRange(2, 3): start=2 / end=2+3=5(EditorControl:323-324 のエイリアス経由)
         Assert.Equal((2, 5), doc.Editor.GetSelectionCharRange());
     });
+
+    [Fact]
+    public void MainForm_ControllerFields_AreReadOnly()
+    {
+        // Task 1a: null! 代入経路を止め、6 Controller を readonly 化する契約を固定。
+        // 実装後は宣言時か ctor 初期化リストで確定代入 = readonly が復活する。
+        var type = typeof(MainForm);
+        var flags = System.Reflection.BindingFlags.Instance
+                  | System.Reflection.BindingFlags.NonPublic;
+        string[] controllerFields = {
+            "_file", "_search", "_grep", "_backup", "_csv", "_kinsoku"
+        };
+        foreach (var name in controllerFields)
+        {
+            var field = type.GetField(name, flags);
+            Assert.NotNull(field);
+            Assert.True(field!.IsInitOnly, $"{name} must be readonly");
+        }
+    }
 }

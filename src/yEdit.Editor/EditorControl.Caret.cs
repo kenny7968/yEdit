@@ -1,6 +1,10 @@
 // EditorControl.Caret.cs
-// Phase 2 (Task 2b) で切り出したキャレット/選択分割。フィールドは EditorControl.cs 本体で宣言。
-// Phase 3-3b で CaretController へロジック移譲予定(_caret/_anchor/_desiredXpx の所有権も移す)。
+// Phase 2 (Task 2b) で切り出したキャレット/選択分割。
+// Phase 3 (Task 3b) で _caret/_anchor/_desiredXpx の所有権を CaretController へ移譲済み。
+// 本ファイルの public API 群 (SetCaretCharOffset/SelectCharRange/GoToLine 等) は
+// Controller 呼び出しの薄いラッパとして残存(外部契約=Editor.Tests + MainForm は不変)。
+// 副作用 (PositionCaret/Invalidate/UIA イベント/UpdateUI) は本ファイル側に残置=
+// Controller は state 操作(SnapAndClamp + 選択セマンティクス)のみ。
 using System.ComponentModel;
 using yEdit.Core.Buffers;
 
@@ -30,18 +34,18 @@ public sealed partial class EditorControl
     }
 
     /// <summary>P6 Task 3: `CaretCharOffset` の別名(App 層互換=Scintilla の `CurrentPosition`)。</summary>
-    public int CurrentPosition => _caret;
+    public int CurrentPosition => _caretCtrl.Caret;
 
     /// <summary>キャレット位置(UTF-16 文字オフセット)。書き込みは <see cref="SetCaretCharOffset"/>。</summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public int CaretCharOffset => _caret;
+    public int CaretCharOffset => _caretCtrl.Caret;
 
     /// <summary>
     /// 現在キャレットの論理行番号(0 始まり)。SetSource 前は 0(P6 の
     /// <c>ScintillaHost.CurrentLine</c> と同名=App 層互換 API・設計書 §2-8)。
     /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public int CurrentLine => _buffer is null ? 0 : _buffer.Current.GetLineIndexOfChar(_caret);
+    public int CurrentLine => _buffer is null ? 0 : _buffer.Current.GetLineIndexOfChar(_caretCtrl.Caret);
 
     /// <summary>
     /// 指定オフセットの論理行内オフセット(0 始まり)。SetSource 前は 0・範囲外は
@@ -63,15 +67,15 @@ public sealed partial class EditorControl
     }
 
     /// <summary>
-    /// 選択アンカー(UTF-16 文字オフセット)。<c>_anchor == _caret</c> のときは選択なし。
+    /// 選択アンカー(UTF-16 文字オフセット)。<c>Anchor == Caret</c> のときは選択なし。
     /// 書き込みは <see cref="SetSelectionAnchored(int, int)"/> または <see cref="SetSelectionCharRange(int, int)"/>。
     /// P3 Task 2 で導入(shift+左方向の選択保持=キャレット &lt; アンカーのケース)。
     /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public int SelectionAnchor => _anchor;
+    public int SelectionAnchor => _caretCtrl.Anchor;
 
     /// <summary>
-    /// キャレット位置を UTF-16 文字オフセットで設定する(選択はクリアされる=_anchor=_caret=snapped)。
+    /// キャレット位置を UTF-16 文字オフセットで設定する(選択はクリアされる=Anchor=Caret=snapped)。
     /// サロゲートペア中間位置(low)は前方(high)にスナップ。範囲外は [0, CharLength] にクランプ。
     /// SetSource 前の呼び出しは no-op(_buffer が null のため)。
     /// </summary>
@@ -80,9 +84,8 @@ public sealed partial class EditorControl
         if (IsComposing) CancelCompositionAndDefault();
         if (_buffer is null) return;
         int snapped = SnapAndClamp(offset);
-        if (_caret == snapped && _anchor == snapped) return;
-        _caret = snapped;
-        _anchor = snapped;   // 単純キャレット移動は選択解除
+        if (_caretCtrl.Caret == snapped && _caretCtrl.Anchor == snapped) return;
+        _caretCtrl.SetTo(snapped, _buffer.Current);   // 単純キャレット移動は選択解除
         PositionCaret();
         Invalidate();
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
@@ -94,16 +97,16 @@ public sealed partial class EditorControl
 
     /// <summary>現在の選択範囲(UTF-16 文字オフセット・Start &lt;= End で返す)。</summary>
     /// <remarks>
-    /// 内部状態(<c>_anchor</c>/<c>_caret</c>)は非対称=どちらが Min/Max かは選択方向で変わる。
-    /// 呼び出し側が「アンカーはどこか」を知りたい場合は <see cref="SelectionAnchor"/> を使う。
+    /// 内部状態(<c>_caretCtrl.Anchor</c>/<c>_caretCtrl.Caret</c>)は非対称=どちらが Min/Max かは
+    /// 選択方向で変わる。呼び出し側が「アンカーはどこか」を知りたい場合は
+    /// <see cref="SelectionAnchor"/> を使う。
     /// </remarks>
-    public (int Start, int End) GetSelectionCharRange()
-        => (Math.Min(_anchor, _caret), Math.Max(_anchor, _caret));
+    public (int Start, int End) GetSelectionCharRange() => _caretCtrl.Selection;
 
     /// <summary>
     /// 選択範囲を設定する(対称版=方向を持たない)。<paramref name="start"/> &gt; <paramref name="end"/>
     /// の場合は内部で正規化。両端はサロゲートペア中間位置なら前方スナップ・範囲外はクランプ。
-    /// 内部では <c>_anchor = Min(start, end)</c>・<c>_caret = Max(start, end)</c> にマップする
+    /// 内部では <c>Anchor = Min(start, end)</c>・<c>Caret = Max(start, end)</c> にマップする
     /// (=キャレットは選択末尾=右方向の選択)。SetSource 前の呼び出しは no-op。
     /// </summary>
     /// <remarks>
@@ -116,9 +119,8 @@ public sealed partial class EditorControl
         if (_buffer is null) return;
         int s = SnapAndClamp(Math.Min(start, end));
         int e = SnapAndClamp(Math.Max(start, end));
-        if (_anchor == s && _caret == e) return;
-        _anchor = s;
-        _caret = e;
+        if (_caretCtrl.Anchor == s && _caretCtrl.Caret == e) return;
+        _caretCtrl.SetSelection(s, e, _buffer.Current);
         PositionCaret();
         Invalidate();
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
@@ -131,7 +133,7 @@ public sealed partial class EditorControl
     /// <summary>
     /// アンカー保持でキャレットのみを <paramref name="newCaret"/> に移動する(shift+移動系の共通経路)。
     /// サロゲートペア中間位置は前方スナップ・範囲外はクランプ。
-    /// <c>newCaret == _anchor</c> のとき選択が消える(=アンカーと同位置)。
+    /// <c>newCaret == Anchor</c> のとき選択が消える(=アンカーと同位置)。
     /// SetSource 前の呼び出しは no-op。
     /// </summary>
     public void MoveCaretWithSelection(int newCaret)
@@ -139,9 +141,8 @@ public sealed partial class EditorControl
         if (IsComposing) CancelCompositionAndDefault();
         if (_buffer is null) return;
         int snapped = SnapAndClamp(newCaret);
-        if (_caret == snapped) return;
-        _caret = snapped;
-        // _anchor は保持
+        if (_caretCtrl.Caret == snapped) return;
+        _caretCtrl.MoveTo(snapped, extend: true, _buffer.Current);
         PositionCaret();
         Invalidate();
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
@@ -163,9 +164,8 @@ public sealed partial class EditorControl
         if (_buffer is null) return;
         int a = SnapAndClamp(anchor);
         int c = SnapAndClamp(caret);
-        if (_anchor == a && _caret == c) return;
-        _anchor = a;
-        _caret = c;
+        if (_caretCtrl.Anchor == a && _caretCtrl.Caret == c) return;
+        _caretCtrl.SetSelection(a, c, _buffer.Current);
         PositionCaret();
         Invalidate();
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
@@ -178,21 +178,13 @@ public sealed partial class EditorControl
     /// <summary>
     /// [0, CharLength] にクランプし、UTF-16 low サロゲート位置なら 1 前方(high 側)へスナップ。
     /// CharLength 位置(=EOF)はキャレットが立てる境界なのでクランプ後もそのまま許可。
+    /// Task 3b で純ロジックを <see cref="CaretController.SnapAndClamp"/> へ移設。本メソッドは
+    /// _buffer null ガードを付けた薄いラッパ(内部呼び出しは snap 引数の受け渡しを省略できる)。
     /// </summary>
     private int SnapAndClamp(int offset)
     {
         if (_buffer is null) return 0;
-        var snap = _buffer.Current;
-        if (offset <= 0) return 0;
-        if (offset >= snap.CharLength) return snap.CharLength;
-        // offset > 0 は L187 の早期 return で保証済み
-        char c = snap.GetChar(offset);
-        if (char.IsLowSurrogate(c))
-        {
-            char prev = snap.GetChar(offset - 1);
-            if (char.IsHighSurrogate(prev)) return offset - 1;
-        }
-        return offset;
+        return _caretCtrl.SnapAndClamp(offset, _buffer.Current);
     }
 
     /// <summary>
@@ -211,7 +203,7 @@ public sealed partial class EditorControl
     }
 
     /// <summary>
-    /// 現在のキャレット位置(<c>_caret</c>)を可視領域内に収める(P3 Task 7)。
+    /// 現在のキャレット位置(<c>_caretCtrl.Caret</c>)を可視領域内に収める(P3 Task 7)。
     /// - 垂直: キャレットの論理行が [TopLine, TopLine + visibleRows) の外なら <see cref="TopLine"/> を調整。
     /// - 水平: 折り返し OFF かつ <see cref="_hscroll"/> 表示中で、キャレット X が
     ///   [ScrollX, ScrollX + paintWidth) の外なら <see cref="ScrollX"/> を調整。
@@ -238,7 +230,7 @@ public sealed partial class EditorControl
         if (_buffer is null) return;
         var snap = _buffer.Current;
 
-        int logicalLine = snap.GetLineIndexOfChar(_caret);
+        int logicalLine = snap.GetLineIndexOfChar(_caretCtrl.Caret);
         // I-1 対応: paintHeight ベースで可視行数を算出(ComputeCaretPoint の可視性判定と一致)。
         int paintHeight = Math.Max(0, ClientSize.Height - (_hscroll.Visible ? _hscroll.Height : 0));
         int visibleRows = Math.Max(1, paintHeight / Math.Max(1, _metrics.LineHeightPx));
@@ -258,7 +250,7 @@ public sealed partial class EditorControl
         //  ここで先に判定することで ComputeCaretPoint の無駄呼びを回避する)
         if (_wrapColumns == 0 && _hscroll.Visible)
         {
-            var (x, _, visible) = ComputeCaretPoint(_caret);
+            var (x, _, visible) = ComputeCaretPoint(_caretCtrl.Caret);
             if (visible)
             {
                 int paintWidth = Math.Max(0, ClientSize.Width - _vscroll.Width);
@@ -290,7 +282,7 @@ public sealed partial class EditorControl
     /// C-1 対応(Task 7 レビュー): finally で <see cref="PositionCaret"/> を呼び、
     /// OS 側システムキャレット位置を savedCaret に戻す。これをやらないと
     /// <see cref="TopLine"/>/<see cref="ScrollX"/> setter が内部で呼ぶ
-    /// <see cref="PositionCaret"/> が <c>_caret = end</c> のまま SetCaretPos を発火し、
+    /// <see cref="PositionCaret"/> が <c>Caret = end</c> のまま SetCaretPos を発火し、
     /// field 復元後も blinking caret / IME 変換開始位置 / UIA フォーカスキャレット位置が
     /// end に取り残される(P5 の UIA 接続で顕在化する)。
     /// try/finally 化は I-2(将来 <see cref="BringCaretIntoView"/> に throw を混ぜ込んだ
@@ -305,20 +297,18 @@ public sealed partial class EditorControl
         int endInt = endLong > int.MaxValue ? int.MaxValue : (int)endLong;
         int end = SnapAndClamp(endInt);
 
-        int savedCaret = _caret;
-        int savedAnchor = _anchor;
+        int savedCaret = _caretCtrl.Caret;
+        int savedAnchor = _caretCtrl.Anchor;
         try
         {
-            _caret = end;
-            _anchor = end;
+            _caretCtrl.SetTo(end, _buffer.Current);
             BringCaretIntoView();
         }
         finally
         {
-            _caret = savedCaret;
-            _anchor = savedAnchor;
+            _caretCtrl.SetSelection(savedAnchor, savedCaret, _buffer.Current);
             // OS 側キャレットを savedCaret の座標に戻す(TopLine/ScrollX setter が
-            // 内部で _caret=end のまま SetCaretPos を発火した副作用を上書きする)。
+            // 内部で Caret=end のまま SetCaretPos を発火した副作用を上書きする)。
             // 末尾 Invalidate は削除: setter が Invalidate 発行済み、no-op ケースなら不要。
             PositionCaret();
         }

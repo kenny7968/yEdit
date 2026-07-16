@@ -40,15 +40,14 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     private bool _highlightCurrentLine;
     private bool _showWhitespace;
 
-    // キャレット/選択の内部状態(P3 Task 2 でアンカー概念を導入=_selStart/_selEnd から _anchor に置換)。
-    // 選択範囲は [Math.Min(_anchor, _caret), Math.Max(_anchor, _caret)]。
-    // - _anchor == _caret: 選択なし(単純キャレット位置)
-    // - _anchor <  _caret: 右方向に伸びた選択(キャレットが末尾)
-    // - _anchor >  _caret: 左方向に伸びた選択(キャレットが先頭・shift+←/Home で作られる)
-    // SetCaretCharOffset は選択解除仕様=_anchor = _caret = snapped に潰す。
-    // MoveCaretWithSelection はアンカー保持でキャレットのみ動かす共通経路(shift+移動系)。
-    private int _caret;
-    private int _anchor;
+    // キャレット/選択/desired X の state は Phase 3 (Task 3b) で CaretController へ移譲。
+    // - 選択範囲は [Math.Min(Anchor, Caret), Math.Max(Anchor, Caret)]。
+    // - Anchor == Caret: 選択なし(単純キャレット位置)
+    // - Anchor <  Caret: 右方向に伸びた選択(キャレットが末尾)
+    // - Anchor >  Caret: 左方向に伸びた選択(キャレットが先頭・shift+←/Home で作られる)
+    // 副作用(Invalidate/PositionCaret/AfterEdit/UIA イベント発火)は EditorControl 側に残置=
+    // Controller は state 操作(SnapAndClamp + 選択セマンティクス)のみを担う。
+    private readonly CaretController _caretCtrl = new();
 
     // P4 Task 5: IME 未確定文字列の状態。WM_IME_STARTCOMPOSITION 受信で Start=現在キャレットに
     // 初期化し、Task 6 以降の WM_IME_COMPOSITION / WM_IME_ENDCOMPOSITION で Text/Attrs/Clauses を
@@ -67,17 +66,14 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     private bool _hasFocus;
 
     // P3 Task 6: 上下移動(Up/Down/PageUp/PageDown)で保持する desired X(px)。
-    // -1 = 未計算=次回の垂直移動時に現在キャレット位置から新規計算する(慣例値)。
-    // Left/Right/Home/End など水平方向の移動が起きたらリセット=次の垂直移動で再計算される。
-    // Task 8 以降の編集経路(挿入/削除等)でも同様に -1 リセットする(§0-6 の一貫性)。
-    private int _desiredXpx = -1;
+    // Phase 3 Task 3b で CaretController.DesiredXpx へ移譲(コメントは _caretCtrl 参照)。
 
     // Task 15: システムキャレットの太さ(px)。既定 2・ApplyAppearance で AppSettings.CaretWidth
     // (1〜5)を反映。弱視のキャレット視認性要件(設計原則 yedit-sighted-users-first-class)。
     private int _caretWidthPx = 2;
 
     // セルハイライト状態(HighlightCharRange で設定・ClearHighlight で null)。
-    // テキスト選択(_anchor/_caret)とは独立した装飾で、単一アクティブ。
+    // テキスト選択(_caretCtrl.Anchor/_caretCtrl.Caret)とは独立した装飾で、単一アクティブ。
     private SelectionRange? _cellHighlight;
 
     // P3 Task 12: マウスドラッグ選択中フラグ(MouseDown で true・MouseUp / ボタン離した drift で false)。
@@ -238,11 +234,10 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         // §4-6: 他の状態変異 API と同じく IME 未確定はまず確定キャンセルする
         if (IsComposing) CancelCompositionAndDefault();
         _buffer = buffer;
-        _caret = 0;
-        _anchor = 0;
+        _caretCtrl.SetTo(0, _buffer.Current);
         _topLine = 0;
         _scrollX = 0;
-        _desiredXpx = -1;
+        _caretCtrl.DesiredXpx = -1;
         _cellHighlight = null;      // 旧バッファのオフセット由来のセル強調は無効化
         _mouseDragging = false;     // ドラッグ選択の途中状態を破棄
         _wheelAccum = 0;            // ホイール蓄積(1 tick = 120)をリセット
@@ -352,8 +347,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
 
         // 変換前の caret/anchor を「改行以外の文字数+改行数」で分解=変換後も同じ論理位置を再構成できる。
         // SnapshotReader で chunked 走査(旧実装は SnapshotText 全文化=1GB 級 peak を招いていた)。
-        var (caretM, caretK) = CountNonBreakAndBreaksInSnapshot(snap, _caret);
-        var (anchorM, anchorK) = CountNonBreakAndBreaksInSnapshot(snap, _anchor);
+        var (caretM, caretK) = CountNonBreakAndBreaksInSnapshot(snap, _caretCtrl.Caret);
+        var (anchorM, anchorK) = CountNonBreakAndBreaksInSnapshot(snap, _caretCtrl.Anchor);
         int savedTopLine = _topLine;
         int savedScrollX = _scrollX;
 
@@ -421,8 +416,12 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
 
         ReplaceSource(builder.Build());
         int total = _buffer!.Current.CharLength;
-        _caret = Math.Min(caretM + caretK * targetCharLen, total);
-        _anchor = Math.Min(anchorM + anchorK * targetCharLen, total);
+        // アンカー/キャレットは元の (m, k) 分解から再構成して復元する(ConvertEols 前後で
+        // 同じ論理位置を保つ)。ReplaceSource が両者を 0 に潰した後の再設定。
+        _caretCtrl.SetSelection(
+            Math.Min(anchorM + anchorK * targetCharLen, total),
+            Math.Min(caretM + caretK * targetCharLen, total),
+            _buffer.Current);
         TopLine = savedTopLine;    // setter でクランプ+VScrollBar 同期
         ScrollX = savedScrollX;    // 同上
         // P7 別エージェント最終レビュー Important-2: TopLine/ScrollX の値が不変(小文書で先頭表示中)
@@ -706,7 +705,7 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
 
     /// <summary>
     /// キャレット論理行の背景を <see cref="ViewportStyle.CurrentLineBack"/> で塗るか。
-    /// <b>選択がある間(_anchor != _caret)は塗らない</b>=OnPaint で FrameBuilder への
+    /// <b>選択がある間(_caretCtrl.HasSelection)は塗らない</b>=OnPaint で FrameBuilder への
     /// currentLineLogical に -1 を渡す(選択矩形との視覚的競合を避けるため)。
     /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -810,7 +809,7 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// 置換用)。Undo/Redo は <see cref="TextBuffer.Replace"/> 経由で 1 単位として積まれる。
     /// クランプは <see cref="HighlightCharRange"/>/<see cref="EnsureVisibleCharRange"/> と同じ流儀=
     /// <c>start + length</c> の int 加算オーバーフローを long 経由で防ぐ。
-    /// _desiredXpx リセット・<see cref="AfterEdit"/> 経由の副作用(スクロールバー再計算・
+    /// _caretCtrl.DesiredXpx リセット・<see cref="AfterEdit"/> 経由の副作用(スクロールバー再計算・
     /// キャレット再配置・追従スクロール・再描画)は編集経路(Task 8〜11)と同じ扱い。
     /// </remarks>
     public void ReplaceCharRange(int start, int length, string replacement)
@@ -825,8 +824,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         int endInt = endLong > int.MaxValue ? int.MaxValue : (int)endLong;
         int e = SnapAndClamp(endInt);
         _buffer.Replace(s, e - s, replacement);
-        _caret = _anchor = s + replacement.Length;
-        _desiredXpx = -1;
+        _caretCtrl.SetTo(s + replacement.Length, _buffer.Current);
+        _caretCtrl.DesiredXpx = -1;
         AfterEdit();
     }
 
@@ -936,9 +935,9 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
 
     /// <summary>
     /// 編集(Insert/Delete/Replace)後の共通後処理: スクロールバー再計算+キャレット再配置+
-    /// 追従スクロール+再描画。<c>_desiredXpx</c> は編集経路では常にリセット(-1)される想定なので
-    /// 呼び出し側(OnKeyPress/Task 9〜11 の削除系)で個別に設定する。Task 9〜11 でも共用する
-    /// (§0-6 の一貫性)。
+    /// 追従スクロール+再描画。<c>_caretCtrl.DesiredXpx</c> は編集経路では常にリセット(-1)される
+    /// 想定なので呼び出し側(OnKeyPress/Task 9〜11 の削除系)で個別に設定する。Task 9〜11 でも
+    /// 共用する(§0-6 の一貫性)。
     /// </summary>
     /// <remarks>
     /// 順序は「バッファ変化 → スクロールバー再計算(Update*) → キャレット再配置(PositionCaret)
@@ -983,9 +982,9 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// <summary>
     /// Undo 実行(P3 Task 10)。<see cref="TextBuffer.Undo"/> の結果を反映し、キャレットを
     /// 推奨位置(=Pos + RemovedLen=削除内容が復元された末尾)へ移動する。選択は解除
-    /// (Task 8/9 と同じ<c>_caret = _anchor = pos</c> パターン)。<c>_desiredXpx</c> は編集経路の
-    /// 一貫性で -1 リセット。SetSource 前 / 履歴なし(<see cref="TextBuffer.Undo"/> が null)
-    /// / <see cref="ReadOnly"/> は no-op。
+    /// (Task 8/9 と同じ「キャレットとアンカーを同位置に設定」パターン=<c>_caretCtrl.SetTo</c>)。
+    /// <c>_caretCtrl.DesiredXpx</c> は編集経路の一貫性で -1 リセット。SetSource 前 / 履歴なし
+    /// (<see cref="TextBuffer.Undo"/> が null) / <see cref="ReadOnly"/> は no-op。
     /// P6 の <c>ScintillaHost.Undo</c> と同名(<c>Undo</c> は <see cref="Control"/> の直接メンバではなく
     /// <c>TextBoxBase</c> で導入される名前=本クラスは Control 直接派生のため隠すべき同名メソッドが
     /// 無く <c>new</c> キーワード不要)。
@@ -1005,8 +1004,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         var r = _buffer.Undo();
         if (r is null) return;
         int pos = Math.Clamp(r.Value.CaretPos, 0, _buffer.Current.CharLength);
-        _caret = _anchor = pos;
-        _desiredXpx = -1;
+        _caretCtrl.SetTo(pos, _buffer.Current);
+        _caretCtrl.DesiredXpx = -1;
         AfterEdit();
     }
 
@@ -1023,8 +1022,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         var r = _buffer.Redo();
         if (r is null) return;
         int pos = Math.Clamp(r.Value.CaretPos, 0, _buffer.Current.CharLength);
-        _caret = _anchor = pos;
-        _desiredXpx = -1;
+        _caretCtrl.SetTo(pos, _buffer.Current);
+        _caretCtrl.DesiredXpx = -1;
         AfterEdit();
     }
 
@@ -1106,8 +1105,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         if (s == en) return;
         Copy();
         _buffer.Replace(s, en - s, "");
-        _caret = _anchor = s;
-        _desiredXpx = -1;
+        _caretCtrl.SetTo(s, _buffer.Current);
+        _caretCtrl.DesiredXpx = -1;
         AfterEdit();
     }
 
@@ -1131,8 +1130,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         if (string.IsNullOrEmpty(text)) return;
         var (s, en) = GetSelectionCharRange();
         _buffer.Replace(s, en - s, text);
-        _caret = _anchor = s + text.Length;
-        _desiredXpx = -1;
+        _caretCtrl.SetTo(s + text.Length, _buffer.Current);
+        _caretCtrl.DesiredXpx = -1;
         AfterEdit();
     }
 
@@ -1164,7 +1163,7 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
 
     /// <summary>
     /// フォーカスを受けたときにシステムキャレット(幅 2px・高さ LineHeightPx)を作成し、
-    /// 現在の <c>_caret</c> オフセットへ位置決めして表示する。1 ウィンドウにつき Windows は
+    /// 現在の <c>_caretCtrl.Caret</c> オフセットへ位置決めして表示する。1 ウィンドウにつき Windows は
     /// 1 個のキャレットしか保持しないため、必ず OnLostFocus で DestroyCaret すること。
     /// </summary>
     protected override void OnGotFocus(EventArgs e)
@@ -1365,7 +1364,7 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     }
 
     /// <summary>
-    /// <c>_caret</c>(UTF-16 char offset)からクライアント座標(px)を算出し、
+    /// <c>_caretCtrl.Caret</c>(UTF-16 char offset)からクライアント座標(px)を算出し、
     /// システムキャレット位置に反映する。可視外(TopLine 未到達 / 下端超過)は
     /// 見えない位置 (-1000, -1000) へ退避。フォーカス無し・buffer 未設定時は何もしない。
     /// 折り返し OFF 時は最終位置から <see cref="ScrollX"/> を引いてから SetCaretPos する。
@@ -1412,7 +1411,7 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
             return;
         }
 
-        var (cx, cy, cvisible) = ComputeCaretPoint(_caret);
+        var (cx, cy, cvisible) = ComputeCaretPoint(_caretCtrl.Caret);
         if (cvisible) NativeMethods.SetCaretPos(cx - _scrollX, cy);
         else NativeMethods.SetCaretPos(-1000, -1000);
     }

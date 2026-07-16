@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   Phase 3 SR 呼び出しパターン回帰スイート。UIA プロバイダに対する SR 側の呼び出しを
@@ -48,7 +48,7 @@ function Invoke-Step {
     param([string]$Name, [scriptblock]$Body)
     Write-Host "==> $Name" -ForegroundColor Cyan
     $global:LASTEXITCODE = 0
-    & $Body
+    & $Body | Out-Host
     return $LASTEXITCODE
 }
 

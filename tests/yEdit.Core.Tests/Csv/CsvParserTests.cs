@@ -98,4 +98,39 @@ public class CsvParserTests
         var d = CsvParser.Parse("a,\"unterminated");
         Assert.False(d.Ok);
     }
+
+    [Fact]
+    public void Parse_TextSnapshotOverload_ProducesSameResultAsString()
+    {
+        string csv = "a,b,c\n1,\"quoted, comma\",3\n\"multi\nline\",x,y\n";
+        var expected = CsvParser.Parse(csv);
+
+        var buffer = yEdit.Core.Buffers.TextBuffer.FromString(csv);
+        var actual = CsvParser.Parse(buffer.Current);   // 新規オーバーロード
+
+        Assert.Equal(expected.Rows.Count, actual.Rows.Count);
+        for (int i = 0; i < expected.Rows.Count; i++)
+        {
+            Assert.Equal(expected.Rows[i].Count, actual.Rows[i].Count);
+            for (int j = 0; j < expected.Rows[i].Count; j++)
+                Assert.Equal(expected.Rows[i][j].Value, actual.Rows[i][j].Value);
+        }
+        Assert.Equal(expected.Ok, actual.Ok);
+    }
+
+    [Fact]
+    public void Parse_TextSnapshotOverload_HandlesQuotedFieldAcrossChunkBoundary()
+    {
+        // SnapshotReader の chunk 境界(通常 4KB / 8KB)を跨ぐ quoted field で
+        // 状態機械が崩れないことを確認。fixture は境界前後にダブルクォート内改行を配置。
+        var sb = new System.Text.StringBuilder();
+        sb.Append(new string('a', 4090));   // chunk 境界近くまで埋める
+        sb.Append(",\"quoted with , comma\nand newline\",tail\n");
+        string csv = sb.ToString();
+        var buffer = yEdit.Core.Buffers.TextBuffer.FromString(csv);
+        var parsed = CsvParser.Parse(buffer.Current);
+        Assert.Single(parsed.Rows);
+        Assert.Equal(3, parsed.Rows[0].Count);
+        Assert.Equal("quoted with , comma\nand newline", parsed.Rows[0][1].Value);
+    }
 }

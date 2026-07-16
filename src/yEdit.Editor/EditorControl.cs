@@ -62,6 +62,14 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     // 初期化は ctor で _caretCtrl / _font / _metrics 等が揃った後に new する (host=this を渡すため)。
     private readonly ImeController _imeCtrl;
 
+    // Phase 3 (Task 3d) で抽出した UIA テキストホスト adapter。IUiaTextHost 22 メンバ実装 +
+    // Uia 系 12 field (_bufferSnapshot / _bounds / _boundsSync / _clientToScreenX/Y /
+    // _lastLineSegs / _hwnd / _provider / _testHook_LastGetObjectServed /
+    // _uiaTextChangedCount / _uiaSelectionChangedCount / _uiaFocusChangedCount) の所有権をここに移譲。
+    // UI thread 側からは OnSnapshotChanged / OnBoundsChanged / RaiseTextChanged 等の通知経路で呼ぶ。
+    // EditorControl 側の IUiaTextHost 実装 (EditorControl.Uia.cs) はこの Adapter への薄いラッパのみ。
+    private readonly UiaTextHostAdapter _uia;
+
     /// <summary>
     /// IME 未確定期間中か。Task 6 以降の描画/イベント発火の分岐に使う。
     /// 純ロジックは <see cref="ImeCompositionState"/>(P4 Task 2)側で、
@@ -93,35 +101,15 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     // 発火閾値 (>=120 / <=-120) に達したら SystemInformation.MouseWheelScrollLines 行送りを 1 回発動する。
     private int _wheelAccum;
 
-    // P5 Task 5: UIA v2 用 RPC スレッド安全キャッシュ。
-    // _bufferSnapshot は不変(TextSnapshot は immutable)なので UI スレッドで参照を差し替えるだけで
-    // RPC スレッドは自己整合なスナップショットを読める。編集経路(SetSource/AfterEdit)で更新する。
-    // _bounds は WPF Rect のためロック越しで読み書き(参照差替不可の struct)。
-    private volatile TextSnapshot? _bufferSnapshot;
-    private readonly object _boundsSync = new();
-    private System.Windows.Rect _bounds;
-
-    // P8 Minor-5: SR の Line 単位連続読み(LineStartOf/LineEndNoBreakOf/LineEnd)で
-    // 同一 (snap, logicalLine, wrap) が繰り返されるため単一エントリキャッシュ。
-    // UI スレッド上でのみ更新される(TryFindVisualSegmentCore は Invoke マーシャリング後)。
-    // 無効化ポイント: AfterEdit() / SetSource() / ReplaceSource() / ApplyAppearance() / WrapColumns setter。
-    // 設計原則: _bufferSnapshot を更新するすべての経路で _lastLineSegs も破棄する
-    // (correctness は ReferenceEquals(c.Snap) 判定で守られるが、旧 TextSnapshot の Root
-    //  PieceTree が強参照で pin されて大容量ファイル差替後の GC を阻害するため)。
-    private (yEdit.Core.Buffers.TextSnapshot Snap, int Line, int Wrap,
-             System.Collections.Generic.IReadOnlyList<yEdit.Core.Layout.WrapSegment> Segs)? _lastLineSegs;
-
-    // P5 Task 10: 座標 API 用の描画スナップショット + client→screen オフセットキャッシュ。
-    // _lastFrame は OnPaint 完了時点の Frame(描画に使われたもの)。BB 計算では直接使わず、
-    // 「最新描画のあと」の判定と Task 11 テスト用フックに使う。
-    // _clientToScreenX/Y は OnPaint / UpdateBoundsCache で更新した client 原点のスクリーン座標。
+    // Phase 3 Task 3d: Uia 系 12 field (_bufferSnapshot / _bounds / _boundsSync /
+    // _clientToScreenX/Y / _lastLineSegs / _hwnd / _provider / _testHook_LastGetObjectServed /
+    // _uiaTextChangedCount / _uiaSelectionChangedCount / _uiaFocusChangedCount) の所有権は
+    // UiaTextHostAdapter (_uia) へ移譲済み。EditorControl 本体は Adapter への通知経路
+    // (OnSnapshotChanged / OnBoundsChanged / RaiseTextChanged) のみを持つ。
+    //
+    // _lastFrame は Paint (OnPaint) のスナップショットで Uia 座標 API 用に公開している独立フィールド
+    // (Adapter 移譲対象外=Test hook TestHook_GetLastFrame でも参照)。
     private volatile yEdit.Core.Layout.Frame? _lastFrame;
-    private int _clientToScreenX, _clientToScreenY;
-
-    // P5 Task 14 (I-2): UIA プロバイダは RPC スレッドから Handle を取得する。Control.Handle は
-    // Handle 未生成時に CreateHandle を誘発し得るため、OnHandleCreated で捕捉した値をキャッシュ。
-    // v1 ScintillaHost._hwnd と同形。
-    private nint _hwnd;
 
     // P6 Task 10 レビュー M-2: CurrentBuffer の null 経路で毎回 new すると
     // Assert.Same(ctrl.CurrentBuffer, ctrl.CurrentBuffer) が SetSource 前で失敗する反直観挙動になる。
@@ -185,6 +173,13 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
             caret: _caretCtrl,
             host: this,
             insertConfirmedText: InsertConfirmedText);
+
+        // Task 3d: UiaTextHostAdapter (IUiaTextHost 22 メンバ実装 + Uia 系 12 field 所有)。
+        // this を UI thread 側 host として渡す (RectangleToScreen / PointToScreen / InvokeRequired /
+        // BeginInvoke / IsHandleCreated / IsDisposed / Handle / ComputeCaretPointForUia /
+        // OffsetFromClientPoint / Metrics / WrapColumns / HasFocusCached / SetSelectionCharRange /
+        // Focus を Adapter から呼ぶ)。
+        _uia = new UiaTextHostAdapter(this, _caretCtrl);
     }
 
     /// <summary>ソースの <see cref="TextBuffer"/> を差し込む(1 度だけ)。</summary>
@@ -212,13 +207,13 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         Invalidate();
         // Task 12: 初期化時に未確定文字列用フォントを IME に通知(候補窓/未確定描画のメトリクス整合)。
         _imeCtrl.NotifyCompositionFont();
-        // P5 Task 5: RPC スレッド用スナップショットキャッシュを初期化
-        CacheSnapshot();
+        // P5 Task 5 / Task 3d: RPC スレッド用スナップショットキャッシュを初期化 (Adapter 経由=
+        // 元 CacheSnapshot() + `_lastLineSegs = null;` を 1 経路に集約)。
+        _uia.OnSnapshotChanged(_buffer.Current);
         // P6 Task 4: SavePointLeft 検出用の直前状態をバッファに同期
         // (FromString で生まれるバッファは Modified=false 前提だが、既に Modified=true な
         //  バッファを差し込まれた場合に初回 AfterEdit で SavePointLeft が spurious 発火するのを防ぐ)。
         _wasModified = _buffer.Modified;
-        _lastLineSegs = null; // P8 Minor-5: 全差替でキャッシュ破棄
     }
 
     /// <summary>
@@ -270,16 +265,17 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
             PositionCaret();
         }
         Invalidate();
-        CacheSnapshot();  // P5 RPC スレッド用スナップショット更新
-        _lastLineSegs = null; // P8 Minor-5: 全差替でキャッシュ破棄(SetSource と同旨)
+        // Task 3d: RPC スレッド用スナップショット更新 + _lastLineSegs 破棄を Adapter 経由に集約
+        // (元 CacheSnapshot() + `_lastLineSegs = null;`)。
+        _uia.OnSnapshotChanged(_buffer.Current);
         // P6 Task 4: 差し替え後のバッファ状態で SavePointLeft 検出用の直前状態を同期
         // (SetSource と同旨=バッファが Modified=true でも初回 AfterEdit で spurious 発火しないよう)
         _wasModified = buffer.Modified;
         // P5 Task 8 / P6 Task 1: バッファ全差替えは AfterEdit と同じ通知契約
         // (SR/UIA クライアントが旧本文をキャッシュしたままにならないよう発火)
-        RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextChangedEvent);
+        _uia.RaiseTextChanged();
         if (RaiseUiaSelectionEvents)
-            RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
+            _uia.RaiseSelectionChanged();
         // P6 Task 4: バッファ全差替えは App 層のステータスバー更新契機なので UpdateUI 発火
         UpdateUI?.Invoke(this, EventArgs.Empty);
     }
@@ -341,6 +337,15 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     // WFO1000(Designer プロパティのシリアライゼーション警告)回避のため属性で明示的に非公開化する。
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     internal bool MouseDragging { get => _mouseDragging; set => _mouseDragging = value; }
+
+    // Task 3d: UiaTextHostAdapter が ComputeBoundingRectangles から ComputeCaretPoint を呼ぶための
+    // named accessor (直接 internal 化した ComputeCaretPoint を呼ぶ薄いラッパ・分かりやすさのため)。
+    internal (int X, int Y, bool Visible) ComputeCaretPointForUia(int offset) => ComputeCaretPoint(offset);
+
+    // Task 3d: UiaTextHostAdapter が IUiaTextHost.HasFocus 実装で _hasFocus を返すための named accessor。
+    // WinForms Control には ContainsFocus が居るため名前衝突しない別名で露出する
+    // (Control.Focused は内部で GetFocus() を呼び RPC スレッドから読むと常に false=v1 対応と同旨)。
+    internal bool HasFocusCached => _hasFocus;
 
     /// <summary>P6 Task 3: 現在のバッファ論理行数(App 層互換=`Lines.Count` 相当)。</summary>
     public int LineCount => _buffer?.Current.LineCount ?? 0;
@@ -628,7 +633,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
             int clamped = Math.Max(0, value);
             if (_wrapColumns == clamped) return;
             _wrapColumns = clamped;
-            _lastLineSegs = null; // P8 Minor-5: wrap 値変化でキャッシュ破棄
+            // P8 Minor-5 / Task 3d: wrap 値変化で Adapter の _lastLineSegs キャッシュ破棄。
+            _uia.InvalidateLastLineSegs();
             _scrollX = 0;
             UpdateHorizontalScrollbar();
             PositionCaret();
@@ -997,14 +1003,15 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         PositionCaret();
         BringCaretIntoView();
         Invalidate();
-        // P5 Task 5: 編集後に RPC スレッド用スナップショットを更新
-        CacheSnapshot();
-        _lastLineSegs = null; // P8 Minor-5: 編集で snapshot が更新されたのでキャッシュ破棄
+        // P5 Task 5 / Task 3d: 編集後に RPC スレッド用スナップショットを更新 (Adapter 経由=
+        // 元 CacheSnapshot() + `_lastLineSegs = null;` を 1 経路に集約)。_buffer は非 null 経路
+        // (AfterEdit は編集経路末尾=SetSource 前は呼ばれない)。
+        _uia.OnSnapshotChanged(_buffer!.Current);
         // P5 Task 8: UIA イベント発火(TextChanged は編集経路の唯一の発火点)。
         // 編集は同時に選択位置も動くため TextSelectionChanged も併せて発火。
-        RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextChangedEvent);
+        _uia.RaiseTextChanged();
         if (RaiseUiaSelectionEvents)
-            RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
+            _uia.RaiseSelectionChanged();
         // P6 Task 4: Modified 遷移(false→true=SavePointLeft / true→false=SavePointReached)を
         // 両方向で発火・常時 UpdateUI を発火。state-first-then-fire で SetSavePoint / ReplaceSource と
         // 揃え、handler 内での再入(SavePointLeft ハンドラが Undo 等で AfterEdit を再呼び出しするケース)
@@ -1222,9 +1229,9 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         // PC-Talker は 2 秒ポーリングで選択を追う既知挙動(HANDOFF §13.6)があるため、
         // フォーカス獲得時に AutomationFocusChangedEvent + TextSelectionChangedEvent を
         // 明示発火して SR に「今ここにフォーカスがある」と伝える(v1 ScintillaHost 踏襲)。
-        RaiseUia(System.Windows.Automation.AutomationElementIdentifiers.AutomationFocusChangedEvent);
+        _uia.RaiseFocusChanged();
         if (RaiseUiaSelectionEvents)
-            RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
+            _uia.RaiseSelectionChanged();
     }
 
     protected override void OnLostFocus(EventArgs e)
@@ -1254,18 +1261,17 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     protected override void WndProc(ref Message m)
     {
         // P5 Task 6: UIA プロバイダ配線 ---- 先頭で処理
+        // Task 3d: プロバイダ生成 + ReturnRawElementProvider + self-served フラグ更新は Adapter へ委譲
+        // (§C.4=WndProc 分岐そのものは本体側に残す)。
         if (m.Msg == NativeMethods.WM_GETOBJECT)
         {
             long objid = m.LParam.ToInt64();
             if (objid == NativeMethods.UiaRootObjectId)
             {
-                EnsureUiaProvider();
-                m.Result = System.Windows.Automation.Provider.AutomationInteropProvider
-                    .ReturnRawElementProvider(Handle, m.WParam, m.LParam, _provider);
-                _testHook_LastGetObjectServed = true;
+                m.Result = _uia.HandleWmGetObject(Handle, m.WParam, m.LParam);
                 return;
             }
-            _testHook_LastGetObjectServed = false;
+            _uia.MarkGetObjectNotServed();
             // OBJID_CLIENT (=-4) / OBJID_WINDOW (=0) 等は base=DefWindowProc に流す
             // (=自前で MSAA プロキシを作らない=ネイティブ表面原則 §2-7)
         }
@@ -1302,12 +1308,9 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         base.WndProc(ref m);
     }
 
-    // P5 Task 6: UIA プロバイダ(v2)は WM_GETOBJECT(UiaRootObjectId)で lazy 生成する。
-    // インスタンスの寿命は EditorControl と同じ(Dispose で解放不要=マネージ参照のみ)。
-    private yEdit.Accessibility.TextControlProviderV2? _provider;
-
-    // Task 6 テスト用フック: WndProc 経路と self-served 判定を Editor.Tests から観察する。
-    private bool _testHook_LastGetObjectServed;
+    // Task 3d: _provider / _testHook_LastGetObjectServed は UiaTextHostAdapter (_uia) へ移譲済み。
+    // WM_GETOBJECT (UiaRootObjectId) 分岐は _uia.HandleWmGetObject を呼び、
+    // non-UiaRootObjectId 経路は _uia.MarkGetObjectNotServed を呼ぶ (§C.4 準拠)。
 
     // テスト用ヘルパ(internal・EditorControlImeTests から呼ぶ)。
     // WndProc は protected のためテストから直接呼べない=WM_IME_SETCONTEXT の lParam
@@ -1326,7 +1329,11 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// Task 10 レビュー I-1 対応: 積み上げループ内で paintHeight 超えを検出したら早期退避する
     /// (100 万行のような巨大文書でキャレットが末尾方向にあるとき無駄な Wrap を避けるため)。
     /// </remarks>
-    private (int X, int Y, bool Visible) ComputeCaretPoint(int offset)
+    // Task 3d: UiaTextHostAdapter.ComputeBoundingRectangles / ComputeOffsetFromScreenPoint から
+    // 呼び出すため internal 化 (元 private・呼び出し元は UI thread ドキュメントされている)。
+    // 非 Uia 用途の内部呼び出し (PositionCaret / BringCaretIntoView / PointFromCharOffset /
+    // IImeOverlayHost.ComputeCaretPoint) は引き続き同一アセンブリから呼ぶため可視性拡張のみで影響なし。
+    internal (int X, int Y, bool Visible) ComputeCaretPoint(int offset)
     {
         if (_buffer is null) return (0, 0, false);
         var snap = _buffer.Current;
@@ -1531,22 +1538,39 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         Invalidate();
         // Task 12: フォント変更後に IME へ未確定文字列用フォントを再通知(本文と候補窓のメトリクス整合)。
         _imeCtrl.NotifyCompositionFont();
-        _lastLineSegs = null; // P8 Minor-5: metrics/wrap 変化でキャッシュ破棄
+        // P8 Minor-5 / Task 3d: metrics/wrap 変化で Adapter の _lastLineSegs キャッシュ破棄。
+        _uia.InvalidateLastLineSegs();
     }
 
     protected override void OnSizeChanged(EventArgs e)
     {
         base.OnSizeChanged(e);
-        UpdateBoundsCache();
+        // Task 3d: bounds キャッシュ更新は Adapter へ委譲 (元 UpdateBoundsCache)。
+        _uia.OnBoundsChanged();
     }
 
     protected override void OnLocationChanged(EventArgs e)
     {
         base.OnLocationChanged(e);
-        UpdateBoundsCache();
+        // Task 3d: bounds キャッシュ更新は Adapter へ委譲 (元 UpdateBoundsCache)。
+        _uia.OnBoundsChanged();
     }
 
-    private int _uiaTextChangedCount, _uiaSelectionChangedCount, _uiaFocusChangedCount;
+    // Task 3d (§C.4 例外解消): OnHandleCreated / OnHandleDestroyed は EditorControl 本体側に統一。
+    // 元 EditorControl.Uia.cs 帰属を解消し、他の OnXxx オーバーライドと同じ場所 (本体) にまとめる。
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        // Adapter への通知: _hwnd キャッシュ + 初期 bounds 計算 (元 _hwnd = Handle + UpdateBoundsCache)。
+        _uia.OnHandleCreated();
+    }
+
+    protected override void OnHandleDestroyed(EventArgs e)
+    {
+        // 元コード: _hwnd = IntPtr.Zero を base 呼び出し前に実施 → Adapter に委譲。
+        _uia.OnHandleDestroyed();
+        base.OnHandleDestroyed(e);
+    }
 
     /// <summary>
     /// GDI ハンドル(Font)を解放する。P6 でタブ毎にインスタンス生成/破棄する運用のため、

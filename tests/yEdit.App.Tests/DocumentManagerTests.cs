@@ -319,4 +319,17 @@ public class DocumentManagerTests
         Assert.NotEmpty(seen);
         Assert.All(seen, d => Assert.Same(doc2, d)); // 全発火が切替前=旧アクティブを観測する
     });
+
+    [Fact]
+    public void BeforeActiveChange_Type_IsIntentionallyAction()
+    {
+        // Task 1e (案 A 採択): sender/args とも意味を持たない = EventHandler 化しない意図的例外。
+        // 他 5 個の event(ActiveDocumentChanged/ActiveDirtyChanged/ActiveCaretChanged/
+        // EditorGotFocus/KeyBasedSwitch 等) が EventHandler 系に統一されている中の
+        // 単独 Action プロパティの型を機械固定する。将来 EventHandler 化する場合は
+        // 本テストを **必ず更新** すること(案 B 採用の signal になる)。
+        var property = typeof(DocumentManager).GetProperty("BeforeActiveChange");
+        Assert.NotNull(property);
+        Assert.Equal(typeof(Action), property!.PropertyType);
+    }
 }

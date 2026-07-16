@@ -27,8 +27,16 @@ public sealed class DocumentManager
 
     /// <summary>アクティブタブが切り替わる直前のフック（F2 編集中なら中断させる等）。
     /// マウス操作は Deselecting で、キーボード/プログラム経路は各選択メソッドから発火する。</summary>
-    /// <remarks>P7/P8 申し送り Event 統一: sender/args とも意味を持たないため EventHandler 化せず
-    /// <see cref="Action"/> のまま維持。他の event が EventHandler 系に統一されている中の意図的例外。</remarks>
+    /// <remarks>
+    /// <b>設計判断(Task 1e で確認済・案 A 採用)</b>:
+    /// sender/args とも意味を持たない = <see cref="EventHandler"/> 化しない意図的例外。
+    /// 他 5 個の event(<see cref="ActiveDocumentChanged"/>/<see cref="ActiveDirtyChanged"/>/
+    /// <see cref="ActiveCaretChanged"/>/<see cref="EditorGotFocus"/>/<see cref="KeyBasedSwitch"/> 等)と
+    /// 型が違うのは意図的。呼び出し側は <c>= () =&gt; ...;</c> の代入形式で購読する。
+    /// 案 B(<see cref="EventHandler"/> 統一)も検討したが、購読側が sender/args を無視する
+    /// 空実装になり益がないため見送り。将来 sender/args を使う必要が生じたら再検討する。
+    /// テストで型を <see cref="Action"/> と機械固定(BeforeActiveChange_Type_IsIntentionallyAction)。
+    /// </remarks>
     public Action? BeforeActiveChange { get; set; }
 
     public Document? Active => _tabs.SelectedTab?.Tag as Document;

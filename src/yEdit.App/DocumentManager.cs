@@ -30,7 +30,7 @@ public sealed class DocumentManager
     /// <remarks>
     /// <b>設計判断(Task 1e で確認済・案 A 採用)</b>:
     /// sender/args とも意味を持たない = <see cref="EventHandler"/> 化しない意図的例外。
-    /// 他 7 個の event(<see cref="ActiveDocumentChanged"/>/<see cref="ActiveDirtyChanged"/>/
+    /// 他 5 個の event(<see cref="ActiveDocumentChanged"/>/<see cref="ActiveDirtyChanged"/>/
     /// <see cref="ActiveCaretChanged"/>/<see cref="EditorGotFocus"/>/<see cref="KeyBasedSwitch"/> 等)と
     /// 型が違うのは意図的。呼び出し側は <c>= () =&gt; ...;</c> の代入形式で購読する。
     /// 案 B(<see cref="EventHandler"/> 統一)も検討したが、購読側が sender/args を無視する

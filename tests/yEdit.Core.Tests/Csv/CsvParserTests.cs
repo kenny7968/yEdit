@@ -119,18 +119,26 @@ public class CsvParserTests
     }
 
     [Fact]
-    public void Parse_TextSnapshotOverload_HandlesQuotedFieldAcrossChunkBoundary()
+    public void Parse_TextSnapshotOverload_HandlesQuotedFieldAcrossPieceBoundary()
     {
-        // SnapshotReader の chunk 境界(通常 4KB / 8KB)を跨ぐ quoted field で
-        // 状態機械が崩れないことを確認。fixture は境界前後にダブルクォート内改行を配置。
-        var sb = new System.Text.StringBuilder();
-        sb.Append(new string('a', 4090));   // chunk 境界近くまで埋める
-        sb.Append(",\"quoted with , comma\nand newline\",tail\n");
-        string csv = sb.ToString();
-        var buffer = yEdit.Core.Buffers.TextBuffer.FromString(csv);
+        // SnapshotReader は piece 境界を Read/Peek で透過的に跨ぐ(Ensure() 経由)。
+        // TextBufferBuilder に複数 Add で強制的に piece を分割し、quoted field / \r\n / "" が
+        // 境界を跨いでも状態機械が崩れないことを機械固定する。
+        var b = new yEdit.Core.Buffers.TextBufferBuilder();
+        // piece 1: "head,\"" (開き引用符でフィールド開始)
+        b.Add(System.Text.Encoding.UTF8.GetBytes("head,\""));
+        // piece 2: "with , comma\r\nand newline," (quoted 内に comma と CRLF)
+        b.Add(System.Text.Encoding.UTF8.GetBytes("with , comma\r\nand newline\","));
+        // piece 3: "tail\n" (次の field と行終端)
+        b.Add(System.Text.Encoding.UTF8.GetBytes("tail\n"));
+        var buffer = b.Build();
+
         var parsed = CsvParser.Parse(buffer.Current);
         Assert.Single(parsed.Rows);
         Assert.Equal(3, parsed.Rows[0].Count);
-        Assert.Equal("quoted with , comma\nand newline", parsed.Rows[0][1].Value);
+        Assert.Equal("head", parsed.Rows[0][0].Value);
+        Assert.Equal("with , comma\r\nand newline", parsed.Rows[0][1].Value);
+        Assert.Equal("tail", parsed.Rows[0][2].Value);
+        Assert.True(parsed.Ok);
     }
 }

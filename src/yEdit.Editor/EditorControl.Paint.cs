@@ -1,5 +1,6 @@
 // EditorControl.Paint.cs
 // Phase 2 (Task 2e) で切り出した描画分割。フィールドは EditorControl.cs 本体で宣言。
+// Phase 3 では Controller 移譲予定なし(render 専任・§C.5 に基づき state は Ime 側が保持)。
 // DrawImeOverlay も IME 状態 (_ime) を読むだけの純描画関数のため Paint 側に置く (§C.5)。
 using yEdit.Core.Editing;
 using yEdit.Core.Layout;

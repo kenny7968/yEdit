@@ -23,25 +23,29 @@ public class BackupCoordinatorTests
         public FakeBackupWriter Writer { get; } = new();
         public FakeRestorePrompt Prompt { get; } = new();
         public FakeTimeProvider Clock { get; } = new(FixedNow);
+        public FakeBackupTraceSink Trace { get; } = new();
         public BackupCoordinator Backup { get; }
         public string TempDir { get; }
         public int WriterFactoryCalls;
 
-        public Host(bool enabled = true, int intervalSeconds = 30)
+        public Host(bool enabled = true, int intervalSeconds = 30, string? directoryOverride = null)
         {
             var (form, docs) = HostForm.CreateWithDocs();
             Form = form;
             Docs = docs;
             // OfferRestoreOnStartup 内の LoadAll/SweepTempFiles が Enumerate する空ディレクトリ。
             // 実 I/O は起きないが Directory.Exists=false で無害に return するパス指定は避ける。
-            TempDir = Path.Combine(Path.GetTempPath(), "yEdit-Stage5-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(TempDir);
+            TempDir = directoryOverride ?? Path.Combine(Path.GetTempPath(), "yEdit-Stage5-" + Guid.NewGuid().ToString("N"));
+            if (directoryOverride is null) Directory.CreateDirectory(TempDir);
+            // Task 1b: 既定引数(traceSink=null)経路は本番既定 = DebugBackupTraceSink。
+            // ここでは FakeBackupTraceSink を注入して catch{} の trace 発火を assert 可能にする。
             Backup = new BackupCoordinator(
                 Docs, enabled, intervalSeconds,
                 Clock,
                 () => { WriterFactoryCalls++; return Writer; },
                 Prompt,
-                TempDir);
+                TempDir,
+                Trace);
         }
 
         /// <summary>
@@ -377,6 +381,51 @@ public class BackupCoordinatorTests
         restored.Editor.ClearSavePoint();
         host.Backup.Reconcile();
         Assert.Contains(host.Writer.Writes, w => w.Id == "good");
+    });
+
+    // ===== Task 1b: silent catch → IBackupTraceSink 導線(restore-item / restore-item-later) =====
+
+    [Fact]
+    public void OfferRestoreOnStartup_ConfirmFalse_RestoreThrows_WarnsRestoreItemLater() => Sta.Run(() =>
+    {
+        // Task 1b: BackupCoordinator の confirm=false 経路(:128-137)の silent catch を
+        // IBackupTraceSink 経由で診断可能にした契約を固定する。
+        // 例外は握り潰す(全復元を巻き添えにしない)挙動は保持しつつ、trace に category=
+        // "restore-item-later" と例外実体が渡されることを assert。
+        using var host = new Host();
+        PlantBackup(host.TempDir, Rec("bad", "boom"));
+
+        var ex = new InvalidOperationException("restore failed later");
+        int restored = host.Backup.OfferRestoreOnStartup(host.Form, r => throw ex, confirm: false);
+
+        Assert.Equal(0, restored);                                                 // 失敗した 1 件は復元件数に含まれない
+        var warn = Assert.Single(host.Trace.Warnings);                             // 1 レコード=1 warn
+        Assert.Equal("restore-item-later", warn.Category);
+        Assert.Same(ex, warn.Ex);                                                  // 例外実体まで trace へ渡す
+        Assert.Equal("bad", warn.Detail);                                          // detail は Id(plan §Step 1b.6.2)
+    });
+
+    [Fact]
+    public void OfferRestoreOnStartup_ConfirmTrue_RestoreThrows_WarnsRestoreItem() => Sta.Run(() =>
+    {
+        // Task 1b: confirm=true 経路(:146-157)の silent catch を IBackupTraceSink 経由で診断可能に。
+        // OfferRestore_ConfirmTrue_OneBadRecord_DoesNotAbortOthers の対称形として、
+        // 例外が握り潰される(他レコードを巻き添えにしない)挙動は保持しつつ、trace に
+        // category="restore-item" と例外実体が渡ることを assert する。
+        using var host = new Host();
+        PlantBackup(host.TempDir, Rec("bad", "boom"));
+
+        var rec = Rec("bad", "boom");
+        host.Prompt.NextOutcome = new RestoreOutcome(RestoreAction.Restore, new[] { rec });
+
+        var ex = new InvalidOperationException("restore failed");
+        host.Backup.OfferRestoreOnStartup(host.Form, r => throw ex, confirm: true);
+
+        Assert.Equal(1, host.Prompt.PromptCount);                                  // ダイアログ経路
+        var warn = Assert.Single(host.Trace.Warnings);
+        Assert.Equal("restore-item", warn.Category);
+        Assert.Same(ex, warn.Ex);
+        Assert.Equal("bad", warn.Detail);
     });
 
     [Fact]

@@ -28,6 +28,7 @@ public sealed class BackupCoordinator : IDisposable
     private readonly TimeProvider _clock;
     private readonly Func<IBackupWriter> _writerFactory;
     private readonly IRestorePrompt _restorePrompt;
+    private readonly IBackupTraceSink _trace;    // Task 1b: silent catch を診断可能に(既定=DebugBackupTraceSink)
     private bool _enabled;                       // UpdateSettings で実行時に切替可能
     private readonly System.Windows.Forms.Timer _timer = new();
     private IBackupWriter? _writer;              // 無効時は生成しない(有効化時に factory 経由で遅延生成)
@@ -45,7 +46,8 @@ public sealed class BackupCoordinator : IDisposable
         TimeProvider clock,
         Func<IBackupWriter> writerFactory,
         IRestorePrompt restorePrompt,
-        string? directory = null)
+        string? directory = null,
+        IBackupTraceSink? traceSink = null)
     {
         _docs = docs;
         _enabled = enabled;
@@ -53,6 +55,9 @@ public sealed class BackupCoordinator : IDisposable
         _writerFactory = writerFactory;
         _restorePrompt = restorePrompt;
         _dir = directory ?? BackupStore.DefaultDirectory;
+        // Task 1b: 既定は Trace.TraceWarning に流す DebugBackupTraceSink。MainForm は既定引数のまま呼ぶ
+        // ため本番挙動は不変(silent catch → Trace 出力あり、例外は依然握り潰す)。
+        _trace = traceSink ?? new DebugBackupTraceSink();
 
         // 無効時でもハンドラは購読しておく(後から UpdateSettings で有効化できるように)。
         // Tick/ActiveDocumentChanged は Reconcile 冒頭の !_enabled ガードで素通りするため無効中は無害。
@@ -110,11 +115,12 @@ public sealed class BackupCoordinator : IDisposable
     public int OfferRestoreOnStartup(IWin32Window owner, Func<BackupRecord, Document> restore, bool confirm)
     {
         if (!_enabled) return 0;
-        try { BackupStore.SweepTempFiles(_dir); } catch { /* 残骸掃除失敗は無害 */ }
+        try { BackupStore.SweepTempFiles(_dir); }
+        catch (Exception ex) { _trace.Warn("sweep-temp", _dir, ex); } // 残骸掃除失敗は無害・診断のため trace
 
         IReadOnlyList<BackupRecord> records;
         try { records = BackupStore.LoadAll(_dir); }
-        catch { return 0; }
+        catch (Exception ex) { _trace.Warn("load-all", _dir, ex); return 0; }
         if (records.Count == 0) return 0;
 
         var ordered = records.OrderByDescending(r => r.TimestampUtc).ToList();
@@ -131,9 +137,10 @@ public sealed class BackupCoordinator : IDisposable
                     _map[doc] = new DocBackup { Id = rec.Id, LastSig = ContentSignature.Of(doc.Editor.SnapshotText), HasBackup = true };
                     restored++;
                 }
-                catch
+                catch (Exception ex)
                 {
                     // 1 件の不正レコードで全復元を巻き添えにしない。失敗分はバックアップを残し再挑戦可能に。
+                    _trace.Warn("restore-item-later", rec.Id, ex);
                 }
             }
             return restored;
@@ -151,9 +158,10 @@ public sealed class BackupCoordinator : IDisposable
                         // Reconcile が先に新 Id で登録していても、ここで元 Id へ上書きして引き継ぐ。
                         _map[doc] = new DocBackup { Id = rec.Id, LastSig = ContentSignature.Of(doc.Editor.SnapshotText), HasBackup = true };
                     }
-                    catch
+                    catch (Exception ex)
                     {
                         // 1 件の不正レコードで全復元を巻き添えにしない。失敗分はバックアップを残し再挑戦可能に。
+                        _trace.Warn("restore-item", rec.Id, ex);
                     }
                 }
                 // チェックしなかった項目は削除しない(SR 誤操作での消失を避け、次回再提案)。

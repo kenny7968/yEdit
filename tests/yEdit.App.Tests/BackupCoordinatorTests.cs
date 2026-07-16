@@ -28,15 +28,15 @@ public class BackupCoordinatorTests
         public string TempDir { get; }
         public int WriterFactoryCalls;
 
-        public Host(bool enabled = true, int intervalSeconds = 30, string? directoryOverride = null)
+        public Host(bool enabled = true, int intervalSeconds = 30)
         {
             var (form, docs) = HostForm.CreateWithDocs();
             Form = form;
             Docs = docs;
             // OfferRestoreOnStartup 内の LoadAll/SweepTempFiles が Enumerate する空ディレクトリ。
             // 実 I/O は起きないが Directory.Exists=false で無害に return するパス指定は避ける。
-            TempDir = directoryOverride ?? Path.Combine(Path.GetTempPath(), "yEdit-Stage5-" + Guid.NewGuid().ToString("N"));
-            if (directoryOverride is null) Directory.CreateDirectory(TempDir);
+            TempDir = Path.Combine(Path.GetTempPath(), "yEdit-Stage5-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(TempDir);
             // Task 1b: 既定引数(traceSink=null)経路は本番既定 = DebugBackupTraceSink。
             // ここでは FakeBackupTraceSink を注入して catch{} の trace 発火を assert 可能にする。
             Backup = new BackupCoordinator(

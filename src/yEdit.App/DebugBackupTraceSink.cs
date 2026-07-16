@@ -3,8 +3,9 @@ using System.Diagnostics;
 namespace yEdit.App;
 
 /// <summary>
-/// 既定の trace sink。System.Diagnostics.Trace.TraceWarning に流すのみで side effect なし
-/// (本番挙動は Task 1b 前と同じ = 例外を握り潰す + Trace リスナが有効なら診断出力に流れる)。
+/// 既定の trace sink。System.Diagnostics.Trace.TraceWarning に流す。本番 UI/SR/保存挙動への
+/// 副作用なし(Trace リスナが有効な場合のみ診断出力に流れる)。例外は依然握り潰される点も
+/// Task 1b 前と同じ。
 /// </summary>
 public sealed class DebugBackupTraceSink : IBackupTraceSink
 {

@@ -114,3 +114,4 @@
 - Phase 2 の Controller ごとの詳細設計(インターフェース名・分割単位)は、各ブランチ着手時に個別の実装計画で確定する。本書の §3 は方針レベルの合意。
 - `tools/verify-msaa-client.ps1` は現在未コミット(untracked)。Phase 3 でスイート統合する際に扱いを確定する。
 - ci.yml / release.yml 拡張の実機検証は未実施(未公開履歴の公開を避けるため push しない方針)。ユーザーが次回 origin へ push した際に初回 CI 実行を確認し、不安定テストがあれば LocalOnly 隔離を行うこと。あわせて初回実行の所要時間を確認し、timeout-minutes(ci.yml=20/release.yml=30)が窮屈なら調整すること。
+- **2026-07-16 追記(Phase 3 完了)**: Phase 3(SR 呼び出しパターン回帰スイート+性能ゲート CI 組み込み)実装完了。詳細=Phase 3 サブ設計書 `docs/plans/2026-07-13-test-strategy-phase3-sr-perf-design.md`(§1 統合対象表の 2026-07-16 実装時決定+§4 末尾の実装完了追記)・実装計画 `docs/plans/2026-07-16-test-strategy-phase3.md`・memory `test-strategy.md` の Phase 3 完了パラグラフ。要点=①`tools/sr-regression.ps1`(BOM 付き UTF-8 集約ランナー・pwsh 優先起動)②`.github/workflows/bench.yml`(手動 workflow_dispatch)を追加、③`tools/walk-test-editor.ps1` 削除確定・`tools/verify-msaa-client.ps1` 除外確定(PC-Talker サポート廃止に伴う整理)。§1 資産表 L18 と §4 L96 の walk-test-editor.ps1 記述は歴史的経緯として残置(この pointer で読み替え)。

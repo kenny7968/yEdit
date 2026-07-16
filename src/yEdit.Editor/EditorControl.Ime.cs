@@ -7,8 +7,6 @@
 //   (3) __Test* / __Smoke* 診断アクセサ (EditorControlImeTests / yEdit.Editor.Smoke から呼ぶ)
 // ロジック本体は ImeController.cs / WinImeContext.cs 側にある。
 using System.Drawing;
-using yEdit.Core.Editing;
-using yEdit.Core.Layout;
 
 namespace yEdit.Editor;
 
@@ -53,7 +51,7 @@ public sealed partial class EditorControl : IImeOverlayHost
     bool IImeOverlayHost.HasFocus => _hasFocus;
     int IImeOverlayHost.ScrollX => _scrollX;
     int IImeOverlayHost.LineHeightPx => _metrics.LineHeightPx;
-    ICharMetrics IImeOverlayHost.Metrics => _metrics;
+    // IMP-2 fixup: Metrics プロパティは interface から削除 (使用 0 件)。
 
     (int X, int Y, bool Visible) IImeOverlayHost.ComputeCaretPoint(int offset)
         => ComputeCaretPoint(offset);

@@ -3,7 +3,6 @@
 // state 系 (CanImeCompose/HasBuffer/HasFocus) は set 可能・副作用系は呼び出し回数を記録。
 // Draw に必要な Font/Color も個別に差し替え可能 (Draw テストは Graphics 依存のため本 fake では扱わない)。
 using System.Drawing;
-using yEdit.Core.Layout;
 
 namespace yEdit.Editor.Tests.Fakes;
 
@@ -17,7 +16,7 @@ internal sealed class FakeImeOverlayHost : IImeOverlayHost
     public bool HasFocus { get; set; } = true;
     public int ScrollX { get; set; }
     public int LineHeightPx { get; set; } = 20;
-    public ICharMetrics Metrics { get; set; } = null!;   // Draw を叩かないテストでは未使用
+    // IMP-2 fixup: Metrics プロパティは interface から削除 (使用 0 件)。
     public Func<int, (int X, int Y, bool Visible)>? CaretPointResolver { get; set; }
     public Font Font { get; set; } = SystemFonts.DefaultFont;
     public Font UnderlineFont { get; set; } = SystemFonts.DefaultFont;

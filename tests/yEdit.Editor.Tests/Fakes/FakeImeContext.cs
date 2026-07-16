@@ -9,6 +9,9 @@ namespace yEdit.Editor.Tests.Fakes;
 
 internal sealed class FakeImeContext : IImeContext
 {
+    /// <summary>IMP-1 fixup: 既定 true (既存テスト互換)。false = himc==0 相当 (P/Invoke 失敗 or IME 無効)。</summary>
+    public bool IsAvailable { get; set; } = true;
+
     public Dictionary<long, string?> Strings { get; } = new();
     public Dictionary<long, byte[]?> Bytes { get; } = new();
     public Dictionary<long, int> Ints { get; } = new();

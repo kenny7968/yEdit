@@ -101,6 +101,38 @@ public class ImeControllerTests
     }
 
     [Fact]
+    public void OnComposition_ImeContextUnavailable_IsFullyNoOp_AndPreservesActiveState()
+    {
+        // IMP-1 fixup regression: himc==0 (IsAvailable=false) 時は元 EditorControl.Ime.cs:122 の早期 return と等価。
+        // 事前に active な _ime state を組んでから IsAvailable=false に切替→OnComposition→
+        // state 保持 (Empty へ上書きされない) + host 副作用 (PositionCaret/Invalidate) 発生なし + confirmed 挿入なし。
+        var ctx = new FakeImeContext();
+        var host = new FakeImeOverlayHost();
+        var caret = new CaretController();
+        var confirmed = new List<string>();
+        var ctrl = new ImeController(() => ctx, caret, host, confirmed.Add);
+
+        // 事前 active 化 (__TestApplyComposition で直接 state を組む=context 消費なし)
+        ctrl.__TestApplyComposition("あい", 2, new byte[] { 0, 0 }, new int[] { 0, 2 });
+        Assert.True(ctrl.IsActive);
+
+        // baseline カウンタ (事前 active 化で +1 発生している分をゼロ点にする)
+        int posBefore = host.PositionCaretCallCount;
+        int invBefore = host.InvalidateCallCount;
+
+        // IME 無効化して OnComposition 発火
+        ctx.IsAvailable = false;
+        ctrl.OnComposition(NativeMethods.GCS_COMPSTR | NativeMethods.GCS_RESULTSTR);
+
+        // 元 hIMC == IntPtr.Zero 早期 return と等価挙動:
+        Assert.True(ctrl.IsActive);                      // state 保持 (Empty に潰されない)
+        Assert.Equal("あい", ctrl.State.Text);           // Text 保持
+        Assert.Equal(posBefore, host.PositionCaretCallCount);  // PositionCaret 発火なし
+        Assert.Equal(invBefore, host.InvalidateCallCount);     // Invalidate 発火なし
+        Assert.Empty(confirmed);                                // ApplyResult 経路も発火なし
+    }
+
+    [Fact]
     public void OnComposition_WhenCannotCompose_IsNoOp_AndDoesNotCreateContext()
     {
         var host = new FakeImeOverlayHost { CanImeCompose = false };

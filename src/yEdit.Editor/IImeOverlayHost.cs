@@ -3,8 +3,8 @@
 // するための seam。実装は EditorControl (explicit interface implementation で外部に露出させない)。
 // Task 3a 境界事例判断: Plan で明記された Metrics/Font に加え、DrawImeOverlay 移設に必要な色/
 // スクロール/座標系情報を実測で追加している (詳細=Task 3a Report の「境界事例判断」)。
+// IMP-2 fixup: Metrics プロパティは使用 0 件だったため削除 (LineHeightPx は個別露出済)。
 using System.Drawing;
-using yEdit.Core.Layout;
 
 namespace yEdit.Editor;
 
@@ -41,9 +41,6 @@ internal interface IImeOverlayHost
 
     /// <summary><c>_metrics.LineHeightPx</c>。候補窓 y オフセット / target 節背景高さに使う。</summary>
     int LineHeightPx { get; }
-
-    /// <summary><c>_metrics</c>。将来 SetCompositionFont 以外でメトリクス依存が増えた場合の受け皿。</summary>
-    ICharMetrics Metrics { get; }
 
     /// <summary>UTF-16 offset → client 座標 (px)。ComputeCaretPoint と同契約 (visible=false で不可視)。</summary>
     (int X, int Y, bool Visible) ComputeCaretPoint(int offset);

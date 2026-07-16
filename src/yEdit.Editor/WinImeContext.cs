@@ -26,6 +26,9 @@ internal sealed class WinImeContext : IImeContext
         _himc = NativeMethods.ImmGetContext(hwnd);
     }
 
+    /// <summary>himc != 0=IME context 取得成功。false は P/Invoke 失敗 or IME 無効。</summary>
+    public bool IsAvailable => _himc != IntPtr.Zero;
+
     /// <summary>旧 <c>EditorControl.ReadImeString</c> 移設。ImmGetCompositionStringW の 2 段階呼び出しパターン。</summary>
     public string? GetCompositionString(long gcsFlags)
     {

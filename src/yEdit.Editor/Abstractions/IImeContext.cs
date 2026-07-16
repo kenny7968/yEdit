@@ -13,6 +13,14 @@ namespace yEdit.Editor.Abstractions;
 /// </summary>
 public interface IImeContext : IDisposable
 {
+    /// <summary>
+    /// himc (IME context handle) が取得できているか。false = P/Invoke 失敗 or IME 無効。
+    /// false のとき Get*/Set*/Cancel*/Complete* を呼んでも no-op (null/0/[] 返却 or 副作用なし)。
+    /// caller (ImeController) は本 property で早期 return し、
+    /// 元 <c>EditorControl.Ime.cs:122</c> の <c>if (hIMC == IntPtr.Zero) return;</c> と bit-perfect に揃える。
+    /// </summary>
+    bool IsAvailable { get; }
+
     /// <summary>ImmGetCompositionStringW で UTF-16 文字列を取得 (GCS_COMPSTR / GCS_RESULTSTR)。</summary>
     /// <remarks>himc == 0 で null、byteLen <= 0 で "" (旧 ReadImeString と同挙動)。</remarks>
     string? GetCompositionString(long gcsFlags);

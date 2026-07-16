@@ -80,6 +80,11 @@ internal sealed class ImeController
     {
         if (!_host.CanImeCompose) return;
         using var ctx = _contextFactory();
+        // IMP-1 fixup: 元 EditorControl.Ime.cs:122 の `if (hIMC == IntPtr.Zero) return;` と bit-perfect。
+        // himc==0 で ApplyComposition("", ...) / ApplyResult("") まで流すと _ime state が Empty に
+        // 上書きされる (元は保持) + PositionCaret/Invalidate 副作用が漏れる=IME transient 失敗時に
+        // 未確定 overlay が消えて非 IME キャレットへジャンプする退行を招く (rare edge case)。
+        if (!ctx.IsAvailable) return;
         if ((gcsFlags & NativeMethods.GCS_COMPSTR) != 0)
         {
             string compStr = ctx.GetCompositionString(NativeMethods.GCS_COMPSTR) ?? "";
@@ -219,17 +224,20 @@ internal sealed class ImeController
     /// <summary>
     /// 候補窓位置を IME に通知。旧 <c>EditorControl.NotifyCandidateWindow</c> bit-perfect 移設。
     /// 座標は「未確定 Start の client 座標 - _scrollX / y + LineHeightPx」(キャレット行の直下)。
-    /// 可視外 / not composing / no buffer / no focus は no-op。
+    /// 可視外 / not composing / no buffer / no focus / himc==0 は no-op。
     /// </summary>
     /// <remarks>
-    /// bit-perfect 注記: 旧実装は <c>ImmGetContext</c> 直後に himc == 0 早期 return したが、
-    /// 新実装は context を先に new (Dispose される) + ComputeCaretPoint を先に呼ぶ。
-    /// 「IME 無効 かつ 未確定期間中」は事実上発生し得ない ("未確定" は IME 有効前提) ため観測差なし。
+    /// IMP-1 fixup で <see cref="IImeContext.IsAvailable"/> 判定を追加=旧実装の
+    /// <c>if (hIMC == IntPtr.Zero) return;</c> と bit-perfect に揃えた。
     /// </remarks>
     public void NotifyCandidateWindow()
     {
         if (!IsActive || !_host.HasBuffer || !_host.HasFocus) return;
         using var ctx = _contextFactory();
+        // IMP-1 fixup (対称): himc==0 で ComputeCaretPoint を呼ばずに早期 return。元
+        // EditorControl.NotifyCandidateWindow の `if (hIMC == IntPtr.Zero) return;` と bit-perfect。
+        // OnComposition と同じガードを揃えることで意図が明確 (SetCandidateWindow 側の no-op 吸収に頼らない)。
+        if (!ctx.IsAvailable) return;
         var (x, y, visible) = _host.ComputeCaretPoint(_ime.Start);
         if (!visible) return;
         ctx.SetCandidateWindow(x - _host.ScrollX, y + _host.LineHeightPx);

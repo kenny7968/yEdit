@@ -58,7 +58,7 @@ public sealed partial class EditorControl
     /// <remarks>
     /// Focus() を明示的に呼ぶのは、TabStop=true のコントロールでもマウスクリックで自動的に
     /// フォーカスを得ないケース(親 Form が他の子にフォーカスを持たせている等)への保険。
-    /// desiredXpx は水平方向の移動系と同じ扱いで -1 リセット(次の Up/Down で再計算)。
+    /// _caretCtrl.DesiredXpx は水平方向の移動系と同じ扱いで -1 リセット(次の Up/Down で再計算)。
     /// BreakUndoCoalescing は「純キャレット移動をまたいだ連続タイピングの分割」で
     /// OnKeyDown の移動系と同じ流儀(Scintilla 互換)。
     /// </remarks>
@@ -75,7 +75,7 @@ public sealed partial class EditorControl
         else
             SetCaretCharOffset(target);
         _mouseDragging = true;
-        _desiredXpx = -1;
+        _caretCtrl.DesiredXpx = -1;
         _buffer.BreakUndoCoalescing();
         BringCaretIntoView();
     }
@@ -139,7 +139,7 @@ public sealed partial class EditorControl
         int start = PrevWordBoundary(snap, target);
         int end = NextWordBoundary(snap, target);
         SetSelectionAnchored(start, end);
-        _desiredXpx = -1;
+        _caretCtrl.DesiredXpx = -1;
         _buffer.BreakUndoCoalescing();
         BringCaretIntoView();
     }
@@ -332,51 +332,51 @@ public sealed partial class EditorControl
         switch (e.KeyCode)
         {
             case Keys.Left:
-                target = ctrl ? WordBoundary.PrevWordStart(snap, _caret)
-                              : NavigationCommands.MoveLeftChar(snap, _caret);
+                target = ctrl ? WordBoundary.PrevWordStart(snap, _caretCtrl.Caret)
+                              : NavigationCommands.MoveLeftChar(snap, _caretCtrl.Caret);
                 resetDesired = true;
                 break;
             case Keys.Right:
-                target = ctrl ? WordBoundary.NextWordStart(snap, _caret)
-                              : NavigationCommands.MoveRightChar(snap, _caret);
+                target = ctrl ? WordBoundary.NextWordStart(snap, _caretCtrl.Caret)
+                              : NavigationCommands.MoveRightChar(snap, _caretCtrl.Caret);
                 resetDesired = true;
                 break;
             case Keys.Home:
                 // P8-1a: 折り返し ON では視覚行(折り返し行)の先頭へ(NVDA が視覚行先頭から読むよう App 層挙動を統一)
-                target = ctrl ? 0 : NavigationCommands.MoveHomeSmart(snap, _caret, _wrapColumns, _metrics);
+                target = ctrl ? 0 : NavigationCommands.MoveHomeSmart(snap, _caretCtrl.Caret, _wrapColumns, _metrics);
                 resetDesired = true;
                 break;
             case Keys.End:
-                target = ctrl ? snap.CharLength : NavigationCommands.MoveEnd(snap, _caret);
+                target = ctrl ? snap.CharLength : NavigationCommands.MoveEnd(snap, _caretCtrl.Caret);
                 resetDesired = true;
                 break;
             case Keys.Up:
             {
-                var (t, d) = VerticalNavigation.MoveUp(snap, _caret, _desiredXpx, _wrapColumns, _metrics);
-                _desiredXpx = d;
+                var (t, d) = VerticalNavigation.MoveUp(snap, _caretCtrl.Caret, _caretCtrl.DesiredXpx, _wrapColumns, _metrics);
+                _caretCtrl.DesiredXpx = d;
                 target = t;
                 break;
             }
             case Keys.Down:
             {
-                var (t, d) = VerticalNavigation.MoveDown(snap, _caret, _desiredXpx, _wrapColumns, _metrics);
-                _desiredXpx = d;
+                var (t, d) = VerticalNavigation.MoveDown(snap, _caretCtrl.Caret, _caretCtrl.DesiredXpx, _wrapColumns, _metrics);
+                _caretCtrl.DesiredXpx = d;
                 target = t;
                 break;
             }
             case Keys.PageUp:
             {
                 int rows = Math.Max(1, ClientSize.Height / Math.Max(1, _metrics.LineHeightPx));
-                var (t, d) = VerticalNavigation.PageUp(snap, _caret, _desiredXpx, _wrapColumns, rows, _metrics);
-                _desiredXpx = d;
+                var (t, d) = VerticalNavigation.PageUp(snap, _caretCtrl.Caret, _caretCtrl.DesiredXpx, _wrapColumns, rows, _metrics);
+                _caretCtrl.DesiredXpx = d;
                 target = t;
                 break;
             }
             case Keys.PageDown:
             {
                 int rows = Math.Max(1, ClientSize.Height / Math.Max(1, _metrics.LineHeightPx));
-                var (t, d) = VerticalNavigation.PageDown(snap, _caret, _desiredXpx, _wrapColumns, rows, _metrics);
-                _desiredXpx = d;
+                var (t, d) = VerticalNavigation.PageDown(snap, _caretCtrl.Caret, _caretCtrl.DesiredXpx, _wrapColumns, rows, _metrics);
+                _caretCtrl.DesiredXpx = d;
                 target = t;
                 break;
             }
@@ -384,7 +384,7 @@ public sealed partial class EditorControl
                 SetSelectionAnchored(0, snap.CharLength);
                 // 全選択=文書頭〜末尾のジャンプ相当なので、水平移動と同様に desired X をリセット。
                 // これを忘れると次の Up/Down が「Ctrl+A 前の古い列」を目指す(Task 6 レビュー S-1)。
-                _desiredXpx = -1;
+                _caretCtrl.DesiredXpx = -1;
                 _buffer.BreakUndoCoalescing();
                 e.Handled = true;
                 return;
@@ -441,27 +441,28 @@ public sealed partial class EditorControl
 
             // ===== P3 Task 9: 削除/改行/Tab/Insert =====
             // AfterEdit は「バッファ変化 → スクロールバー再計算 → キャレット再配置 →
-            // 追従スクロール → Invalidate」の共通後処理。編集経路では _desiredXpx = -1 で
+            // 追従スクロール → Invalidate」の共通後処理。編集経路では _caretCtrl.DesiredXpx = -1 で
             // 垂直位置が変わり得ることを表現する(§0-6 一貫性)。
-            // _caret / _anchor の直接代入は編集経路の「バッファ変化と一連の副作用を 1 度にまとめる」
-            // ために許容(setter 経由だと二重 Invalidate/PositionCaret が走る)。
+            // _caretCtrl.SetTo は編集経路の「バッファ変化と一連の副作用を 1 度にまとめる」
+            // ために public setter (SetCaretCharOffset) を経由せず直接使う(setter 経由だと
+            // 二重 Invalidate/PositionCaret が走る)。
             case Keys.Back when !ReadOnly:
             {
                 var (s, en) = GetSelectionCharRange();
                 if (s != en)
                 {
                     _buffer.Replace(s, en - s, "");
-                    _caret = _anchor = s;
+                    _caretCtrl.SetTo(s, _buffer.Current);
                 }
-                else if (_caret > 0)
+                else if (_caretCtrl.Caret > 0)
                 {
-                    // MoveLeftChar はサロゲートペアを 1 文字として左寄せする(_caret-2 になる)。
+                    // MoveLeftChar はサロゲートペアを 1 文字として左寄せする(caret-2 になる)。
                     // switch 冒頭で捕獲した snap を使う(UI スレッド専用契約により Delete case と等価)。
-                    int start = NavigationCommands.MoveLeftChar(snap, _caret);
-                    _buffer.Delete(start, _caret - start);
-                    _caret = _anchor = start;
+                    int start = NavigationCommands.MoveLeftChar(snap, _caretCtrl.Caret);
+                    _buffer.Delete(start, _caretCtrl.Caret - start);
+                    _caretCtrl.SetTo(start, _buffer.Current);
                 }
-                _desiredXpx = -1;
+                _caretCtrl.DesiredXpx = -1;
                 AfterEdit();
                 e.Handled = true;
                 return;
@@ -472,15 +473,15 @@ public sealed partial class EditorControl
                 if (s != en)
                 {
                     _buffer.Replace(s, en - s, "");
-                    _caret = _anchor = s;
+                    _caretCtrl.SetTo(s, _buffer.Current);
                 }
-                else if (_caret < snap.CharLength)
+                else if (_caretCtrl.Caret < snap.CharLength)
                 {
-                    // MoveRightChar はサロゲートペアを 1 文字として右寄せする(_caret+2 になる)。
-                    int next = NavigationCommands.MoveRightChar(snap, _caret);
-                    _buffer.Delete(_caret, next - _caret);
+                    // MoveRightChar はサロゲートペアを 1 文字として右寄せする(caret+2 になる)。
+                    int next = NavigationCommands.MoveRightChar(snap, _caretCtrl.Caret);
+                    _buffer.Delete(_caretCtrl.Caret, next - _caretCtrl.Caret);
                 }
-                _desiredXpx = -1;
+                _caretCtrl.DesiredXpx = -1;
                 AfterEdit();
                 e.Handled = true;
                 return;
@@ -490,8 +491,8 @@ public sealed partial class EditorControl
                 string eol = EolMode.ToEolString();   // "\r\n" / "\n" / "\r"
                 var (s, en) = GetSelectionCharRange();
                 _buffer.Replace(s, en - s, eol);
-                _caret = _anchor = s + eol.Length;
-                _desiredXpx = -1;
+                _caretCtrl.SetTo(s + eol.Length, _buffer.Current);
+                _caretCtrl.DesiredXpx = -1;
                 AfterEdit();
                 e.Handled = true;
                 return;
@@ -501,8 +502,8 @@ public sealed partial class EditorControl
                 // TabsToSpaces / TabWidth 対応は P6 送り(YAGNI・Task 9 は素の \t 挿入のみ)。
                 var (s, en) = GetSelectionCharRange();
                 _buffer.Replace(s, en - s, "\t");
-                _caret = _anchor = s + 1;
-                _desiredXpx = -1;
+                _caretCtrl.SetTo(s + 1, _buffer.Current);
+                _caretCtrl.DesiredXpx = -1;
                 AfterEdit();
                 e.Handled = true;
                 return;
@@ -523,7 +524,7 @@ public sealed partial class EditorControl
 
         if (target is int t2)
         {
-            if (resetDesired) _desiredXpx = -1;
+            if (resetDesired) _caretCtrl.DesiredXpx = -1;
             if (shift) MoveCaretWithSelection(t2);
             else SetCaretCharOffset(t2);
             _buffer.BreakUndoCoalescing();          // 純キャレット移動は coalescing 破断
@@ -541,7 +542,7 @@ public sealed partial class EditorControl
     /// <b>制御文字は無視</b>: WM_CHAR は Ctrl 修飾の 0x01〜0x1F(Ctrl+A=0x01 等)や
     /// Ctrl+Backspace の 0x7F(ASCII DEL・Task 8 レビュー I-1)も届くため、これらは除外する。
     /// 編集操作(BackSpace/Enter/Tab/Ctrl+A 等)は <c>OnKeyDown</c> 経路(Task 6/9)で処理済み。
-    /// 選択/上書き/サロゲートの分岐と <c>_desiredXpx</c>/AfterEdit の後処理は
+    /// 選択/上書き/サロゲートの分岐と <c>_caretCtrl.DesiredXpx</c>/AfterEdit の後処理は
     /// <see cref="InsertConfirmedText"/> に集約(=1 経路)。<see cref="ReadOnly"/> ON では no-op。
     /// </remarks>
     protected override void OnKeyPress(KeyPressEventArgs e)
@@ -567,7 +568,7 @@ public sealed partial class EditorControl
     /// <remarks>
     /// - <paramref name="text"/> の長さは制限なし(IME 確定は通常 1〜数文字だが仕様上長文もあり)
     /// - <paramref name="text"/> が空文字なら no-op(ESC 取消時の GCS_RESULTSTR=空を安全化)
-    /// - <c>_desiredXpx</c> は -1 リセット(P3 §0-6)、AfterEdit で追従スクロール
+    /// - <c>_caretCtrl.DesiredXpx</c> は -1 リセット(P3 §0-6)、AfterEdit で追従スクロール
     /// </remarks>
     private void InsertConfirmedText(string text)
     {
@@ -578,31 +579,33 @@ public sealed partial class EditorControl
         if (s != en)
         {
             _buffer.Replace(s, en - s, text);
-            _caret = _anchor = s + text.Length;
+            _caretCtrl.SetTo(s + text.Length, _buffer.Current);
         }
         else if (Overtype)
         {
             var snap = _buffer.Current;
             int overwriteLen = 0;
-            if (_caret < snap.CharLength)
+            int caret = _caretCtrl.Caret;
+            if (caret < snap.CharLength)
             {
-                char nc = snap.GetChar(_caret);
+                char nc = snap.GetChar(caret);
                 if (nc != '\r' && nc != '\n')
                 {
-                    overwriteLen = (char.IsHighSurrogate(nc) && _caret + 1 < snap.CharLength
-                                    && char.IsLowSurrogate(snap.GetChar(_caret + 1))) ? 2 : 1;
+                    overwriteLen = (char.IsHighSurrogate(nc) && caret + 1 < snap.CharLength
+                                    && char.IsLowSurrogate(snap.GetChar(caret + 1))) ? 2 : 1;
                 }
             }
-            _buffer.Replace(_caret, overwriteLen, text);
-            _caret = _anchor = _caret + text.Length;
+            _buffer.Replace(caret, overwriteLen, text);
+            _caretCtrl.SetTo(caret + text.Length, _buffer.Current);
         }
         else
         {
-            _buffer.Insert(_caret, text);
-            _caret = _anchor = _caret + text.Length;
+            int caret = _caretCtrl.Caret;
+            _buffer.Insert(caret, text);
+            _caretCtrl.SetTo(caret + text.Length, _buffer.Current);
         }
 
-        _desiredXpx = -1;
+        _caretCtrl.DesiredXpx = -1;
         AfterEdit();
     }
 }

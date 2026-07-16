@@ -71,7 +71,7 @@ public sealed partial class EditorControl
     ///   ことを守るため、Start より前の状態でここまでにバッファへ確定させておく。
     /// - <see cref="ReadOnly"/> / SetSource 前は no-op(WM_IME_COMPOSITION は来ない前提だが、
     ///   WM_IME_STARTCOMPOSITION は IME 側の都合で先に来ることがあるため防御的にガードする)。
-    /// - <c>_desiredXpx = -1</c> / <see cref="AfterEdit"/> は選択削除が起きたときだけ呼ぶ
+    /// - <c>_caretCtrl.DesiredXpx = -1</c> / <see cref="AfterEdit"/> は選択削除が起きたときだけ呼ぶ
     ///   (本文不変ならスクロールバー/追従スクロールは動かす必要が無い)。
     /// - <c>ImmSetCandidateWindow</c> の初期位置設定は Task 12 に集約するため、ここでは触らない。
     /// </remarks>
@@ -83,11 +83,11 @@ public sealed partial class EditorControl
         {
             // 選択削除(1 Splice=1 Undo・以後の未確定は overlay=Undo に積まれない)
             _buffer.Replace(s, en - s, "");
-            _caret = _anchor = s;
-            _desiredXpx = -1;
+            _caretCtrl.SetTo(s, _buffer.Current);
+            _caretCtrl.DesiredXpx = -1;
             AfterEdit();
         }
-        _ime = ImeCompositionState.Empty with { Start = _caret };
+        _ime = ImeCompositionState.Empty with { Start = _caretCtrl.Caret };
         // Task 11 レビュー I-1: SetCaretPos を IME 経路から発火する。ここで PositionCaret を
         // 呼ばないと、_ime.CursorPos の変更に OS 側キャレットが追従しない=SR が IME 内の
         // 移動を読めない。Task 12 で NotifyCandidateWindow が PositionCaret に相乗りするため
@@ -189,7 +189,7 @@ public sealed partial class EditorControl
     private void ApplyComposition(string text, int cursorPos, byte[] attrs, int[] clauses)
     {
         _ime = new ImeCompositionState(
-            Start: _ime.IsActive ? _ime.Start : _caret,
+            Start: _ime.IsActive ? _ime.Start : _caretCtrl.Caret,
             Text: text,
             CursorPos: cursorPos,
             Attrs: attrs,

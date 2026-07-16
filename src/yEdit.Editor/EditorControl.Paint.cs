@@ -30,9 +30,9 @@ public sealed partial class EditorControl
 
             // 選択がある間は現在行強調 FillRect を抑止する(選択矩形と重ねると
             // ハイライトが二重になり視覚的に読みにくいため=EditorControl 層の責務)。
-            bool hasSelection = _anchor != _caret;
+            bool hasSelection = _caretCtrl.HasSelection;
             int currentLineLogical = (_highlightCurrentLine && !hasSelection)
-                ? snap.GetLineIndexOfChar(_caret)
+                ? snap.GetLineIndexOfChar(_caretCtrl.Caret)
                 : -1;
             SelectionRange? selection = null;
             if (hasSelection)

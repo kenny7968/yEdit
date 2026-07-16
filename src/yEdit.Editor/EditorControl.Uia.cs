@@ -79,8 +79,7 @@ public sealed partial class EditorControl
 
     (int Start, int End) yEdit.Accessibility.IUiaTextHost.GetSelection()
     {
-        int c = _caret, a = _anchor;
-        return (Math.Min(a, c), Math.Max(a, c));
+        return _caretCtrl.Selection;
     }
 
     void yEdit.Accessibility.IUiaTextHost.SetSelection(int start, int end)

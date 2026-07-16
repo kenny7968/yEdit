@@ -49,6 +49,12 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     // Controller は state 操作(SnapAndClamp + 選択セマンティクス)のみを担う。
     private readonly CaretController _caretCtrl = new();
 
+    // Phase 3 (Task 3c) で抽出した入力ディスパッチャ。keymap Dictionary + MouseEventKind 経路を
+    // 保持する pure dispatcher。state は持たない(readonly _host/_caret/_keyMap のみ)ため、
+    // 契約テスト InputRouterContractTests.InputRouter_HasNoInstanceStateFields で機械固定する。
+    // 初期化は ctor で `_caretCtrl` 生成後に new する(先方参照を避けるため field 宣言も後ろに置く)。
+    private readonly InputRouter _input;
+
     // P4 Task 5: IME 未確定文字列の状態。WM_IME_STARTCOMPOSITION 受信で Start=現在キャレットに
     // 初期化し、Task 6 以降の WM_IME_COMPOSITION / WM_IME_ENDCOMPOSITION で Text/Attrs/Clauses を
     // 更新する。IsActive(=Text.Length > 0)の間は「未確定期間」で、外部から <see cref="IsComposing"/>
@@ -163,6 +169,10 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         _vscroll = new VScrollBar { Dock = DockStyle.Right, SmallChange = 1, Enabled = false };
         _vscroll.Scroll += (_, e) => TopLine = e.NewValue;
         Controls.Add(_vscroll);
+
+        // Task 3c: InputRouter は _caretCtrl 生成後に組み立てる(dispatcher が保持する参照は
+        // readonly なので後段で差し替えられない=ctor 内で 1 度だけ new する)。
+        _input = new InputRouter(this, _caretCtrl);
     }
 
     /// <summary>ソースの <see cref="TextBuffer"/> を差し込む(1 度だけ)。</summary>
@@ -304,6 +314,21 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// </remarks>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public TextBuffer CurrentBuffer => _buffer ?? s_emptyBuffer;
+
+    // Task 3c: InputRouter が RouteKey で null 判定に使う(SetSource 前の bare TextBuffer が
+    // 欲しい=CurrentBuffer は s_emptyBuffer にフォールバックするため区別できない)。
+    internal TextBuffer? Buffer => _buffer;
+
+    // Task 3c: InputRouter の nav 系ハンドラ(Home / Up / Down / PageUp / PageDown)が
+    // メトリクスを参照するため internal accessor を露出する
+    // (WrapColumns は既に public プロパティ・下記 line 609 で定義)。
+    internal ICharMetrics Metrics => _metrics;
+
+    // Task 3c: InputRouter の mouse 系ハンドラ(Down/Move/Up)がドラッグフラグを読み書きするため
+    // internal accessor を露出する。既存フィールド _mouseDragging はそのまま(所有権は EditorControl)。
+    // WFO1000(Designer プロパティのシリアライゼーション警告)回避のため属性で明示的に非公開化する。
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    internal bool MouseDragging { get => _mouseDragging; set => _mouseDragging = value; }
 
     /// <summary>P6 Task 3: 現在のバッファ論理行数(App 層互換=`Lines.Count` 相当)。</summary>
     public int LineCount => _buffer?.Current.LineCount ?? 0;
@@ -950,7 +975,10 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// - BringCaretIntoView は挿入後キャレットが下端/右端を越えたら TopLine/ScrollX を追随させる。
     /// - Invalidate は最後(BringCaretIntoView 経由の setter が変化なしの場合でも本文が変わっている)。
     /// </remarks>
-    private void AfterEdit()
+    // Task 3c: InputRouter の編集系ハンドラ(HandleBack/Delete/Enter/Tab)から呼ぶため internal 化。
+    // 既存の内部呼び出し(Ime.cs / この cs 内の Cut/Paste/Undo/Redo/InsertConfirmedText 経路)は
+    // 挙動不変(private → internal は同一アセンブリでは可視性のみ拡張)。
+    internal void AfterEdit()
     {
         UpdateVerticalScrollbar();
         UpdateHorizontalScrollbar();

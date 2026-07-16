@@ -1,0 +1,42 @@
+name: bench
+
+# Phase 3 性能ゲート(手動)。docs/plans/2026-07-13-test-strategy-phase3-sr-perf-design.md §2
+# ・トリガは workflow_dispatch のみ(push/PR には組み込まない=実行時間とランナー性能揺れのため)
+# ・しきい値ゲート(EXIT 判定)はローカル実行を正とする(ホステッドランナーの EXIT 1 は参考情報)
+# ・continue-on-error: true でリリースブロッカーにしない
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: ビルド(Release)
+        run: dotnet build tests/yEdit.Core.Bench -c Release
+
+      - name: 応答性ベンチ(--typing)
+        continue-on-error: true
+        run: dotnet run --project tests/yEdit.Core.Bench -c Release --no-build -- --typing
+
+      - name: レイアウト+文書ベンチ(--layout)
+        continue-on-error: true
+        run: dotnet run --project tests/yEdit.Core.Bench -c Release --no-build -- --layout
+
+      - name: 運用注記
+        shell: pwsh
+        run: |
+          Write-Output '---'
+          Write-Output 'このワークフローは Phase 3 設計書 §2 のとおり参考情報として実行しています。'
+          Write-Output 'しきい値ゲートはローカル(tools/pre-merge-check.ps1 併走で dotnet run --typing / --layout)を正とし、'
+          Write-Output 'ホステッドランナーの EXIT 1 はリリースブロッカーにしません。'

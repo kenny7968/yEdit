@@ -1,4 +1,5 @@
 using System.Text;
+using yEdit.Core.Buffers;
 using yEdit.Core.Text;
 using Xunit;
 
@@ -95,5 +96,55 @@ public class TextFileServiceSaveTests
             Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + ".*tmp*"));
         }
         finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    // ------------------------------------------------------------------
+    // Task 1c: 旧 Save(string, string, Encoding, bool) は Buffer 版に集約し、
+    // 共有違反フォールバック専用の internal 実装に閉じる。
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Save_StringText_IsInternalOnly()
+    {
+        // Task 1c: 旧版 Save(path, string, Encoding, hasBom) は共有違反 fallback 用の
+        // internal 実装に閉じ、public API 面からは Buffer 版のみ露出する。
+        var flags = System.Reflection.BindingFlags.Public
+                  | System.Reflection.BindingFlags.NonPublic
+                  | System.Reflection.BindingFlags.Static;
+        var methods = typeof(TextFileService).GetMethods(flags)
+            .Where(m => m.Name == "Save").ToList();
+        var stringOverload = methods.FirstOrDefault(m =>
+            m.GetParameters().Length == 4 &&
+            m.GetParameters()[1].ParameterType == typeof(string));
+        Assert.NotNull(stringOverload);
+        Assert.False(stringOverload!.IsPublic, "string 版 Save は public であってはならない(fallback 専用)");
+    }
+
+    [Theory]
+    [InlineData(65001, false)]
+    [InlineData(65001, true)]
+    [InlineData(932, false)]
+    [InlineData(51932, false)]
+    public void Save_BufferAndString_YieldSameBytes(int codePage, bool hasBom)
+    {
+        EncodingCatalog.EnsureRegistered();
+        var enc = EncodingCatalog.Get(codePage);
+        string text = "日本語混じり\nline2\n";
+
+        string bufferPath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        string stringPath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var buffer = TextBuffer.FromString(text);
+            TextFileService.Save(bufferPath, buffer, enc, hasBom);   // public Buffer 版
+            TextFileService.Save(stringPath, text, enc, hasBom);      // internal string 版
+                                                                       // (InternalsVisibleTo 経由で呼び出し可能)
+            Assert.Equal(File.ReadAllBytes(stringPath), File.ReadAllBytes(bufferPath));
+        }
+        finally
+        {
+            if (File.Exists(bufferPath)) File.Delete(bufferPath);
+            if (File.Exists(stringPath)) File.Delete(stringPath);
+        }
     }
 }

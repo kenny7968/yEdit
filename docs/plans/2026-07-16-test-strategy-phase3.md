@@ -181,6 +181,8 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 **Files:**
 - Create: `tools/sr-regression.ps1`
 
+> **Task 2 完了後の augment(2026-07-16)**: word-sim.ps1 の L4 が BOMless UTF-8 の日本語コメントを含むため、WinPS 5.1 の日本語ロケールで子プロセス起動時にパーサエラー(Shift-JIS 誤解釈)が起きる pre-existing 問題を Task 2 のレビューで確認済み。この問題は L4 コメントの内容修正よりも「アグリゲータで pwsh(PowerShell 7+)を優先検出して子スクリプトを起動」する方が波及が小さい(word-sim.ps1 の BOM 付与は blame ノイズ+他兄弟スクリプトとの encoding 揃えが必要になり波及範囲が広がる)。以下のスクリプトはこの augment を織り込んでいる。
+
 **Step 1: スクリプトを新規作成**
 
 Create `tools/sr-regression.ps1`:
@@ -198,6 +200,14 @@ Create `tools/sr-regression.ps1`:
     1. yEdit.Editor.Smoke を Release ビルド(1 回のみ・子スクリプトが二重ビルドしない)
     2. verify-uia-editor.ps1 を実行(TextPattern/GetSelection/RangeFromPoint 疎通)
     3. word-sim.ps1 を実行(NVDA の TextUnit.Word 6 ケース)
+
+  子スクリプトは pwsh(PowerShell 7+)がインストールされていればそれを優先使用する。
+  理由: word-sim.ps1 には日本語コメントが BOMless UTF-8 で入っており、WinPS 5.1 の
+  日本語ロケール環境ではパーサが Shift-JIS 誤解釈してエラーになる pre-existing 問題を
+  持つ。pwsh は BOMless UTF-8 をデフォルトで正しく扱うためこの問題を回避できる。pwsh
+  未検出環境では powershell(WinPS 5.1)フォールバックで実行するが、警告バナーを出して
+  運用者が失敗理由を切り分けられるようにする。
+
   総合 EXIT: 全 PASS で 0・1 つでも FAIL なら 1。
   実行タイミング(設計書 §1): a11y 関連変更のマージ前+リリース前・pre-merge には組み込まない
   (UIA クライアントはフォアグラウンドのデスクトップセッションが必要で、常時実行に向かない)。
@@ -206,10 +216,23 @@ Create `tools/sr-regression.ps1`:
   PASS でも L5 の人手確認は省略しない。
 .EXAMPLE
   powershell -File tools\sr-regression.ps1
+  pwsh       -File tools\sr-regression.ps1
 #>
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $smokeExe = Join-Path $repoRoot 'tests\yEdit.Editor.Smoke\bin\Release\net9.0-windows\yEdit.Editor.Smoke.exe'
+
+# 子スクリプト実行に使う PowerShell を決定する。pwsh 優先(BOMless UTF-8 対応)。
+$pwshCmd = Get-Command pwsh -ErrorAction SilentlyContinue
+if ($pwshCmd) {
+    $childShell = $pwshCmd.Source
+    Write-Host "[INFO] 子スクリプトは pwsh で実行: $childShell" -ForegroundColor DarkGray
+} else {
+    $childShell = 'powershell'
+    Write-Host '[WARN] pwsh(PowerShell 7+) が見つかりません。WinPS 5.1 でフォールバック実行します。' -ForegroundColor Yellow
+    Write-Host '       word-sim.ps1 が日本語コメントの Shift-JIS 誤解釈でパーサエラーになる可能性があります。' -ForegroundColor Yellow
+    Write-Host '       解決策: `winget install Microsoft.PowerShell` などで pwsh を導入してください。' -ForegroundColor Yellow
+}
 
 function Invoke-Step {
     param([string]$Name, [scriptblock]$Body)
@@ -234,12 +257,12 @@ if (-not (Test-Path $smokeExe)) {
 }
 
 $rc = Invoke-Step 'verify-uia-editor.ps1' {
-    powershell -File (Join-Path $PSScriptRoot 'verify-uia-editor.ps1') -Exe $smokeExe
+    & $childShell -File (Join-Path $PSScriptRoot 'verify-uia-editor.ps1') -Exe $smokeExe
 }
 if ($rc -ne 0) { $fail++ ; Write-Host "  → FAIL (exit $rc)" -ForegroundColor Red }
 
 $rc = Invoke-Step 'word-sim.ps1' {
-    powershell -File (Join-Path $PSScriptRoot 'word-sim.ps1') -Exe $smokeExe
+    & $childShell -File (Join-Path $PSScriptRoot 'word-sim.ps1') -Exe $smokeExe
 }
 if ($rc -ne 0) { $fail++ ; Write-Host "  → FAIL (exit $rc)" -ForegroundColor Red }
 

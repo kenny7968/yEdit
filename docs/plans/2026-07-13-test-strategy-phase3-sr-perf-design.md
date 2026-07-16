@@ -17,9 +17,13 @@ NVDA/PC-Talker が UIA プロバイダに対して行う呼び出しパターン
 | スクリプト | 再現している SR 挙動 |
 |---|---|
 | `tools/verify-uia-editor.ps1` | TextPattern/DocumentRange/GetSelection/RangeFromPoint の基本疎通 |
-| `tools/walk-test-editor.ps1` | PC-Talker の 1 文字ずつの行走査(Expand(Char)→Move(Char,1) 反復) |
 | `tools/word-sim.ps1` | NVDA の TextUnit.Word 挙動(Expand/Move スパン保持/MoveEndpointByUnit・6 ケース) |
-| `tools/verify-msaa-client.ps1`(未コミット) | MSAA クライアント経路(統合時に採否を確定) |
+
+> 2026-07-16 実装時決定:
+> - `tools/walk-test-editor.ps1` は削除(PC-Talker サポート廃止=[[pctalker-removal]] に伴い維持動機喪失。Move スパン保持は word-sim.ps1 Case 3 で網羅)
+> - `tools/verify-msaa-client.ps1`(未コミット)は PC-Talker 廃止で除外確定
+> - **アグリゲータ実装時に判明した既知の環境制約**: `word-sim.ps1` は BOMless UTF-8 の日本語コメント(L4)が WinPS 5.1 の日本語ロケールで Shift-JIS 誤解釈でパーサエラーになる pre-existing 問題を持つ。`tools/sr-regression.ps1`(Phase 3 で追加した集約ランナー)は `Get-Command pwsh` で PowerShell 7+ を優先検出して子スクリプトを起動することで回避する。pwsh 未インストール環境ではアグリゲータが警告バナーを出したうえで `powershell`(WinPS 5.1)にフォールバックする=word-sim.ps1 は失敗するが verify-uia-editor.ps1 は動作する。恒久解決には運用機で `winget install Microsoft.PowerShell` が推奨。
+> - **`sr-regression.ps1` 自体は UTF-8 BOM 付きで作成**(`tools/pre-merge-check.ps1` と同じ流儀の docstring-heavy ユーザー起動アグリゲータ)
 
 ### 設計
 
@@ -48,3 +52,9 @@ NVDA/PC-Talker が UIA プロバイダに対して行う呼び出しパターン
 1. Phase 2 完了後、a11y 関連の回帰が実際に発生した(スクリーニングの価値が実証された)
 2. リリース頻度が上がり、L5 チェックリストの全走が負担になった
 3. UIA プロバイダ(yEdit.Accessibility)に大きな変更を計画している
+
+---
+
+**2026-07-16 実装完了**: 上記 3 条件のいずれも該当していなかったが、害が小さいためユーザー判断で能動的に着手し実装完了(実装計画=`docs/plans/2026-07-16-test-strategy-phase3.md`)。`tools/sr-regression.ps1`(BOM 付き UTF-8・pwsh 優先起動)と `.github/workflows/bench.yml`(手動 workflow_dispatch)を追加。`tools/walk-test-editor.ps1` は同時に削除。
+
+**bench.yml の運用注意**: ジョブレベル+ステップレベルの `continue-on-error: true` により、ホステッドランナーの EXIT 1 はワークフロー全体の badge を緑にする。**ビルド失敗や `--typing`/`--layout` の性能未達を検知するにはワークフロー結果ページ(ジョブ画面)を目視確認する必要がある**(緑バッジだけを見る運用は最初から想定外)。初回 dispatch 時にこの挙動を実測確認しておくと運用者が誤解しにくい。

@@ -90,7 +90,7 @@ public sealed partial class EditorControl
         Invalidate();
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
         if (RaiseUiaSelectionEvents)
-            RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
+            _uia.RaiseSelectionChanged();
         // P6 Task 4: キャレット位置変化は App 層のステータスバー更新契機
         UpdateUI?.Invoke(this, EventArgs.Empty);
     }
@@ -125,7 +125,7 @@ public sealed partial class EditorControl
         Invalidate();
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
         if (RaiseUiaSelectionEvents)
-            RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
+            _uia.RaiseSelectionChanged();
         // P6 Task 4: 選択範囲変化は App 層のステータスバー更新契機
         UpdateUI?.Invoke(this, EventArgs.Empty);
     }
@@ -147,7 +147,7 @@ public sealed partial class EditorControl
         Invalidate();
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
         if (RaiseUiaSelectionEvents)
-            RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
+            _uia.RaiseSelectionChanged();
         // P6 Task 4: shift+移動系の共通経路。App 層のステータスバー更新契機として UpdateUI 発火
         UpdateUI?.Invoke(this, EventArgs.Empty);
     }
@@ -170,7 +170,7 @@ public sealed partial class EditorControl
         Invalidate();
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
         if (RaiseUiaSelectionEvents)
-            RaiseUia(System.Windows.Automation.TextPatternIdentifiers.TextSelectionChangedEvent);
+            _uia.RaiseSelectionChanged();
         // P6 Task 4: 非対称版の選択範囲変化も App 層のステータスバー更新契機
         UpdateUI?.Invoke(this, EventArgs.Empty);
     }

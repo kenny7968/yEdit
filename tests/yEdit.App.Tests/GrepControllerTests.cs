@@ -495,7 +495,9 @@ public class GrepControllerTests
         // param 型スキャンで補強する(field 反射だけでは param→field 経路を跨ぐ mutation を漏らす)。
         // 併せて resultsFactory の型が Func<IGrepResultsView> のままであることも固定
         // (Func<GrepResultsCallbacks, IGrepResultsView> への戻し=Stage 8 Task C 差戻しを機械検出)。
-        var ctor = typeof(GrepController).GetConstructors()[0];
+        var ctors = typeof(GrepController).GetConstructors();
+        Assert.Single(ctors);  // 前提: ctor 1 個(前提が崩れれば Assert.Single が早期検出)
+        var ctor = ctors[0];
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToArray();
 
         Assert.DoesNotContain(paramTypes, t => t == typeof(Action<GrepHit>));
@@ -507,9 +509,10 @@ public class GrepControllerTests
     {
         // Phase 2 最終トリアージ Task D1: cleanup Task 10 と同型で GrepResultsWindow 側も機械固定。
         // legacy な Action<GrepHit> 直渡しの復活(record 経由の GrepResultsCallbacks を経由せず
-        // callback を直接注入する差戻し)を検出する。sealed class かつ ctor 1 個の前提で
-        // GetConstructors()[0] を採用(前提が崩れれば早期検出したいので明示 filter は避ける)。
-        var ctor = typeof(GrepResultsWindow).GetConstructors()[0];
+        // callback を直接注入する差戻し)を検出する。
+        var ctors = typeof(GrepResultsWindow).GetConstructors();
+        Assert.Single(ctors);  // 前提: sealed + ctor 1 個(前提が崩れれば Assert.Single が早期検出)
+        var ctor = ctors[0];
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToArray();
         Assert.DoesNotContain(paramTypes, t => t == typeof(Action<GrepHit>));
         Assert.Contains(paramTypes, t => t == typeof(GrepResultsCallbacks));

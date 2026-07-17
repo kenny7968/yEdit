@@ -130,9 +130,13 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     /// OnPaint 末尾からの client→screen オフセット refresh。DPI 変化・親コントロール移動などで
     /// スクロールなしでも値が変わり得る (元 EditorControl.Paint.cs 末尾のコード)。
     /// </summary>
+    /// <remarks>
+    /// Task 3d fixup (FIX-2): 元コード (EditorControl.Paint.cs OnPaint 末尾 2 行代入) は
+    /// IsHandleCreated guard を持たなかったため、guard を削除して bit-perfect に戻す。
+    /// 呼び出し元 (OnPaint) は Handle 生成後にしか動かない = WinForms 保証で実挙動影響なし。
+    /// </remarks>
     public void RefreshClientToScreenOrigin()
     {
-        if (!_host.IsHandleCreated) return;
         var origin = _host.PointToScreen(new System.Drawing.Point(0, 0));
         _clientToScreenX = origin.X;
         _clientToScreenY = origin.Y;
@@ -160,11 +164,17 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     /// WM_GETOBJECT (UiaRootObjectId) から呼ばれる: TextControlProviderV2 を lazy 生成し、
     /// AutomationInteropProvider.ReturnRawElementProvider で応答する。self-served フラグも立てる。
     /// </summary>
+    /// <remarks>
+    /// Task 3d fixup (FIX-1): _testHook_LastGetObjectServed = true は ReturnRawElementProvider
+    /// 呼び出しの後に置く (元 EditorControl.cs bit-perfect)。ReturnRawElementProvider が例外を
+    /// 投げた場合の flag 値を「false のまま」に保つ = 元コード契約と一致させるため。
+    /// </remarks>
     public IntPtr HandleWmGetObject(nint controlHandle, IntPtr wParam, IntPtr lParam)
     {
         _provider ??= new TextControlProviderV2(this);
+        var result = AutomationInteropProvider.ReturnRawElementProvider(controlHandle, wParam, lParam, _provider);
         _testHook_LastGetObjectServed = true;
-        return AutomationInteropProvider.ReturnRawElementProvider(controlHandle, wParam, lParam, _provider);
+        return result;
     }
 
     /// <summary>WM_GETOBJECT の non-UiaRootObjectId 経路: self-served フラグを false に落とす。</summary>

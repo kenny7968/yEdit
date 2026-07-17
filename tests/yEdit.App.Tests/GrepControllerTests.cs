@@ -407,6 +407,30 @@ public class GrepControllerTests
     });
 
     [Fact]
+    public void Open_AfterBeginClose_DoesNotResetClosingFlag() => Sta.Run(() =>
+    {
+        // Phase 2 最終トリアージ Task A1: Open() の内側に将来「善意の cleanup」として
+        // `_closing=false;` が紛れ込む回帰を機械検出。終了確認カスケード中に grep が
+        // 意図せず復活する経路を予防的に pin する(復帰は CancelClose() 経由のみ)。
+        // mutation kill: Open() 先頭に `_closing = false;` を挿入 → 本テスト赤化を目視確認済み。
+        using var host = new Host();
+
+        host.Grep.Open();                   // 初回オープン(_closing=false のはず)
+        host.Grep.BeginClose();             // 終了フラグ = true
+
+        // Act: 終了フラグ立ち中に Open() を再呼び(終了確認ダイアログ中に間違って開かれた等)
+        host.Grep.Open();
+
+        // Assert: _closing はまだ true のまま(Open() は解除しない)
+        //   → private field を reflection で観察(GrepController._closing)
+        var closingField = typeof(GrepController).GetField("_closing",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(closingField);
+        Assert.True((bool)closingField!.GetValue(host.Grep)!,
+            "Open() は _closing を勝手にリセットしてはならない。復帰は CancelClose() 経由のみ。");
+    });
+
+    [Fact]
     public void Cancel_CancelsCurrentRun_TokenObserved() => Sta.Run(() =>
     {
         using var host = new Host();
@@ -471,11 +495,27 @@ public class GrepControllerTests
         // param 型スキャンで補強する(field 反射だけでは param→field 経路を跨ぐ mutation を漏らす)。
         // 併せて resultsFactory の型が Func<IGrepResultsView> のままであることも固定
         // (Func<GrepResultsCallbacks, IGrepResultsView> への戻し=Stage 8 Task C 差戻しを機械検出)。
-        var ctor = typeof(GrepController).GetConstructors()[0];
+        var ctors = typeof(GrepController).GetConstructors();
+        Assert.Single(ctors);  // 前提: ctor 1 個(前提が崩れれば Assert.Single が早期検出)
+        var ctor = ctors[0];
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToArray();
 
         Assert.DoesNotContain(paramTypes, t => t == typeof(Action<GrepHit>));
         Assert.Contains(paramTypes, t => t == typeof(Func<IGrepResultsView>));
+    }
+
+    [Fact]
+    public void GrepResultsWindow_Ctor_DoesNotAccept_LegacyActionDelegate()
+    {
+        // Phase 2 最終トリアージ Task D1: cleanup Task 10 と同型で GrepResultsWindow 側も機械固定。
+        // legacy な Action<GrepHit> 直渡しの復活(record 経由の GrepResultsCallbacks を経由せず
+        // callback を直接注入する差戻し)を検出する。
+        var ctors = typeof(GrepResultsWindow).GetConstructors();
+        Assert.Single(ctors);  // 前提: sealed + ctor 1 個(前提が崩れれば Assert.Single が早期検出)
+        var ctor = ctors[0];
+        var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToArray();
+        Assert.DoesNotContain(paramTypes, t => t == typeof(Action<GrepHit>));
+        Assert.Contains(paramTypes, t => t == typeof(GrepResultsCallbacks));
     }
 
     // ===== Cancel/Dispose の副作用網羅(Stage 8 Task D-1) =====

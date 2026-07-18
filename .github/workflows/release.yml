@@ -16,6 +16,11 @@ jobs:
   release:
     runs-on: windows-latest
     timeout-minutes: 30
+    # OSS 公開後に GitHub UI 側で "release" environment に Required reviewers 等の
+    # protection rules を設定することで承認ゲート化される。private + Free plan では
+    # protection rules が使えないため現状は no-op(通常の release と同挙動)。
+    # 詳細: docs/plans/2026-07-18-release-env-approval-gate-design.md
+    environment: release
     steps:
       - uses: actions/checkout@v5
 
@@ -75,9 +80,9 @@ jobs:
             ''
             '---'
             '**動作要件**'
-            '- Windows 10 / 11'
+            '- Windows 11'
             '- [.NET 9 デスクトップランタイム](https://dotnet.microsoft.com/ja-jp/download/dotnet/9.0) (x64)'
-            '- WebView2 ランタイム(マークダウンプレビューで使用。Windows 11 は標準搭載)'
+            '- WebView2 ランタイム(マークダウンプレビューで使用。Windows 11 に標準搭載)'
             ''
             '**SHA256**'
             '```'

@@ -52,6 +52,12 @@ dotnet_diagnostic.CA1716.severity = none
 #   - 将来 CA1711 対象の追加型が出た場合の判断は case-by-case でこの disable の再検討を含める
 dotnet_diagnostic.CA1711.severity = none
 
+# --- SonarAnalyzer 恒久 disable(理由付き) ---
+# TODO/FIXME は docs/plans への申し送りとの併用で残したい
+dotnet_diagnostic.S1135.severity = none
+# コメントアウトされたコードは履歴用に一時的に残す慣行がある
+dotnet_diagnostic.S125.severity = suggestion
+
 # 追加 disable が必要になれば以下に追記(理由コメント必須)
 
 # --- テストコード限定 disable(理由付き) ---

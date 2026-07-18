@@ -63,7 +63,9 @@ public sealed class TextControlProviderV2
 
     public IRawElementProviderFragmentRoot FragmentRoot => this;
 
+#pragma warning disable S1168 // reason: UIA provider API 慣用句(null = no embedded roots)。Array.Empty<> は UIA host の挙動差リスク
     public IRawElementProviderSimple[] GetEmbeddedFragmentRoots() => null;
+#pragma warning restore S1168
 
     public int[] GetRuntimeId() => new int[] { AutomationInteropProvider.AppendRuntimeId, 1 };
 

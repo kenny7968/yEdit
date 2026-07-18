@@ -57,9 +57,11 @@ if (args.Length >= 2 && args[0] == "--gen-1gb")
     for (int i = 63; i < block.Length; i += 64)
         block[i] = (byte)'\n';
     using var fs = File.Create(outPath);
+#pragma warning disable S6966 // reason: smoke 手動実行の top-level 非 async パス、sync IO 保持(GrepController 残 4 件は Task C-8 で修正)
     for (int i = 0; i < 1024; i++)
         fs.Write(block, 0, block.Length);
     fs.Flush();
+#pragma warning restore S6966
     Console.WriteLine($"generated {outPath} = {new FileInfo(outPath).Length:N0} bytes");
     return 0;
 }

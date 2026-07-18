@@ -17,10 +17,14 @@ namespace yEdit.Editor.Smoke;
 public sealed class MainForm : Form
 {
     private EditorControl _editor;
+#pragma warning disable S1450 // reason: IDisposable field は Form.Controls 経由の連鎖 Dispose を担保する(local 化は安全ではない)
     private readonly StatusStrip _status;
+#pragma warning restore S1450
     private readonly ToolStripStatusLabel _statusFile;
     private readonly ToolStripStatusLabel _statusCaret;
+#pragma warning disable S1450 // reason: IDisposable field は Form.Controls 経由の連鎖 Dispose を担保する(local 化は安全ではない)
     private readonly System.Windows.Forms.Timer _statusTimer;
+#pragma warning restore S1450
     private readonly ToolStripMenuItem _wrapOff;
     private readonly ToolStripMenuItem _wrap40;
     private readonly ToolStripMenuItem _wrap80;

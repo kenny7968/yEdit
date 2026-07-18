@@ -65,6 +65,10 @@ jobs:
         shell: pwsh
         run: Copy-Item -Recurse 説明書 publish\説明書
 
+      - name: 変更履歴を同梱
+        shell: pwsh
+        run: Copy-Item 変更履歴.txt publish\変更履歴.txt
+
       - name: zip 圧縮
         shell: pwsh
         run: Compress-Archive -Path publish\* -DestinationPath $env:ZIP

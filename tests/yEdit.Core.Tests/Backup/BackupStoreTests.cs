@@ -21,7 +21,9 @@ public class BackupStoreTests
             {
                 Directory.Delete(Root, recursive: true);
             }
-            catch { }
+            catch
+            { /* テスト後の best-effort クリーンアップ・ロック競合等は OS 側の temp GC に委ねて無視 */
+            }
         }
     }
 

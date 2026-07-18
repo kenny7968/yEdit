@@ -63,8 +63,8 @@ public class AnnouncerTests
             var announcer = new RecordingAnnouncer(label);
             announcer.Say(" ");
             // ガードは IsNullOrEmpty であって IsNullOrWhiteSpace ではない: 空白のみは表示・発声される。
-            // この区別の固定が Stage 2 レビュー申し送り(空白 1 文字を「クリア扱い」に変えると
-            // SR の読み上げ挙動が変わるため、変えるなら意図的に)。
+            // 空白 1 文字を「クリア扱い」に変えると SR の読み上げ挙動が変わるため、変えるなら意図的に。
+            // (AnnouncerBase 畳み込み後は UiaAnnouncer.Say の IsNullOrEmpty ガードを pin する契約)。
             Assert.Equal(" ", label.Text);
             Assert.Equal(new[] { " " }, announcer.Spoken);
         });

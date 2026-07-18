@@ -22,7 +22,9 @@ internal class UiaAnnouncer : IAnnouncer
         Raise(message);
     }
 
-    /// <summary>Label の UIA プロバイダから通知を上げる。テストではオーバーライドして発声呼び出しを観測する。</summary>
+    /// <summary>確定済み(非空)メッセージを Label の UIA プロバイダから通知として上げる。
+    /// 空ガードと視覚表示は <see cref="Say"/> が済ませているため、ここでは message が非空であることが前提。
+    /// テストではオーバーライドして発声呼び出しを観測する(発声手段の seam)。</summary>
     protected virtual void Raise(string message)
     {
         try

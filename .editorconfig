@@ -18,3 +18,11 @@ end_of_line = crlf
 [*.cs]
 # フォーマット系ルールは CSharpier に完全委譲(二重整形防止)
 dotnet_diagnostic.IDE0055.severity = none
+
+# --- Roslynator 恒久 disable(理由付き) ---
+# WinForms UI スレッド前提のためライブラリ側 ConfigureAwait 強制は不要
+dotnet_diagnostic.RCS1090.severity = none
+# バイナリ演算子の改行位置は CSharpier に完全委譲
+dotnet_diagnostic.RCS1029.severity = none
+
+# ↓ Task 3.4 で追加が発生する可能性あり

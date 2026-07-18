@@ -773,7 +773,7 @@ public class GrepControllerTests
             //  - 引数取り違え(`_announcer.Say("")` などハードコード)→ Said 内容不一致で赤
             //  - ctor で受け取った announcer を別インスタンス(new UiaAnnouncer 復活等)に差し替え → fake に届かず赤
             // 視覚側(_status.Text) の pin=晴眼/弱視 first-class 契約(SR 発声だけでなく dialog 内視覚更新も保存)。
-            // 従来 AnnouncerBase.Say が持っていた `_status.Text = message` 副作用を明示追加した line を kill 対象化:
+            // 従来 UiaAnnouncer.Say が持っていた `_status.Text = message` 副作用を明示追加した line を kill 対象化:
             //  - RaiseNotification の `_status.Text = message` 削除 → 最終メッセージが _status に反映されず赤
             var fake = new FakeAnnouncer();
             var cb = new GrepCallbacks(() => Task.CompletedTask, () => { });

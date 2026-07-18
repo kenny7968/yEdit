@@ -3,25 +3,24 @@ using yEdit.App.Speech;
 namespace yEdit.App.Tests;
 
 /// <summary>
-/// Phase 2 Stage 2(縮小版): 残存 Speech サブシステムの契約テスト。
-/// AnnouncerBase の通知契約「視覚表示(label.Text)は無条件・発声(Speak)は非空のときだけ」と、
-/// UiaAnnouncer の安全性(UIA 通知非対応環境でも握りつぶして視覚のみ)を特徴付ける。
+/// UiaAnnouncer の通知契約「視覚表示(label.Text)は無条件・発声(Raise)は非空のときだけ」と、
+/// UIA 通知非対応環境でも握りつぶして視覚のみに縮退する安全性を特徴付ける。
 /// Core が検証済みの文言生成は対象外(責務=Speech 層の契約)。
 /// </summary>
 public class AnnouncerTests
 {
-    /// <summary>Speak 呼び出しを記録する AnnouncerBase 派生(基底の契約検証用)。</summary>
-    private sealed class RecordingAnnouncer : AnnouncerBase
+    /// <summary>Raise 呼び出しを記録する UiaAnnouncer 派生(実 UIA 呼び出しを抑止して契約検証用)。</summary>
+    private sealed class RecordingAnnouncer : UiaAnnouncer
     {
         public List<string> Spoken { get; } = new();
 
         public RecordingAnnouncer(Label label)
             : base(label) { }
 
-        protected override void Speak(string message) => Spoken.Add(message);
+        protected override void Raise(string message) => Spoken.Add(message);
     }
 
-    // ===== AnnouncerBase の通知契約 =====
+    // ===== UiaAnnouncer の通知契約 =====
 
     [Fact]
     public void Say_NonEmpty_UpdatesLabel_AndSpeaksOnce() =>
@@ -64,8 +63,8 @@ public class AnnouncerTests
             var announcer = new RecordingAnnouncer(label);
             announcer.Say(" ");
             // ガードは IsNullOrEmpty であって IsNullOrWhiteSpace ではない: 空白のみは表示・発声される。
-            // この区別の固定が Stage 2 レビュー申し送り(空白 1 文字を「クリア扱い」に変えると
-            // SR の読み上げ挙動が変わるため、変えるなら意図的に)。
+            // 空白 1 文字を「クリア扱い」に変えると SR の読み上げ挙動が変わるため、変えるなら意図的に。
+            // (AnnouncerBase 畳み込み後は UiaAnnouncer.Say の IsNullOrEmpty ガードを pin する契約)。
             Assert.Equal(" ", label.Text);
             Assert.Equal(new[] { " " }, announcer.Spoken);
         });

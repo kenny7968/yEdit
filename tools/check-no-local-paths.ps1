@@ -1,12 +1,15 @@
-# ローカルパスの混入を検出する健全性チェック。
-# 対象は Windows ユーザーホーム下(現ユーザー名込みの C-drive 絶対パス)と、
-# 本リポジトリのローカル絶対パスの 2 種。それぞれ以下のプレースホルダに置換して
-# 再 commit することで解消できる:
-#   Windows ホーム系 -> %USERPROFILE%\
-#   リポジトリ系     -> <repo>
+﻿# ローカルパスの混入を検出する健全性チェック。
+# 対象は Windows / Git Bash / 混合スラッシュを網羅する 2 系統(いずれも
+# case-insensitive):
+#   - Windows ユーザーホーム下(現ユーザー名込み)  -> %USERPROFILE%\ に置換
+#   - 本リポジトリのローカル絶対パス              -> <repo>          に置換
 #
-# 具体の検出リテラルは $userPath / $repoPath を参照。文字列連結で構成して
-# いるのは、このファイル自身が自己検出されるのを避けるため。
+# 具体的な variant 例(いずれも検出対象):
+#   C:\Users\<username>\   C:/Users/<username>/   /c/Users/<username>/   (大文字小文字問わず)
+#   X:\src\yEdit     X:/src/yEdit     /x/src/yEdit     (同上)
+#
+# このスクリプト自身は例示や regex に literal を含むため、走査対象から
+# 除外している($selfPath 参照)。
 #
 # 用途:
 #   pre-commit (Husky) : -Staged で `git diff --cached` 対象のみ検査
@@ -20,9 +23,14 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-$userPath = 'C:\Users\' + '<username>\'
-$repoPath = 'D:\src\' + 'yEdit'
-$patterns = @($userPath, $repoPath)
+# drive prefix (C:, D:, /c, /d ...) + separator (\ or /) + 対象コンポーネント。
+# case-insensitive で 6 variant(3 形式 x Users\<username> or src\yEdit)を包摂。
+$patterns = @(
+    '(?i)([a-z]:|/[a-z])[\\/]Users[\\/]<username>\b',
+    '(?i)([a-z]:|/[a-z])[\\/]src[\\/]yEdit\b'
+)
+
+$selfPath = 'tools/check-no-local-paths.ps1'
 
 $textExtensions = @(
     '.md', '.txt', '.cs', '.csproj', '.props', '.targets', '.sln',
@@ -41,6 +49,8 @@ if ($Staged) {
 $violations = @()
 foreach ($f in $files) {
     if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { continue }
+    # このスクリプト自身は例示のため literal を含む。走査対象外。
+    if (($f -replace '\\', '/') -eq $selfPath) { continue }
     $ext = [System.IO.Path]::GetExtension($f).ToLowerInvariant()
     if ($ext -and ($textExtensions -notcontains $ext)) { continue }
     try {
@@ -51,8 +61,9 @@ foreach ($f in $files) {
     if ($null -eq $lines) { continue }
     for ($i = 0; $i -lt $lines.Count; $i++) {
         foreach ($p in $patterns) {
-            if ($lines[$i].Contains($p)) {
+            if ($lines[$i] -match $p) {
                 $violations += ('{0}:{1}: {2}' -f $f, ($i + 1), $lines[$i].Trim())
+                break
             }
         }
     }
@@ -61,8 +72,8 @@ foreach ($f in $files) {
 if ($violations.Count -gt 0) {
     Write-Output ''
     Write-Output '[no-local-paths] ローカルパスが検出されました。プレースホルダに置換してください:'
-    Write-Output ('  ' + $userPath + '  ->  %USERPROFILE%\')
-    Write-Output ('  ' + $repoPath + '    ->  <repo>')
+    Write-Output '  Windows/Git Bash 形式のユーザーホーム系 (C:\Users\<username>\, C:/Users/<username>/, /c/Users/<username>/ 等) -> %USERPROFILE%\'
+    Write-Output '  リポジトリ絶対パス (X:\src\yEdit, X:/src/yEdit, /x/src/yEdit 等)                          -> <repo>'
     Write-Output ''
     $violations | ForEach-Object { Write-Output ('  ' + $_) }
     Write-Output ''

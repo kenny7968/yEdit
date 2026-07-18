@@ -34,7 +34,7 @@
 ├─ .config/dotnet-tools.json        ← 新規: csharpier / husky を local tool として pin
 ├─ .husky/                          ← 新規: pre-commit hook 設置場所
 │  ├─ pre-commit                    ←     husky が発火する shell スクリプト
-│  └─ task-runner.json              ←     hook 定義 (csharpier check --staged)
+│  └─ task-runner.json              ←     hook 定義 (csharpier format ${staged})
 ├─ .csharpierrc.json                ← 新規: CSharpier 設定
 ├─ .csharpierignore                 ← 新規: 除外パス
 ├─ tools/pre-merge-check.ps1        ← 変更: tool restore + csharpier check 追加
@@ -128,6 +128,8 @@ dotnet_diagnostic.IDE0055.severity = none  # フォーマット系は CSharpier 
 
 ## 4. CSharpier 設定
 
+> **Note (2026-07-18 PR2 実装時)**: CSharpier 0.x → 1.x 移行で CLI が subcommand 化(`--pipe-multiple-files` → `format ${staged}`)。husky.net の `pathMode` も `absolute`/`relative` のみ有効で `staged` は不可(`${staged}` 変数で代替)。本設計書はこの変更を反映済み。
+
 **ツール pin**(`.config/dotnet-tools.json`):
 
 ```json
@@ -135,8 +137,8 @@ dotnet_diagnostic.IDE0055.severity = none  # フォーマット系は CSharpier 
   "version": 1,
   "isRoot": true,
   "tools": {
-    "csharpier": { "version": "0.30.6", "commands": ["dotnet-csharpier"] },
-    "husky":     { "version": "0.7.2",  "commands": ["husky"] }
+    "csharpier": { "version": "1.3.0", "commands": ["dotnet-csharpier"] },
+    "husky":     { "version": "0.9.1", "commands": ["husky"] }
   }
 }
 ```
@@ -159,14 +161,19 @@ dotnet_diagnostic.IDE0055.severity = none  # フォーマット系は CSharpier 
 **/obj/
 **/bin/
 **/*.Designer.cs
+# MSBuild XML: CSharpier 1.x が対応追加したが、csproj/props の空行はグループ化に使う慣行があるため除外。EOL は .editorconfig で担保。
+**/*.csproj
+**/*.props
 ```
 
 **運用**:
-- `dotnet csharpier .` = 全ファイル整形(初回一括整形 = PR2 で 1 回だけ)
+- `dotnet csharpier format .` = 全ファイル整形(初回一括整形 = PR2 で 1 回だけ)
 - `dotnet csharpier check .` = CI/pre-merge で verify(差分あれば非 0 終了)
-- `dotnet csharpier --pipe-multiple-files` = Husky pre-commit で staged ファイルのみ
+- `dotnet csharpier format ${staged}` = Husky pre-commit で staged ファイルのみ
 
 **Designer.cs**: 現状ほぼ無いはずだが、混入時の事故防止で除外。PR2 時に glob で最終確認。
+
+**MSBuild XML の扱い(PR2 実装で確定)**: CSharpier 1.x は `.csproj`/`.props` も整形対象になったため、初回一括整形では 10 XML ファイル(9 csproj + Directory.Build.props)も含まれた。以降は `.csharpierignore` で除外して手書き csproj の空行(要素グループ化に使う慣行)を保全する。EOL は `.editorconfig` の CRLF 宣言で担保する。CSharpier が今後さらに新ファイル型を追加した場合の silent scope expansion にも同様に対応する(allowlist ではなく blocklist 方針)。
 
 ## 5. Husky.Net + pre-commit フック
 
@@ -184,13 +191,14 @@ dotnet husky add pre-commit
 
 ```json
 {
+  "$schema": "https://alirezanet.github.io/Husky.Net/schema.json",
   "tasks": [
     {
       "name": "csharpier-format-staged",
+      "group": "pre-commit",
       "command": "dotnet",
-      "args": ["csharpier", "--pipe-multiple-files"],
-      "include": ["**/*.cs"],
-      "pathMode": "staged"
+      "args": ["csharpier", "format", "${staged}"],
+      "include": ["**/*.cs"]
     }
   ]
 }

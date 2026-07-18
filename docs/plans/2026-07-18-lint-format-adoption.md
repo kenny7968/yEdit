@@ -350,7 +350,12 @@ Expected: バージョン表示 + `dotnet husky` のヘルプが出る
 **/obj/
 **/bin/
 **/*.Designer.cs
+# MSBuild XML: CSharpier 1.x が対応追加したが、csproj/props の空行はグループ化に使う慣行があるため除外。EOL は .editorconfig で担保。
+**/*.csproj
+**/*.props
 ```
+
+> **MSBuild XML の除外 (PR2 実装で判明)**: CSharpier 1.x は `.csproj`/`.props` も整形対象になった。しかし csproj は `<PackageReference>` を関心事別にグループ化したり `<InternalsVisibleTo>` ブロックを分離したりする用途で developer が意図的に空行を入れる慣行がある。CSharpier に silent に潰される摩擦を避けるため除外し、EOL policy は `.editorconfig` の CRLF 宣言で担保する。初回一括整形(commit `79d2304`)で 10 XML ファイルは既に整形済みなので、追加の format 実行は不要。
 
 **Step 3: Designer ファイル存在確認**(除外漏れの事前検出)
 

@@ -1,3 +1,6 @@
 **/obj/
 **/bin/
 **/*.Designer.cs
+# MSBuild XML: CSharpier 1.x が対応追加したが、csproj/props の空行はグループ化に使う慣行があるため除外。EOL は .editorconfig で担保。
+**/*.csproj
+**/*.props

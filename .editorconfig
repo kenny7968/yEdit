@@ -52,7 +52,7 @@ dotnet_diagnostic.CA1716.severity = none
 #   - 将来 CA1711 対象の追加型が出た場合の判断は case-by-case でこの disable の再検討を含める
 dotnet_diagnostic.CA1711.severity = none
 
-# --- SonarAnalyzer 恒久 disable(理由付き) ---
+# --- SonarAnalyzer 恒久 disable / 降格(理由付き) ---
 # TODO/FIXME は docs/plans への申し送りとの併用で残したい
 dotnet_diagnostic.S1135.severity = none
 # コメントアウトされたコードは履歴用に一時的に残す慣行がある
@@ -74,3 +74,18 @@ dotnet_diagnostic.CA1051.severity = none
 #   - 各 test method 用に static readonly field を extract すると可読性が犠牲になる
 #   - test は 1 回のみ実行される=allocation 削減のパフォーマンス便益が実質ゼロ
 dotnet_diagnostic.CA1861.severity = none
+# S927(パラメータ名一致=override/interface impl のパラメータを宣言側と揃える)
+# を tests 限定で disable する主因:
+#   - Fake ホスト(FakeUiaTextHost / FakeUiaImeHost 等)が UIA/COM interface を
+#     実装する際に短縮パラメータ名(s/e/o/l 等)を慣用しており、interface 側の
+#     長い記述用名(startOffset/endOffset 等)へ機械 rename すると
+#     assertion 呼出しの可読性が落ちる
+#   - test は 1 対 1 の観測が主目的で、interface 契約の忠実さは production 側で
+#     検査済み(S927 src 側は Task C-8 で個別修正)
+dotnet_diagnostic.S927.severity = none
+# S1215(GC.Collect の意図的呼出) を tests 限定で disable する主因:
+#   - Smoke bench harness(tests/yEdit.Editor.Smoke/*)で GC baseline を計測する
+#     意図的な GC.Collect() を用いる
+#   - production コードでは detect したい bug indicator なので src 側は
+#     警告のまま残す
+dotnet_diagnostic.S1215.severity = none

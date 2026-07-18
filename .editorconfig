@@ -36,6 +36,22 @@ dotnet_diagnostic.RCS1029.severity = none
 #   `[SuppressMessage]` 個別付与も 800+ 件で非現実的
 dotnet_diagnostic.CA1707.severity = none
 
+# CA1716(仮想メンバー/インターフェースの引数・メンバー名を予約語と重ねない) を disable する主因:
+#   - 検出対象は「他言語(主に VB.NET)から override/implement しづらくなる」ケース
+#     (例: 引数名 end / メソッド名 Error は VB.NET 予約語と競合)
+#   - yEdit は C# 単独プロジェクトで VB.NET 相互運用の予定なし=実害ゼロ
+#   - 既存の意味論的に自然な命名(IUiaTextHost.SetSelection の end / IUserPrompt.Error)を
+#     `endInclusive` / `ShowError` 等へ改名すると内部呼び出しの読みやすさが損なわれる
+dotnet_diagnostic.CA1716.severity = none
+
+# CA1711(型名に Enum / Delegate / Attribute / Flag などの suffix を付けない) を disable する主因:
+#   - yEdit.Core.Editing.ImeAttribute は IMM32 GCS_COMPATTR (Composition Attribute) の
+#     属性バイト定数群を保持する static class=IME 属性ドメイン用語としての "Attribute" が正
+#   - 誤解(System.Attribute 派生と誤読される)を招く命名でも rename(例: ImeAttr / ImeCharAttribute)
+#     は既存 public API 破壊で見合わない
+#   - 将来 CA1711 対象の追加型が出た場合の判断は case-by-case でこの disable の再検討を含める
+dotnet_diagnostic.CA1711.severity = none
+
 # 追加 disable が必要になれば以下に追記(理由コメント必須)
 
 # --- テストコード限定 disable(理由付き) ---

@@ -2,8 +2,6 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0-windows</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <!-- P5 Task 2: Accessibility (net9.0-windows / UseWPF) を参照して契約テストを Core.Tests に置くため -->
     <UseWPF>true</UseWPF>

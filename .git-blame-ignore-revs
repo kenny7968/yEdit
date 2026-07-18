@@ -1,0 +1,8 @@
+# git blame 除外対象の commit を列挙する。
+# ここに列挙された commit の変更は `git blame --ignore-revs-file` で無視される。
+# 大量整形(CSharpier 初回)等の履歴汚染を防止するため。
+#
+# ローカルで有効化するには一度だけ:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# 以下、commit hash を 1 行 1 件で列挙する(コメント可)。

@@ -4,8 +4,6 @@
     <OutputType>WinExe</OutputType>
     <AssemblyName>yEdit</AssemblyName>
     <TargetFramework>net9.0-windows</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
     <UseWindowsForms>true</UseWindowsForms>
     <!-- UIA 型（System.Windows.Automation）の連鎖参照のため UseWPF も有効化 -->
     <UseWPF>true</UseWPF>

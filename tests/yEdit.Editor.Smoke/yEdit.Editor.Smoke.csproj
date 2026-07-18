@@ -4,8 +4,6 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <RootNamespace>yEdit.Editor.Smoke</RootNamespace>
     <AssemblyName>yEdit.Editor.Smoke</AssemblyName>
   </PropertyGroup>

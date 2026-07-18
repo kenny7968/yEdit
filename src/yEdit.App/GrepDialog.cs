@@ -109,9 +109,9 @@ public sealed class GrepDialog : Form, IGrepView
 
     public void SetStatus(string text) => _status.Text = text;
 
-    /// <summary>ステータス Label を視覚表示しつつ SR 別手段で読ませる。
+    /// <summary>ステータス Label を視覚表示しつつ SR 発声も上げる。
     /// Batch D Task 12: `new UiaAnnouncer(_status)` の直生成を廃止して IAnnouncer を注入する構成に変更。
-    /// 従来は AnnouncerBase 側の視覚副作用で `_status.Text` が更新されていたが、共有 Announcer
+    /// 従来は UiaAnnouncer 側の視覚副作用で `_status.Text` が更新されていたが、共有 Announcer
     /// (MainForm._announceLabel 経路)注入後は視覚更新も明示する必要があるため、
     /// SearchController.Announce と同型の「SR 発声は共有 Announcer / 視覚は view 内 label」パターンに揃える。</summary>
     public void RaiseNotification(string message)

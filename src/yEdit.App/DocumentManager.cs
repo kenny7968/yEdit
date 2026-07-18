@@ -154,7 +154,7 @@ public sealed class DocumentManager : IDisposable
         FocusActiveEditor();
     }
 
-    public void UpdateLabel(Document doc) => doc.Page.Text = doc.TabLabel;
+    public static void UpdateLabel(Document doc) => doc.Page.Text = doc.TabLabel;
 
     // 選択変更そのものはフォーカスを動かさない（フォーカス先は呼び出し側が決める：
     // 新規/開く/閉じる→エディタ、Ctrl+Tab/番号での切替→エディタ(タブ名は KeyBasedSwitch で発声)）。

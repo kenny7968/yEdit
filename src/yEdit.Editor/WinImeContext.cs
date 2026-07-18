@@ -41,7 +41,9 @@ internal sealed class WinImeContext : IImeContext
         nint buf = Marshal.AllocHGlobal(byteLen);
         try
         {
-            NativeMethods.ImmGetCompositionStringW(_himc, gcs, buf, byteLen);
+            // CA1806: 2 段呼び出しの 2 段目は buf を埋めるためだけの呼び出しで返却バイト数は
+            // 事前計算した byteLen と同じ想定=戻り値を意図的に破棄する(`_ =`)。旧 ReadImeString と等価。
+            _ = NativeMethods.ImmGetCompositionStringW(_himc, gcs, buf, byteLen);
             // byteLen は UTF-16 のバイト数=char 数は byteLen / 2 (旧 ReadImeString と同じ)。
             return Marshal.PtrToStringUni(buf, byteLen / 2) ?? "";
         }
@@ -63,7 +65,9 @@ internal sealed class WinImeContext : IImeContext
         nint buf = Marshal.AllocHGlobal(byteLen);
         try
         {
-            NativeMethods.ImmGetCompositionStringW(_himc, gcs, buf, byteLen);
+            // CA1806: 2 段呼び出しの 2 段目は buf を埋めるためだけの呼び出しで返却バイト数は
+            // 事前計算した byteLen と同じ想定=戻り値を意図的に破棄する(`_ =`)。旧 ReadImeBytes と等価。
+            _ = NativeMethods.ImmGetCompositionStringW(_himc, gcs, buf, byteLen);
             var arr = new byte[byteLen];
             Marshal.Copy(buf, arr, 0, byteLen);
             return arr;

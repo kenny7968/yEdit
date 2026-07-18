@@ -1442,7 +1442,7 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         switch (m.Msg)
         {
             case NativeMethods.WM_IME_SETCONTEXT:
-                _imeCtrl.MaskSetContextLParam(ref m);
+                ImeController.MaskSetContextLParam(ref m);
                 base.WndProc(ref m);
                 return;
             case NativeMethods.WM_IME_STARTCOMPOSITION:

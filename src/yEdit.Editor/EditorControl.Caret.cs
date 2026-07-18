@@ -200,7 +200,7 @@ public sealed partial class EditorControl
     {
         if (_buffer is null)
             return 0;
-        return _caretCtrl.SnapAndClamp(offset, _buffer.Current);
+        return CaretController.SnapAndClamp(offset, _buffer.Current);
     }
 
     /// <summary>

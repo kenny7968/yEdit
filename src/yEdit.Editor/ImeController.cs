@@ -140,7 +140,7 @@ internal sealed class ImeController
     /// ISC_SHOWUICOMPOSITIONWINDOW = 0x80000000 は符号ビット。long に上げてマスクし nint に戻す
     /// (旧実装と同じ)。
     /// </remarks>
-    public void MaskSetContextLParam(ref Message m)
+    public static void MaskSetContextLParam(ref Message m)
     {
         long lp = m.LParam.ToInt64();
         lp &= ~(long)NativeMethods.ISC_SHOWUICOMPOSITIONWINDOW;

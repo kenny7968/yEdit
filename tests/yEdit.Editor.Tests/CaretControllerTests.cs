@@ -69,18 +69,17 @@ public class CaretControllerTests
     [Fact]
     public void SnapAndClamp_SurrogatePair_SnapsToBoundary()
     {
-        var c = new CaretController();
         // "a😀b" = 'a' (offset 0) + high surrogate (offset 1) + low surrogate (offset 2) + 'b' (offset 3)
         var snap = Snap("a😀b");
         // 低サロゲート位置 (offset 2) は前方 (high, offset 1) にスナップされる
-        Assert.Equal(1, c.SnapAndClamp(2, snap));
+        Assert.Equal(1, CaretController.SnapAndClamp(2, snap));
         // high surrogate 位置はそのまま(low ではないので snap 対象外)
-        Assert.Equal(1, c.SnapAndClamp(1, snap));
+        Assert.Equal(1, CaretController.SnapAndClamp(1, snap));
         // 通常位置は変化なし
-        Assert.Equal(0, c.SnapAndClamp(0, snap));
-        Assert.Equal(3, c.SnapAndClamp(3, snap));
+        Assert.Equal(0, CaretController.SnapAndClamp(0, snap));
+        Assert.Equal(3, CaretController.SnapAndClamp(3, snap));
         // CharLength 位置は EOF 境界としてそのまま許可
-        Assert.Equal(4, c.SnapAndClamp(4, snap));
+        Assert.Equal(4, CaretController.SnapAndClamp(4, snap));
     }
 
     [Fact]

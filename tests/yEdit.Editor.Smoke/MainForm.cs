@@ -22,7 +22,7 @@ public sealed class MainForm : Form
 #pragma warning restore S1450
     private readonly ToolStripStatusLabel _statusFile;
     private readonly ToolStripStatusLabel _statusCaret;
-#pragma warning disable S1450 // reason: IDisposable field は Form.Controls 経由の連鎖 Dispose を担保する(local 化は安全ではない)
+#pragma warning disable S1450 // reason: WinForms.Timer(=Component、Controls 対象外)は Tick で form 状態を継続参照するため field 保持。smoke tool のライフサイクル=プロセス終了までフォーム生存で Dispose 不要
     private readonly System.Windows.Forms.Timer _statusTimer;
 #pragma warning restore S1450
     private readonly ToolStripMenuItem _wrapOff;

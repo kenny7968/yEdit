@@ -25,4 +25,9 @@ dotnet_diagnostic.RCS1090.severity = none
 # バイナリ演算子の改行位置は CSharpier に完全委譲
 dotnet_diagnostic.RCS1029.severity = none
 
-# ↓ Task 3.4 で追加が発生する可能性あり
+# --- CA(ビルトイン)恒久 disable(理由付き) ---
+# プライベートフィールドの `_field` プレフィックスをプロジェクト規約として採用しているため
+# .NET 標準の識別子命名規則(アンダースコア禁止)を無効化する
+dotnet_diagnostic.CA1707.severity = none
+
+# 追加 disable が必要になれば以下に追記(理由コメント必須)

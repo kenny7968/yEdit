@@ -46,7 +46,7 @@
 
 ## 2. `.editorconfig` の規約方針
 
-**基本原則**: 既存コードの実態と合わせる(初回整形の差分を最小化)。既存 = 4 space indent / CRLF / UTF-8 BOM。
+**基本原則**: 既存コードの実態と合わせる(初回整形の差分を最小化)。既存 = 4 space indent / CRLF / **UTF-8 (BOM 無しが実測)**。
 
 ```ini
 root = true
@@ -55,13 +55,13 @@ root = true
 indent_style = space
 indent_size = 4
 end_of_line = crlf
-charset = utf-8-bom
+charset = utf-8
 trim_trailing_whitespace = true
 insert_final_newline = true
 
 [*.{yml,yaml,json,md}]
 indent_size = 2
-charset = utf-8  # BOM 無し
+charset = utf-8
 
 [*.ps1]
 end_of_line = crlf
@@ -76,6 +76,8 @@ dotnet_diagnostic.IDE0055.severity = none  # フォーマット系は CSharpier 
 - CSharpier がフォーマットを完全所有するので、`.editorconfig` の空白/インデント指示は「IDE 表示用」の意味しか持たないが、コアな粒度(indent 4 + CRLF)は残す(dotnet format との衝突を避けるため CSharpier 側もこの前提で動く)
 - `IDE0055`(書式ルール)を無効化 = Roslyn 内蔵の書式ルールと CSharpier が競合しないようにする(CSharpier 公式推奨)
 - 命名規約は Recommended まま = 独自規約を最初から強要せず、既存コードとの摩擦を最小化
+
+> **BOM を導入しない理由**: 実測で `*.cs` の 0/251 ファイルが BOM 無し。ここで `utf-8-bom` を宣言すると、以降 IDE で保存された `.cs` ファイルに BOM が付与されて履歴に無関係な差分ノイズが混入する。BOM 統一が望ましいなら PR2 とは別の専用移行 commit + `.git-blame-ignore-revs` 登録として扱う(現状スコープ外)。
 
 ## 3. `Directory.Build.props` の共通プロパティ集約
 

@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0-windows</TargetFramework>
+    <!-- Directory.Build.props で共通 enable のため、UIA v2 shim の Nullable 未対応部分を通すために明示的に override(維持理由=Accessibility レイヤは v2 shim のシグネチャ都合で nullable 化が困難) -->
     <Nullable>disable</Nullable>
     <!-- UseWPF で UIAutomationProvider / UIAutomationTypes / WindowsBase(System.Windows.Rect) を引き込む -->
     <UseWPF>true</UseWPF>

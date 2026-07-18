@@ -1,5 +1,7 @@
 # PC-Talker 発声プローブ 実機手動検証レポート
 
+> **Note (歴史記録):** 本レポートで検証対象とした PC-Talker 専用の直叩き発声経路(`PCTKPReadW` / `PCTKCGuide` など)は、2026-07-13 の PC-Talker サポート廃止(`docs/plans/2026-07-13-pctalker-removal-design.md`)に伴い現行コードから全削除済み。現在は全 SR 共有の汎用 UIA 経路のみ。本レポートは当時の検証結果として保存(将来 PC-Talker 対応を復活する際の参照用)。
+
 - 日付: 2026-06-29
 - 対象: `pctktest`（PctkProbe.App / PC-Talker 発声プローブ）
 - 検証方法: 実機・人手（耳）による可聴判定

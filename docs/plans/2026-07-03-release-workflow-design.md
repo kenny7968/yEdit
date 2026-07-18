@@ -1,5 +1,7 @@
 # リリースワークフロー設計(タグ push → GitHub Releases)
 
+> **Note (歴史記録):** 本設計書は Scintilla 時代のもの。現行実装は自作 EditorControl に置き換わっており(`docs/plans/2026-07-05-custom-editcontrol-design.md`)、本文中の `Scintilla/Lexilla` ネイティブ DLL や `runtimes\` フォルダに関する記述は現状にそぐわない。ワークフローの骨格(タグ push → publish → zip → `gh release create`)は `.github/workflows/release.yml` にそのまま残っている。
+
 日付: 2026-07-03
 ブランチ: feature/add-github-workflow
 

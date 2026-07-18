@@ -5,8 +5,11 @@ namespace yEdit.App.Settings;
 /// <summary>
 /// 設定ダイアログの 1 タブぶんを担う契約。
 /// タブ追加は「実装クラス 1 個 ＋ SettingsDialog._tabs に 1 行」で完結する。
+/// 実装は WinForms Control フィールドを保持するため <see cref="IDisposable"/> を継承し、
+/// BuildPage() が呼ばれず親 Form に接続されないまま破棄されるケースでもリークしないよう
+/// 各 Control を破棄する責務を負う(CA1001 対応・Sub 3.4-B)。
 /// </summary>
-public interface ISettingsTab
+public interface ISettingsTab : IDisposable
 {
     /// <summary>タブヘッダに表示する日本語ラベル（例: "基本"）。</summary>
     string Title { get; }

@@ -13,7 +13,7 @@ namespace yEdit.App;
 /// アセンブリ外部への表面ではないため <c>internal</c>。テストは <c>InternalsVisibleTo</c> 経由で
 /// F2 経路(<see cref="Commit"/>/<see cref="CancelEdit"/>)を直接ドライブする(Task 7)。
 /// </summary>
-internal sealed class CsvCellEditor
+internal sealed class CsvCellEditor : IDisposable
 {
     private TextBox? _box;
     private bool _closing;
@@ -157,4 +157,10 @@ internal sealed class CsvCellEditor
         _onCancel = null;
         _refocus = null;
     }
+
+    // CA1001 対応(Sub 3.4-B): 進行中の編集オーバーレイ(_box=TextBox)は Teardown で
+    // 個別 Dispose されるが、CsvCellEditor インスタンス自身がドロップされる際に
+    // Abort(冪等) を呼ぶことで、編集中(_box!=null)のまま破棄されるケースの
+    // TextBox リークを防ぐ。コールバックは呼ばず、フォーカスも戻さない Abort 経路。
+    public void Dispose() => Abort();
 }

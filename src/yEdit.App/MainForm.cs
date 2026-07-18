@@ -238,8 +238,17 @@ public sealed partial class MainForm : Form
     protected override void Dispose(bool disposing)
     {
         // 異常系（OnFormClosed 未経由）でも Timer/背景スレッドを確実に解放する。Shutdown 済みなら冪等で無害。
+        // Sub 3.4-B(CA1001): _docs(DocumentManager) と _csv(CsvController) が IDisposable 化されたが、
+        // _docs は TabHost 経由で本 Form.Controls ツリーに接続済みのため base.Dispose(disposing) で
+        // _tabs → TabPages → EditorControl まで解放される(=DocumentManager.Dispose を明示呼び出しても
+        // 冪等で無害だが、既存の解放経路を尊重して二重呼び出しを増やさない)。
+        // _csv は Form の Controls ツリーに載らないため明示 Dispose する(CsvCellEditor 内 TextBox の
+        // リーク防止=編集中に強制終了する異常系のセーフティ)。
         if (disposing)
+        {
             _backup?.Dispose();
+            _csv?.Dispose();
+        }
         base.Dispose(disposing);
     }
 

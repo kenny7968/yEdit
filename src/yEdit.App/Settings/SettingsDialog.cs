@@ -98,4 +98,18 @@ public sealed class SettingsDialog : Form
         AcceptButton = ok;
         CancelButton = cancel;
     }
+
+    // CA1001 対応(Sub 3.4-B): ISettingsTab 実装は Control フィールドを保持するため
+    // IDisposable を持つ。BuildLayout が走った後は各 Control は Form の Controls ツリーに
+    // 接続され Form.Dispose 経由で解放されるが、ISettingsTab 自身の Dispose 呼び出しを
+    // 保証しないと BuildPage 未実行の異常系で Control がリークする。冪等なので二重解放は安全。
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            foreach (var t in _tabs)
+                t.Dispose();
+        }
+        base.Dispose(disposing);
+    }
 }

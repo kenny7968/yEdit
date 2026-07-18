@@ -88,7 +88,6 @@ dotnet_diagnostic.IDE0055.severity = none  # フォーマット系は CSharpier 
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
 
-    <AnalysisLevel>latest-recommended</AnalysisLevel>
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
     <!-- IDExxxx (書式・style) は CSharpier + IDE で運用。
          ビルドでの強制はアナライザ (CAxxxx, RCSxxxx, Sxxxx) だけに絞る -->
@@ -122,6 +121,8 @@ dotnet_diagnostic.IDE0055.severity = none  # フォーマット系は CSharpier 
 **バージョン方針**: Roslynator/Sonar は Directory.Build.props 内でハードコード。Directory.Packages.props 中央管理は今回の scope 外。
 
 **PR1 段階**: 共通化 + `.editorconfig` 導入だけで挙動不変(アナライザ PackageReference は PR3/PR4 で追加)。
+
+> **Note on `AnalysisLevel`**: 当初は PR1 で `<AnalysisLevel>latest-recommended</AnalysisLevel>` を導入する案だったが、実装時に **18 件の CA 違反**(CA1805/CA2249/CA1716/CA1875/CA1305/CA1861/CA1711)が既存コードで発生することを発見。ビルトイン CA ルールの有効化は概念的に「アナライザルール ON」と等価なので、Roslynator/Sonar と同じ PR3 に集約する。PR1 は共通化のみに徹し、`AnalysisLevel` は PR3 で追加する(§6 参照)。
 
 ## 4. CSharpier 設定
 
@@ -221,13 +222,15 @@ dotnet husky install
 
 ## 6. Roslynator 設定・除外方針
 
+**PR3 で `AnalysisLevel=latest-recommended` も同時に Directory.Build.props に追加する**(§3 Note 参照)。PR1 で先送りしたビルトイン CA ルール ~18 件(CA1805/CA2249/CA1716/CA1875/CA1305/CA1861/CA1711)も Roslynator 導入と同じサイクルでトリアージする(修正 / 局所抑止 / 恒久 disable)。
+
 **パッケージ**: `Roslynator.Analyzers`(500+ ルール、コアパック)。
 
 **Formatting.Analyzers は導入しない**(CSharpier と二重整形になるため)。
 
 **既定ポリシー**:
 - 全ルール `warning` レベル(=`-warnaserror` で自動的にエラー化)
-- **導入時点で全指摘を潰す**(PR3 のスコープ)
+- **導入時点で全指摘を潰す**(PR3 のスコープ・ビルトイン CA 分も含む)
 
 **恒久的に無効化する ID 候補**(このリポジトリ実態に合わないもの):
 

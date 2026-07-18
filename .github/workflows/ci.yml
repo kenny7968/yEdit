@@ -20,6 +20,16 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
+      # NuGet 復元キャッシュ。csproj / Directory.Build.props / .config/dotnet-tools.json のいずれかが変わったら
+      # 新規キーで再取得、それ以外の push では restore-keys 経由でヒット。純粋なパフォーマンス改善で機能影響ゼロ。
+      - name: NuGet cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Build.props', '.config/dotnet-tools.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
       - name: Local tool restore
         run: dotnet tool restore
 

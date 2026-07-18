@@ -1,0 +1,61 @@
+name: 機能要望
+description: yEdit への新機能追加・改善提案
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        既存 Issue / Pull Request に類似の提案がないか、事前に検索してください。
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 事前確認
+      options:
+        - label: 既存の Issue / PR に類似の提案がないことを確認した
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 解決したい課題 / 動機
+      description: どんな状況で困っているか、なぜこの機能が欲しいかを書いてください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 提案する挙動
+      description: どんな UI / 操作 / 結果になれば良いか、具体的に書いてください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 検討した代替案
+      description: 他に思いついた方法や、既存機能でどう回避しているかがあれば書いてください。
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影響範囲
+      description: 該当しそうな機能を選んでください (triage 用)。
+      options:
+        - エディタ本体 (入力・表示・キャレット・IME)
+        - 検索・置換
+        - grep
+        - Markdown プレビュー
+        - CSV モード
+        - バックアップ・復元
+        - 設定
+        - スクリーンリーダー対応・アクセシビリティ
+        - その他 / 不明
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 補足
+      description: 他エディタの類似機能のヘルプURL、上記に書き切れなかったことなど、あれば。

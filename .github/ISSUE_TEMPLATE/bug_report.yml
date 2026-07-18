@@ -1,0 +1,123 @@
+name: バグ報告
+description: yEdit の不具合を報告する
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        セキュリティに関する問題は公開 Issue ではなく、
+        [SECURITY.md](../blob/main/SECURITY.md) の手順で連絡してください。
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 事前確認
+      options:
+        - label: 最新版で再現することを確認した
+          required: true
+        - label: 既存 Issue に同じ報告がないことを検索した
+          required: true
+        - label: セキュリティ脆弱性ではない (該当する場合は SECURITY.md の手順に従ってください)
+          required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 概要
+      description: どんな不具合か 1〜2 行で説明してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現手順
+      description: できるだけ具体的に、番号付きで記載してください。
+      placeholder: |
+        1. yEdit を起動する
+        2. `example.md` を開く
+        3. Ctrl+F で検索ダイアログを開く
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待する挙動
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 実際の挙動
+      description: エラーダイアログが出た場合は、その文言もそのまま貼り付けてください。
+    validations:
+      required: true
+
+  - type: input
+    id: yedit-version
+    attributes:
+      label: yEdit のバージョン
+      description: ヘルプ → バージョン情報、または配布 zip のファイル名 (`yEdit-vX.Y.Z-win-x64.zip`) を確認してください。
+      placeholder: 例) v1.2.3
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Windows のバージョン
+      options:
+        - Windows 11 25H2
+        - Windows 11 24H2
+        - その他 (補足欄に記入)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: screen-reader
+    attributes:
+      label: 使用しているスクリーンリーダー
+      options:
+        - NVDA
+        - その他 (補足欄に記入)
+        - 使用していない 
+    validations:
+      required: true
+
+  - type: input
+    id: sr-version
+    attributes:
+      label: スクリーンリーダーのバージョン (使用している場合のみ)
+      placeholder: 例) 2026.1
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影響範囲
+      description: 該当しそうな機能を選んでください (triage 用)。
+      options:
+        - エディタ本体 (入力・表示・キャレット・IME)
+        - 検索・置換
+        - grep
+        - Markdown プレビュー
+        - CSV モード
+        - バックアップ・復元
+        - 設定
+        - その他 / 不明
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: ログ / クラッシュ情報
+      description: 例外メッセージやスタックトレースがあれば貼り付けてください。
+      render: text
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 補足
+      description: 関連 Issue / PR へのリンク、その他の情報があれば。

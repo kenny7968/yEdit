@@ -16,6 +16,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # ローカル絶対パス(Windows ユーザーホーム下 / 開発マシンのリポジトリドライブパス)の
+      # 混入を検出する健全性チェック。具体パターンは tools/check-no-local-paths.ps1 を参照。
+      # 早期 fail のため setup-dotnet より前に配置(dotnet 依存なし・数秒で完了)。
+      - name: ローカルパス検出
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-no-local-paths.ps1
+
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 9.0.x

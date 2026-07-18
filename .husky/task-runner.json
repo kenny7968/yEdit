@@ -7,6 +7,12 @@
          "command": "dotnet",
          "args": [ "csharpier", "format", "${staged}" ],
          "include": [ "**/*.cs" ]
+      },
+      {
+         "name": "no-local-paths",
+         "group": "pre-commit",
+         "command": "powershell",
+         "args": [ "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools/check-no-local-paths.ps1", "-Staged" ]
       }
    ]
 }

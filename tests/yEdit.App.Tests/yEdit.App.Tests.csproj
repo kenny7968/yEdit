@@ -8,8 +8,6 @@
          依存を可視化するため参照側でも明示する -->
     <UseWPF>true</UseWPF>
     <IsPackable>false</IsPackable>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
   <ItemGroup>

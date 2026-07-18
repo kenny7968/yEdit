@@ -46,7 +46,7 @@
 
 ## 2. `.editorconfig` の規約方針
 
-**基本原則**: 既存コードの実態と合わせる(初回整形の差分を最小化)。既存 = 4 space indent / CRLF / UTF-8 BOM。
+**基本原則**: 既存コードの実態と合わせる(初回整形の差分を最小化)。既存 = 4 space indent / CRLF / **UTF-8 (BOM 無しが実測)**。
 
 ```ini
 root = true
@@ -55,13 +55,13 @@ root = true
 indent_style = space
 indent_size = 4
 end_of_line = crlf
-charset = utf-8-bom
+charset = utf-8
 trim_trailing_whitespace = true
 insert_final_newline = true
 
 [*.{yml,yaml,json,md}]
 indent_size = 2
-charset = utf-8  # BOM 無し
+charset = utf-8
 
 [*.ps1]
 end_of_line = crlf
@@ -77,6 +77,8 @@ dotnet_diagnostic.IDE0055.severity = none  # フォーマット系は CSharpier 
 - `IDE0055`(書式ルール)を無効化 = Roslyn 内蔵の書式ルールと CSharpier が競合しないようにする(CSharpier 公式推奨)
 - 命名規約は Recommended まま = 独自規約を最初から強要せず、既存コードとの摩擦を最小化
 
+> **BOM を導入しない理由**: 実測で `*.cs` の 0/251 ファイルが BOM 無し。ここで `utf-8-bom` を宣言すると、以降 IDE で保存された `.cs` ファイルに BOM が付与されて履歴に無関係な差分ノイズが混入する。BOM 統一が望ましいなら PR2 とは別の専用移行 commit + `.git-blame-ignore-revs` 登録として扱う(現状スコープ外)。
+
 ## 3. `Directory.Build.props` の共通プロパティ集約
 
 各 csproj で個別定義されている共通項を 1 箇所に集約。
@@ -88,7 +90,6 @@ dotnet_diagnostic.IDE0055.severity = none  # フォーマット系は CSharpier 
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
 
-    <AnalysisLevel>latest-recommended</AnalysisLevel>
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
     <!-- IDExxxx (書式・style) は CSharpier + IDE で運用。
          ビルドでの強制はアナライザ (CAxxxx, RCSxxxx, Sxxxx) だけに絞る -->
@@ -122,6 +123,8 @@ dotnet_diagnostic.IDE0055.severity = none  # フォーマット系は CSharpier 
 **バージョン方針**: Roslynator/Sonar は Directory.Build.props 内でハードコード。Directory.Packages.props 中央管理は今回の scope 外。
 
 **PR1 段階**: 共通化 + `.editorconfig` 導入だけで挙動不変(アナライザ PackageReference は PR3/PR4 で追加)。
+
+> **Note on `AnalysisLevel`**: 当初は PR1 で `<AnalysisLevel>latest-recommended</AnalysisLevel>` を導入する案だったが、実装時に **18 件の CA 違反**(CA1805/CA2249/CA1716/CA1875/CA1305/CA1861/CA1711)が既存コードで発生することを発見。ビルトイン CA ルールの有効化は概念的に「アナライザルール ON」と等価なので、Roslynator/Sonar と同じ PR3 に集約する。PR1 は共通化のみに徹し、`AnalysisLevel` は PR3 で追加する(§6 参照)。
 
 ## 4. CSharpier 設定
 
@@ -221,13 +224,15 @@ dotnet husky install
 
 ## 6. Roslynator 設定・除外方針
 
+**PR3 で `AnalysisLevel=latest-recommended` も同時に Directory.Build.props に追加する**(§3 Note 参照)。PR1 で先送りしたビルトイン CA ルール ~18 件(CA1805/CA2249/CA1716/CA1875/CA1305/CA1861/CA1711)も Roslynator 導入と同じサイクルでトリアージする(修正 / 局所抑止 / 恒久 disable)。
+
 **パッケージ**: `Roslynator.Analyzers`(500+ ルール、コアパック)。
 
 **Formatting.Analyzers は導入しない**(CSharpier と二重整形になるため)。
 
 **既定ポリシー**:
 - 全ルール `warning` レベル(=`-warnaserror` で自動的にエラー化)
-- **導入時点で全指摘を潰す**(PR3 のスコープ)
+- **導入時点で全指摘を潰す**(PR3 のスコープ・ビルトイン CA 分も含む)
 
 **恒久的に無効化する ID 候補**(このリポジトリ実態に合わないもの):
 

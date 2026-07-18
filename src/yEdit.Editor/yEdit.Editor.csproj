@@ -2,8 +2,6 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0-windows</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
     <UseWindowsForms>true</UseWindowsForms>
     <!-- UIA イベント発火・System.Windows.Rect のため UseWPF も有効化 -->
     <UseWPF>true</UseWPF>

@@ -68,7 +68,7 @@ root = true
 indent_style = space
 indent_size = 4
 end_of_line = crlf
-charset = utf-8-bom
+charset = utf-8
 trim_trailing_whitespace = true
 insert_final_newline = true
 
@@ -106,7 +106,6 @@ Expected: 0 warning, 0 error
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
 
-    <AnalysisLevel>latest-recommended</AnalysisLevel>
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
 
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
@@ -114,7 +113,7 @@ Expected: 0 warning, 0 error
 </Project>
 ```
 
-**注意**: この段階では Roslynator/SonarAnalyzer の PackageReference は **入れない**(PR3/PR4 で追加)。
+**注意**: この段階では Roslynator/SonarAnalyzer の PackageReference と `<AnalysisLevel>latest-recommended</AnalysisLevel>` は **入れない**(PR3/PR4 で追加)。理由 = 前者は外部アナライザで新規指摘を発生させる、後者はビルトイン CA ルールを追加有効化して既存コード違反(実装時に 18 件検出: CA1805/CA2249/CA1716/CA1875/CA1305/CA1861/CA1711)が発生するため。両者とも PR1 の「挙動不変」原則と衝突する。
 
 **Step 2: build で挙動不変を確認**
 
@@ -637,13 +636,15 @@ git log --oneline -5
 
 **目的**: `Roslynator.Analyzers` を全プロジェクトに配布し、警告を全潰し(修正 or 恒久 disable + 理由コメント)して main へマージ。
 
+**Note**: 本 PR では Roslynator の追加と同時に `<AnalysisLevel>latest-recommended</AnalysisLevel>` も Directory.Build.props に追加する(PR1 実装時に発見された既存 18 件のビルトイン CA 違反 — CA1805/CA2249/CA1716/CA1875/CA1305/CA1861/CA1711 — もここで一緒にトリアージする。Roslynator RCSxxxx と同じ「修正 / 局所抑止 / 恒久 disable」フローで扱う)。
+
 **ブランチ**: `feature/lint-format-pr3-roslynator`(main から)
 
 **DoD**:
-- Directory.Build.props に `Roslynator.Analyzers` PackageReference 追加済み
+- Directory.Build.props に `Roslynator.Analyzers` PackageReference と `<AnalysisLevel>latest-recommended</AnalysisLevel>` 追加済み
 - `dotnet build -warnaserror` が 0 warning
 - 全テスト緑
-- 恒久 disable した ID は `.editorconfig` に理由コメント付きで記録
+- 恒久 disable した ID(RCSxxxx / CAxxxx いずれも)は `.editorconfig` に理由コメント付きで記録
 
 **特性**: 指摘数は事前予測不能。以下のタスクは**指摘発見 → 分類 → 対処 → 再ビルド**のループを含む。
 
@@ -654,17 +655,24 @@ git checkout main
 git checkout -b feature/lint-format-pr3-roslynator
 ```
 
-### Task 3.1: Directory.Build.props に Roslynator を追加
+### Task 3.1: Directory.Build.props に Roslynator と AnalysisLevel を追加
 
 **Files:**
 - Modify: `<repo>\Directory.Build.props`
 
-**Step 1: `<ItemGroup>` を追加**
+**Step 1: `<PropertyGroup>` に `AnalysisLevel` を追加、かつ `<ItemGroup>` を追加**
 
 ```xml
 <Project>
   <PropertyGroup>
-    <!-- ...既存... -->
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
@@ -676,7 +684,9 @@ git checkout -b feature/lint-format-pr3-roslynator
 </Project>
 ```
 
-**注意**: `Roslynator.Formatting.Analyzers` は **含めない**(CSharpier と二重整形になるため)。
+**注意**:
+- `Roslynator.Formatting.Analyzers` は **含めない**(CSharpier と二重整形になるため)。
+- `<AnalysisLevel>latest-recommended</AnalysisLevel>` は本 PR で初導入(PR1 では意図的に見送り)。**Roslynator RCSxxxx と併せて、ビルトイン CA ルール(CA1805 等)の指摘も同じフローでトリアージする**。
 
 ### Task 3.2: 初回ビルドで警告を収集
 

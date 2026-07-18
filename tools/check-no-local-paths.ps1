@@ -5,8 +5,8 @@
 #   - 本リポジトリ (yEdit) の任意 drive 絶対パス           -> <repo>          に置換
 #
 # 具体的な variant 例(いずれも検出対象):
-#   C:\Users\<name>\   C:/Users/<name>/   /c/Users/<name>/   (drive/username 自由)
-#   X:\src\yEdit       F:/src/yEdit       /x/src/yEdit       (drive 自由)
+#   X:\Users\<name>\   X:/Users/<name>/   /x/Users/<name>/   (X は任意 drive)
+#   X:\src\yEdit       X:/src/yEdit       /x/src/yEdit       (X は任意 drive)
 #
 # このスクリプト自身は regex に構造 literal (Users, yEdit 等) を含むため、
 # 走査対象から明示除外している($selfPath 参照)。
@@ -73,8 +73,8 @@ foreach ($f in $files) {
 if ($violations.Count -gt 0) {
     Write-Output ''
     Write-Output '[no-local-paths] ローカルパスが検出されました。プレースホルダに置換してください:'
-    Write-Output '  Windows/Git Bash 形式のユーザーホーム系 (C:\Users\<name>\ / C:/Users/<name>/ / /c/Users/<name>/ 等) -> %USERPROFILE%\'
-    Write-Output '  yEdit リポジトリの絶対パス (X:\src\yEdit / X:/src/yEdit / /x/src/yEdit 等)                        -> <repo>'
+    Write-Output '  Windows/Git Bash 形式のユーザーホーム系 (X:\Users\<name>\ / X:/Users/<name>/ / /x/Users/<name>/ 等・X は任意 drive) -> %USERPROFILE%\'
+    Write-Output '  yEdit リポジトリの絶対パス (X:\src\yEdit / X:/src/yEdit / /x/src/yEdit 等・X は任意 drive)                        -> <repo>'
     Write-Output ''
     $violations | ForEach-Object { Write-Output ('  ' + $_) }
     Write-Output ''

@@ -476,7 +476,7 @@ dotnet csharpier format .
 
 Expected: 大量のファイルが「Formatted」で表示される。エラー無し(ファイル毎の parse エラーがあれば止める)。
 
-> **CSharpier 1.x での注意**: 0.x の `dotnet csharpier .` は 1.x では `dotnet csharpier format .` (`format` subcommand を明示) と書く必要がある。また 1.x は **`.csproj` / `.props` 等の MSBuild XML ファイルも整形対象** になる (blank-line 削除・EOL 正規化)。`.csharpierignore` で明示除外しない限り一括整形の diff にこれらも含まれる (PR2 実測で 261 files 中 10 files が csproj/props)。
+> **CSharpier 1.x での注意**: 0.x の `dotnet csharpier .` は 1.x では `dotnet csharpier format .` (`format` subcommand を明示) と書く必要がある。また 1.x は **`.csproj` / `.props` 等の MSBuild XML ファイルも整形対象** になる (blank-line 削除・EOL 正規化)。`.csharpierignore` で明示除外しない限り一括整形の diff にこれらも含まれる (PR2 実測で 261 files 中 10 files が csproj/props。PR2 fix commit 298403a で `.csharpierignore` に `**/*.csproj` + `**/*.props` を追加し、以降の `csharpier check` は 251 files を対象とする)。
 
 **Step 3: 差分規模を確認**
 

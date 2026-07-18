@@ -360,7 +360,7 @@ Invoke-Step 'App.Tests'    { dotnet test tests/yEdit.App.Tests    -c Release --n
 ### PR2 — CSharpier + Husky + 一括整形
 
 - **追加**: `.config/dotnet-tools.json`, `.csharpierrc.json`, `.csharpierignore`, `.husky/*`
-- **変更**: `dotnet csharpier .` の実行結果(**src/tests 全ファイル**)
+- **変更**: `dotnet csharpier format .` の実行結果(**src/tests 全ファイル**)
 - **追加**: pre-merge-check.ps1 に tool restore + csharpier check ステップ
 - **追加**: `.git-blame-ignore-revs` に**一括整形の commit hash** を登録
 - **DoD**: `dotnet csharpier check .` + build + tests 全緑

@@ -12,7 +12,22 @@
 
 ---
 
-## 前提と全体順序
+## Option B pivot (2026-07-18 追記)
+
+実装着手時に判明: yEdit は **private リポジトリ + GitHub Free plan**。この組み合わせでは Environment の **protection rules (Required reviewers 等) が UI に出ず設定不可**(public repo または Pro/Team/Enterprise 以上のみ)。
+
+**判断**: 数日中に OSS 公開予定のため、**Option B** を採用:
+- **今**: release.yml に `environment: release` を宣言するだけ(protection rules 未設定の environment は no-op)
+- **public 化後**: GitHub UI で protection rules を追加 → 即座に承認ゲート発動
+
+このため、以下タスクの扱いを変更:
+- **Task 1**(Environment 作成): 実施タイミングを **public 化直後**に延期
+- **Task 4/5**(ドライラン + テストタグ後始末): protection rules がないと pending にならないため**今回スキップ**。public 化後の初回 activate 検証として実施
+- **Task 2/3/6**(release.yml 編集・commit・merge): 今回実施
+
+現行フロー(タグ push → 即 release 公開)は変わらない(no-op のため)。
+
+## 前提と全体順序 (原計画・参考)
 
 **重要**: Environment 作成 → release.yml 変更マージ の順序を厳守。逆にすると次のタグ push で `Environment not found` 失敗する。
 

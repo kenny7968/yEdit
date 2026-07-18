@@ -20,6 +20,12 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
+      - name: Local tool restore
+        run: dotnet tool restore
+
+      - name: CSharpier check
+        run: dotnet csharpier check .
+
       - name: ビルド(警告=エラー)
         run: dotnet build yEdit.sln -c Release -warnaserror
 

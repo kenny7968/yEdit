@@ -105,7 +105,8 @@ public sealed class GrepController
             folder = d.Folder;
 
         // 連打対策: 直前の実行を中止し、本実行専用の CTS を作る（破棄は本実行の finally で）。
-        _cts?.Cancel();
+        if (_cts is not null)
+            await _cts.CancelAsync();
         var cts = new CancellationTokenSource();
         _cts = cts;
         var ct = cts.Token;

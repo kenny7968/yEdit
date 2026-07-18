@@ -74,7 +74,7 @@ internal sealed class TextRangeProviderV2 : ITextRangeProvider
         }
     }
 
-    public ITextRangeProvider FindAttribute(int attributeId, object value, bool backward) => null!;
+    public ITextRangeProvider FindAttribute(int attribute, object value, bool backward) => null!;
 
     public ITextRangeProvider FindText(string text, bool backward, bool ignoreCase)
     {
@@ -93,7 +93,7 @@ internal sealed class TextRangeProviderV2 : ITextRangeProvider
         return new TextRangeProviderV2(_owner, s + idx, s + idx + text.Length);
     }
 
-    public object GetAttributeValue(int attributeId) => AutomationElement.NotSupported;
+    public object GetAttributeValue(int attribute) => AutomationElement.NotSupported;
 
     public double[] GetBoundingRectangles() => _owner.Host.GetBoundingRectangles(_start, _end);
 

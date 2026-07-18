@@ -75,7 +75,11 @@ public sealed class MainForm : Form
         );
         var quit = new ToolStripMenuItem("終了(&X)", null, (_, _) => Close());
         fileMenu.DropDownItems.AddRange(
-            new ToolStripItem[] { openUtf8, openSjis, openEuc, new ToolStripSeparator(), quit }
+            openUtf8,
+            openSjis,
+            openEuc,
+            new ToolStripSeparator(),
+            quit
         );
         menu.Items.Add(fileMenu);
 
@@ -115,19 +119,16 @@ public sealed class MainForm : Form
             _editor.Overtype = _currentOvertype;
         };
         editMenu.DropDownItems.AddRange(
-            new ToolStripItem[]
-            {
-                undo,
-                redo,
-                new ToolStripSeparator(),
-                cut,
-                copy,
-                paste,
-                new ToolStripSeparator(),
-                selectAll,
-                new ToolStripSeparator(),
-                _overtype,
-            }
+            undo,
+            redo,
+            new ToolStripSeparator(),
+            cut,
+            copy,
+            paste,
+            new ToolStripSeparator(),
+            selectAll,
+            new ToolStripSeparator(),
+            _overtype
         );
         menu.Items.Add(editMenu);
 
@@ -163,18 +164,15 @@ public sealed class MainForm : Form
             _editor.ReadOnly = _currentReadOnly;
         };
         viewMenu.DropDownItems.AddRange(
-            new ToolStripItem[]
-            {
-                _wrapOff,
-                _wrap40,
-                _wrap80,
-                new ToolStripSeparator(),
-                _showLn,
-                _showWs,
-                _hlLine,
-                new ToolStripSeparator(),
-                _readOnly,
-            }
+            _wrapOff,
+            _wrap40,
+            _wrap80,
+            new ToolStripSeparator(),
+            _showLn,
+            _showWs,
+            _hlLine,
+            new ToolStripSeparator(),
+            _readOnly
         );
         menu.Items.Add(viewMenu);
 

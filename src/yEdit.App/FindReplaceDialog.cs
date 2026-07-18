@@ -154,7 +154,7 @@ public sealed class FindReplaceDialog : Form, IFindReplaceView
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
         };
-        opts.Controls.AddRange(new Control[] { _matchCase, _wholeWord, _useRegex, _inSelection });
+        opts.Controls.AddRange(_matchCase, _wholeWord, _useRegex, _inSelection);
         root.Controls.Add(opts, 0, 2);
         root.SetColumnSpan(opts, 2);
 
@@ -163,7 +163,7 @@ public sealed class FindReplaceDialog : Form, IFindReplaceView
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
         };
-        buttons.Controls.AddRange(new Control[] { _next, _prev, _replaceOne, _replaceAll, _close });
+        buttons.Controls.AddRange(_next, _prev, _replaceOne, _replaceAll, _close);
         root.Controls.Add(buttons, 0, 3);
         root.SetColumnSpan(buttons, 2);
 

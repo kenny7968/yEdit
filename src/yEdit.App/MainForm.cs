@@ -481,7 +481,7 @@ public sealed partial class MainForm : Form
                 )
         );
 
-        menu.Items.AddRange(new ToolStripItem[] { file, edit, search, read, mode, options, help });
+        menu.Items.AddRange(file, edit, search, read, mode, options, help);
         return menu;
     }
 
@@ -504,7 +504,7 @@ public sealed partial class MainForm : Form
         var strip = new StatusStrip();
         _posLabel.Spring = true;
         _posLabel.TextAlign = ContentAlignment.MiddleLeft;
-        strip.Items.AddRange(new ToolStripItem[] { _posLabel, _encLabel, _eolLabel });
+        strip.Items.AddRange(_posLabel, _encLabel, _eolLabel);
         return strip;
     }
 

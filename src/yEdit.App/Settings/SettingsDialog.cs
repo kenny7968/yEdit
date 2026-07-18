@@ -90,7 +90,7 @@ public sealed class SettingsDialog : Form
             FlowDirection = FlowDirection.RightToLeft,
             Padding = new Padding(8),
         };
-        buttons.Controls.AddRange(new Control[] { ok, cancel });
+        buttons.Controls.AddRange(ok, cancel);
 
         // Dock.Bottom を先に Add してから Dock.Fill を Add する順で下部固定＋残り全部を実現。
         Controls.Add(buttons);

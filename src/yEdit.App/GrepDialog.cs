@@ -184,7 +184,7 @@ public sealed class GrepDialog : Form, IGrepView
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
         };
-        opts.Controls.AddRange(new Control[] { _recursive, _matchCase, _wholeWord, _useRegex });
+        opts.Controls.AddRange(_recursive, _matchCase, _wholeWord, _useRegex);
         root.Controls.Add(opts, 0, 3);
         root.SetColumnSpan(opts, 3);
 
@@ -193,7 +193,7 @@ public sealed class GrepDialog : Form, IGrepView
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
         };
-        buttons.Controls.AddRange(new Control[] { _run, _stop, _close });
+        buttons.Controls.AddRange(_run, _stop, _close);
         root.Controls.Add(buttons, 0, 4);
         root.SetColumnSpan(buttons, 3);
 

@@ -76,7 +76,7 @@ public sealed class EncodingPickDialog : Form
             TabIndex = 3,
         };
 
-        Controls.AddRange(new Control[] { label, _combo, ok, cancel });
+        Controls.AddRange(label, _combo, ok, cancel);
         AcceptButton = ok;
         CancelButton = cancel;
     }

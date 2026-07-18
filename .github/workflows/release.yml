@@ -16,6 +16,11 @@ jobs:
   release:
     runs-on: windows-latest
     timeout-minutes: 30
+    # OSS 公開後に GitHub UI 側で "release" environment に Required reviewers 等の
+    # protection rules を設定することで承認ゲート化される。private + Free plan では
+    # protection rules が使えないため現状は no-op(通常の release と同挙動)。
+    # 詳細: docs/plans/2026-07-18-release-env-approval-gate-design.md
+    environment: release
     steps:
       - uses: actions/checkout@v5
 

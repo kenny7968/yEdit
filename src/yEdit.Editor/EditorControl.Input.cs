@@ -8,7 +8,7 @@
 //   - IsInputKey(WinForms のフォーカス遷移/ダイアログ既定ボタン発火を抑止する OS レベル契約)
 //   - OffsetFromClientPoint / SegmentCountAtLine(Router のマウスハンドラから叩く座標→char 変換の
 //     内部ヘルパ・EditorControl 状態を多量に参照するので host 側にとどめる)
-// _mouseDragging / _wheelAccum の所有権は EditorControl に残す(Router は state を持たない契約)。
+// MouseDragging / _wheelAccum の所有権は EditorControl に残す(Router は state を持たない契約)。
 using yEdit.Core.Buffers;
 using yEdit.Core.Editing;
 using yEdit.Core.Layout;

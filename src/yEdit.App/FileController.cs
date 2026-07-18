@@ -241,17 +241,16 @@ public sealed class FileController
 
         // C-2 追補 I-2: 選択エンコードで表せない文字があれば警告して続行/中止を選ばせる。
         // Load 経路の HadReplacementChar 警告と対称。UTF-8(65001) は BMP+astral 全表現可でスキップ。
-        if (picked.CodePage != 65001 && !CanEncodeBuffer(doc.Editor.CurrentBuffer, newEncoding))
-        {
-            if (
-                !_prompt.OkCancel(
-                    "選択した文字コードで表せない文字が含まれています。'?' として保存されデータが失われます。続行しますか?",
-                    "文字コードの警告"
-                )
+        if (
+            picked.CodePage != 65001
+            && !CanEncodeBuffer(doc.Editor.CurrentBuffer, newEncoding)
+            && !_prompt.OkCancel(
+                "選択した文字コードで表せない文字が含まれています。'?' として保存されデータが失われます。続行しますか?",
+                "文字コードの警告"
             )
-            {
-                return false;
-            }
+        )
+        {
+            return false;
         }
 
         // 新エンコード/改行/BOM を State に反映してから WriteToPath へ(既存 WriteToPath は State を参照する)。

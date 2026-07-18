@@ -17,24 +17,19 @@ internal sealed class CaretController
     private int _caret;
     private int _anchor;
 
-    // P3 Task 6: 上下移動(Up/Down/PageUp/PageDown)で保持する desired X(px)。
-    // -1 = 未計算=次回の垂直移動時に現在キャレット位置から新規計算する(慣例値)。
-    // Left/Right/Home/End など水平方向の移動が起きたらリセット=次の垂直移動で再計算される。
-    // Task 8 以降の編集経路(挿入/削除等)でも同様に -1 リセットする(§0-6 の一貫性)。
-    private int _desiredXpx = -1;
-
     /// <summary>キャレット位置(UTF-16 文字オフセット)。</summary>
     public int Caret => _caret;
 
     /// <summary>選択アンカー(UTF-16 文字オフセット)。<c>_anchor == _caret</c> なら選択なし。</summary>
     public int Anchor => _anchor;
 
-    /// <summary>上下移動で保持する desired X(px)。-1=未計算。</summary>
-    public int DesiredXpx
-    {
-        get => _desiredXpx;
-        set => _desiredXpx = value;
-    }
+    /// <summary>
+    /// P3 Task 6: 上下移動(Up/Down/PageUp/PageDown)で保持する desired X(px)。
+    /// -1 = 未計算=次回の垂直移動時に現在キャレット位置から新規計算する(慣例値)。
+    /// Left/Right/Home/End など水平方向の移動が起きたらリセット=次の垂直移動で再計算される。
+    /// Task 8 以降の編集経路(挿入/削除等)でも同様に -1 リセットする(§0-6 の一貫性)。
+    /// </summary>
+    public int DesiredXpx { get; set; } = -1;
 
     /// <summary>現在の選択範囲(UTF-16 文字オフセット・Start &lt;= End で返す)。</summary>
     public (int Start, int End) Selection => (Math.Min(_caret, _anchor), Math.Max(_caret, _anchor));

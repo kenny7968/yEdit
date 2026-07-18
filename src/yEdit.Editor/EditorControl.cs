@@ -98,10 +98,6 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     // テキスト選択(_caretCtrl.Anchor/_caretCtrl.Caret)とは独立した装飾で、単一アクティブ。
     private SelectionRange? _cellHighlight;
 
-    // P3 Task 12: マウスドラッグ選択中フラグ(MouseDown で true・MouseUp / ボタン離した drift で false)。
-    // このフラグが立っている間だけ MouseMove がキャレット位置を更新する(=非押下時の drift 無視)。
-    private bool _mouseDragging;
-
     // P3 Task 12: ホイールデルタ蓄積(1 tick = 120)。
     // トラックパッド等の細切れ発火で 40+40+40=120 のように 1 tick を溜めるため、
     // 発火閾値 (>=120 / <=-120) に達したら SystemInformation.MouseWheelScrollLines 行送りを 1 回発動する。
@@ -278,7 +274,7 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         _scrollX = 0;
         _caretCtrl.DesiredXpx = -1;
         _cellHighlight = null; // 旧バッファのオフセット由来のセル強調は無効化
-        _mouseDragging = false; // ドラッグ選択の途中状態を破棄
+        MouseDragging = false; // ドラッグ選択の途中状態を破棄
         _wheelAccum = 0; // ホイール蓄積(1 tick = 120)をリセット
         UpdateVerticalScrollbar();
         UpdateHorizontalScrollbar();
@@ -358,14 +354,12 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     internal ICharMetrics Metrics => _metrics;
 
     // Task 3c: InputRouter の mouse 系ハンドラ(Down/Move/Up)がドラッグフラグを読み書きするため
-    // internal accessor を露出する。既存フィールド _mouseDragging はそのまま(所有権は EditorControl)。
+    // internal accessor を露出する(P3 Task 12: MouseDown で true・MouseUp / ボタン離した drift で false=
+    // このフラグが立っている間だけ MouseMove がキャレット位置を更新する=非押下時の drift 無視)。
+    // 所有権は EditorControl。PR4 C-6 (S2292) で auto-property 化=backing field は compiler 生成に集約。
     // WFO1000(Designer プロパティのシリアライゼーション警告)回避のため属性で明示的に非公開化する。
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    internal bool MouseDragging
-    {
-        get => _mouseDragging;
-        set => _mouseDragging = value;
-    }
+    internal bool MouseDragging { get; set; }
 
     // Task 3d: UiaTextHostAdapter が ComputeBoundingRectangles から ComputeCaretPoint を呼ぶための
     // named accessor (直接 internal 化した ComputeCaretPoint を呼ぶ薄いラッパ・分かりやすさのため)。
@@ -595,19 +589,15 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
                     else
                         pendingCr = true;
                 }
-                else if (b == 0x0A)
+                else if (b == 0x0A && !(targetBytes.Length == 1 && targetBytes[0] == 0x0A))
                 {
-                    if (!(targetBytes.Length == 1 && targetBytes[0] == 0x0A))
-                        return false;
+                    return false;
                 }
             }
         }
-        if (pendingCr)
-        {
-            // 全 span 走査後に残った CR は文書末尾の単独 CR。target が CR でなければ NG。
-            if (!(targetBytes.Length == 1 && targetBytes[0] == 0x0D))
-                return false;
-        }
+        // 全 span 走査後に残った CR は文書末尾の単独 CR。target が CR でなければ NG。
+        if (pendingCr && !(targetBytes.Length == 1 && targetBytes[0] == 0x0D))
+            return false;
         return true;
     }
 

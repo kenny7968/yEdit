@@ -26,8 +26,14 @@ dotnet_diagnostic.RCS1090.severity = none
 dotnet_diagnostic.RCS1029.severity = none
 
 # --- CA(ビルトイン)恒久 disable(理由付き) ---
-# プライベートフィールドの `_field` プレフィックスをプロジェクト規約として採用しているため
-# .NET 標準の識別子命名規則(アンダースコア禁止)を無効化する
+# CA1707(アンダースコア命名) を disable する主因:
+#   - テストメソッド命名 xUnit 慣例 `Method_Scenario_Expected` (最多発)
+#   - P/Invoke 定数 Win32 API 名 (WM_* / UiaRootObjectId など・ミラー命名)
+#   - プライベートフィールド `_field` プレフィックス
+#     (既定 scope=public では未検出だが将来 api_surface 拡張時のため明記)
+# narrowing 不採用:
+#   naming rule は IDE analyzer 側のみ効き CA analyzer には無効(技術的に不可能)
+#   `[SuppressMessage]` 個別付与も 800+ 件で非現実的
 dotnet_diagnostic.CA1707.severity = none
 
 # 追加 disable が必要になれば以下に追記(理由コメント必須)

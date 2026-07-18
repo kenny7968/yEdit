@@ -64,16 +64,16 @@ dotnet_diagnostic.S125.severity = suggestion
 #     interop 上で SDK ヘッダ名との 1:1 対応を保つのが慣例
 #   - rename すると Marshal 側の struct layout 認識には影響しないが、
 #     ヘッダとの grep 対応が失われて interop 保守性が低下する
-#   - PR3 で CA1707(アンダースコア命名) を P/Invoke 定数の Win32 ミラー命名
-#     (WM_* / UiaRootObjectId 等) 理由で恒久 disable した precedent と同旨
+#   - PR3 で CA1707(アンダースコア命名) 3 主因のうち "P/Invoke 定数の Win32
+#     ミラー命名(WM_* / UiaRootObjectId 等)" と同旨(interop 命名保護軸)
 dotnet_diagnostic.S101.severity = none
 
 # S127(for ループ内で counter を意図的に変更) を disable する主因:
 #   - src/yEdit.Core/Buffer/TextBufferBuilder.cs の UTF-8 decode で
 #     `for (int off = 0; off < len;) { …; off += step; }` の可変ステップループが
 #     マルチバイト境界処理の基本パターン(1〜4 byte を都度加算)
-#   - src/yEdit.Editor/EditorControl.cs の禁則処理でも同型の可変ステップ加算
-#     (grapheme cluster / surrogate pair を跨いだ前後移動)が正当ユースケース
+#   - src/yEdit.Core/Text/KinsokuFormatter.cs (:213) の禁則整形でも同型の
+#     可変ステップ加算(surrogate pair を跨いだ前進 `i += len;`)が正当ユースケース
 #   - while ループへの機械変換は初期化/継続条件/更新式の 3 点セットを
 #     散逸させ、ループ不変条件の可読性を落とす
 dotnet_diagnostic.S127.severity = none
@@ -89,8 +89,8 @@ dotnet_diagnostic.S1199.severity = none
 
 # S3358(3 段以上の入れ子 ternary) を disable する主因:
 #   - src/yEdit.Core/Buffer/TextChunk.cs / TextBufferBuilder.cs の UTF-8 decode で
-#     `b < 0x80 ? 1 : b < 0xC0 ? … : b < 0xE0 ? … : …` のように byte 範囲から
-#     続きバイト数を引くルックアップテーブル型 3-way chained ternary が定常パターン
+#     `b < 0x80 ? 1 : b < 0xE0 ? 2 : b < 0xF0 ? 3 : 4` のように UTF-8 先頭バイト
+#     の範囲から後続バイト数を引くルックアップテーブル型 3-way chained ternary が定常パターン
 #   - src/yEdit.App/MainForm.cs (accesskey 選択) / CsvController.cs (clamp) 等でも
 #     連続する範囲判定を短く畳む慣例
 #   - if/else if/else へ機械展開すると本体 1 行の代入が 4〜6 行に膨らみ、

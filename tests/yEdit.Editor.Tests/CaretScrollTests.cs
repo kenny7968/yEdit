@@ -146,7 +146,8 @@ public class CaretScrollTests
             using var c = new EditorControl();
             f.Controls.Add(c);
             _ = f.Handle;
-            c.EnsureVisibleCharRange(0, 10); // 例外なし
+            // SetSource 前でも throw せず no-op であること
+            Assert.Null(Record.Exception(() => c.EnsureVisibleCharRange(0, 10)));
         });
 
     [Fact]

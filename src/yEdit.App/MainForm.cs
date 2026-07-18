@@ -244,10 +244,14 @@ public sealed partial class MainForm : Form
         // 冪等で無害だが、既存の解放経路を尊重して二重呼び出しを増やさない)。
         // _csv は Form の Controls ツリーに載らないため明示 Dispose する(CsvCellEditor 内 TextBox の
         // リーク防止=編集中に強制終了する異常系のセーフティ)。
+        // _docs?.Dispose() は現状 no-op(内部 field は全て Control で base.Dispose が回収する)だが、
+        // 将来 DocumentManager が non-Control disposable を保持した際の silent leak 防止で明示呼び出し。
+        // Dispose は冪等契約のため二重呼び出しでも無害。
         if (disposing)
         {
             _backup?.Dispose();
             _csv?.Dispose();
+            _docs?.Dispose();
         }
         base.Dispose(disposing);
     }

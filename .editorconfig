@@ -37,3 +37,18 @@ dotnet_diagnostic.RCS1029.severity = none
 dotnet_diagnostic.CA1707.severity = none
 
 # 追加 disable が必要になれば以下に追記(理由コメント必須)
+
+# --- テストコード限定 disable(理由付き) ---
+# tests 配下のみに適用。プロダクションコードには CA ルール本則を維持する。
+[tests/**/*.cs]
+# CA1051(公開インスタンスフィールド禁止) を tests 限定で disable する主因:
+#   - Fake クラス(tests/*/Fakes/*.cs) が観測用に public field を露出する慣例
+#     (例: FakeBackupWriter.DisposeCount / DeleteAllCount 等)
+#   - property 化するとテスト側で `fake.Count++` が書けなくなり ceremony が増える
+#   - 破壊的変更ではない(テスト内部の可視性契約であって外部 API ではない)
+dotnet_diagnostic.CA1051.severity = none
+# CA1861(定数配列引数を static readonly へ) を tests 限定で disable する主因:
+#   - `Assert.Equal(new[] { ... }, actual)` のような inline test data が xUnit 慣例
+#   - 各 test method 用に static readonly field を extract すると可読性が犠牲になる
+#   - test は 1 回のみ実行される=allocation 削減のパフォーマンス便益が実質ゼロ
+dotnet_diagnostic.CA1861.severity = none

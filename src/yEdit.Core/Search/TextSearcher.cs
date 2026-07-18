@@ -52,7 +52,7 @@ public sealed class TextSearcher
     /// text 全体のヒット件数。無効なら 0。
     /// 複雑な正規表現では RegexMatchTimeoutException が送出され得る（1秒）。
     /// </summary>
-    public int Count(string text) => _regex is null ? 0 : _regex.Matches(text).Count;
+    public int Count(string text) => _regex is null ? 0 : _regex.Count(text);
 
     /// <summary>
     /// from 以降で最初のヒット（折り返しなし）。

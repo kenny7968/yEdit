@@ -1,6 +1,5 @@
 using System;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Windows.Forms;
 using Xunit;
 using yEdit.Core.Buffers;
@@ -10,12 +9,15 @@ namespace yEdit.Editor.Tests;
 
 public class EditorControlNativeSurfaceTests
 {
+    // CA1838 対応: StringBuilder パラメータではなく char[] を受ける宣言に変更。
+    // WM_GETTEXT の lParam は「LPWSTR (char buffer)」の意味論なので char[] で表現するのが
+    // 型的に正しい。テスト意図(WM_GETTEXT が空文字を返すことの検証)は不変。
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageW")]
     private static extern System.IntPtr SendMessageGetText(
         System.IntPtr hWnd,
         uint msg,
         System.IntPtr wParam,
-        StringBuilder lParam
+        [Out] char[] lParam
     );
 
     [DllImport("user32.dll", EntryPoint = "SendMessageW")]
@@ -40,9 +42,20 @@ public class EditorControlNativeSurfaceTests
             form.Controls.Add(ctrl);
             try
             {
-                var sb = new StringBuilder(1024);
-                SendMessageGetText(ctrl.Handle, WM_GETTEXT, new System.IntPtr(1024), sb);
-                Assert.Equal("", sb.ToString());
+                var buf = new char[1024];
+                var written = SendMessageGetText(
+                    ctrl.Handle,
+                    WM_GETTEXT,
+                    new System.IntPtr(1024),
+                    buf
+                );
+                // 書き込まれた文字数=0 が期待挙動(WM_GETTEXT は EditorControl で抑止済み)。
+                // 念のため NUL 終端までの文字列としても空を確認。
+                int len = Array.IndexOf(buf, '\0');
+                if (len < 0)
+                    len = buf.Length;
+                Assert.Equal(System.IntPtr.Zero, written);
+                Assert.Equal("", new string(buf, 0, len));
             }
             finally
             {

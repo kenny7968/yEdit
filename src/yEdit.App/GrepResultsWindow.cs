@@ -73,7 +73,7 @@ public sealed class GrepResultsWindow : Form, IGrepResultsView
             int cut = 200;
             if (char.IsHighSurrogate(line[cut - 1]))
                 cut--; // サロゲートペアを割らない
-            line = line.Substring(0, cut) + "…";
+            line = string.Concat(line.AsSpan(0, cut), "…");
         }
         return $"{rel} (行 {hit.LineNumber}): {line}";
     }

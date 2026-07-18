@@ -1,15 +1,15 @@
 ﻿# ローカルパスの混入を検出する健全性チェック。
 # 対象は Windows / Git Bash / 混合スラッシュを網羅する 2 系統(いずれも
 # case-insensitive):
-#   - Windows ユーザーホーム下(現ユーザー名込み)  -> %USERPROFILE%\ に置換
-#   - 本リポジトリのローカル絶対パス              -> <repo>          に置換
+#   - Windows ユーザーホーム下の任意 username を含む絶対パス -> %USERPROFILE%\ に置換
+#   - 本リポジトリ (yEdit) の任意 drive 絶対パス           -> <repo>          に置換
 #
 # 具体的な variant 例(いずれも検出対象):
-#   C:\Users\<username>\   C:/Users/<username>/   /c/Users/<username>/   (大文字小文字問わず)
-#   X:\src\yEdit     X:/src/yEdit     /x/src/yEdit     (同上)
+#   C:\Users\<name>\   C:/Users/<name>/   /c/Users/<name>/   (drive/username 自由)
+#   X:\src\yEdit       F:/src/yEdit       /x/src/yEdit       (drive 自由)
 #
-# このスクリプト自身は例示や regex に literal を含むため、走査対象から
-# 除外している($selfPath 参照)。
+# このスクリプト自身は regex に構造 literal (Users, yEdit 等) を含むため、
+# 走査対象から明示除外している($selfPath 参照)。
 #
 # 用途:
 #   pre-commit (Husky) : -Staged で `git diff --cached` 対象のみ検査
@@ -23,10 +23,11 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-# drive prefix (C:, D:, /c, /d ...) + separator (\ or /) + 対象コンポーネント。
-# case-insensitive で 6 variant(3 形式 x Users\<username> or src\yEdit)を包摂。
+# drive prefix (C:, D:, /c, /d ... 任意の英字) + separator (\ or /) + 対象コンポーネント。
+# username は [^\\/\s]+ で generic 化(区切り/空白以外の 1 文字以上)。
+# yEdit は public 情報 (=repo 名) なので literal のまま。
 $patterns = @(
-    '(?i)([a-z]:|/[a-z])[\\/]Users[\\/]<username>\b',
+    '(?i)([a-z]:|/[a-z])[\\/]Users[\\/][^\\/\s]+',
     '(?i)([a-z]:|/[a-z])[\\/]src[\\/]yEdit\b'
 )
 
@@ -49,7 +50,7 @@ if ($Staged) {
 $violations = @()
 foreach ($f in $files) {
     if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { continue }
-    # このスクリプト自身は例示のため literal を含む。走査対象外。
+    # このスクリプト自身は構造 literal を含む。走査対象外。
     if (($f -replace '\\', '/') -eq $selfPath) { continue }
     $ext = [System.IO.Path]::GetExtension($f).ToLowerInvariant()
     if ($ext -and ($textExtensions -notcontains $ext)) { continue }
@@ -72,8 +73,8 @@ foreach ($f in $files) {
 if ($violations.Count -gt 0) {
     Write-Output ''
     Write-Output '[no-local-paths] ローカルパスが検出されました。プレースホルダに置換してください:'
-    Write-Output '  Windows/Git Bash 形式のユーザーホーム系 (C:\Users\<username>\, C:/Users/<username>/, /c/Users/<username>/ 等) -> %USERPROFILE%\'
-    Write-Output '  リポジトリ絶対パス (X:\src\yEdit, X:/src/yEdit, /x/src/yEdit 等)                          -> <repo>'
+    Write-Output '  Windows/Git Bash 形式のユーザーホーム系 (C:\Users\<name>\ / C:/Users/<name>/ / /c/Users/<name>/ 等) -> %USERPROFILE%\'
+    Write-Output '  yEdit リポジトリの絶対パス (X:\src\yEdit / X:/src/yEdit / /x/src/yEdit 等)                        -> <repo>'
     Write-Output ''
     $violations | ForEach-Object { Write-Output ('  ' + $_) }
     Write-Output ''

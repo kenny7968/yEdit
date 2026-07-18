@@ -214,10 +214,7 @@ public sealed class SnapshotSearcher
                 // 次の候補=idx+1 から続けて同ウィンドウ内を探索
                 int nextStart = idx + 1;
                 if (nextStart > chunk.Length - plen)
-                {
-                    idx = -1;
                     break;
-                }
                 idx = chunk.IndexOf(pattern, nextStart, cmp);
             }
             if (chunkLen < windowSize)
@@ -255,10 +252,7 @@ public sealed class SnapshotSearcher
                 )
                     return new MatchSpan(absStart, plen);
                 if (idx == 0)
-                {
-                    idx = -1;
                     break;
-                }
                 idx = chunk.LastIndexOf(pattern, idx - 1, cmp);
             }
             if (chunkStart == 0)

@@ -174,7 +174,6 @@ public class CaretScrollTests
             {
                 c.TopLine = 0;
                 c.SetCaretCharOffset(2); // savedCaret = 2(行 0 col=2 想定)
-                var expected = c.PointFromCharOffset(2);
 
                 // 末尾行を可視化 → TopLine は動くはず・caret 位置は 2 のまま
                 int lineStart = text.LastIndexOf('\n') + 1;
@@ -188,8 +187,7 @@ public class CaretScrollTests
                 // (savedCaret=2 が可視領域から外れる=Point.Empty)なら OS キャレットは
                 // 隠し座標 (-1000, -1000) にあるはず。ここでは savedCaret が上端にあり
                 // 末尾行を可視化して行 0 も可視外になるので Point.Empty 経路を通る。
-                var actual = new System.Drawing.Point();
-                bool ok = GetCaretPos(out actual);
+                bool ok = GetCaretPos(out var actual);
                 Assert.True(ok, "GetCaretPos failed");
 
                 var expectedAfter = c.PointFromCharOffset(2);

@@ -185,7 +185,7 @@ public class TextFileServiceLoadAsBufferTests
         try
         {
             File.WriteAllBytes(path, bytes);
-            var (buf, hadRepl) = TextFileService.LoadAsBuffer(
+            var (_, hadRepl) = TextFileService.LoadAsBuffer(
                 path,
                 EncodingCatalog.Get(932),
                 hasBom: false

@@ -28,7 +28,10 @@ internal sealed class InputRouter
 {
     private readonly EditorControl _host;
     private readonly CaretController _caret;
-    private readonly IReadOnlyDictionary<Keys, Func<InputContext, KeyEventArgs, bool>> _keyMap;
+
+    // CA1859: 呼び出しごとの TryGetValue が interface dispatch を通さず直接呼べるよう
+    // concrete Dictionary<> を保持する(input routing の hot path)。
+    private readonly Dictionary<Keys, Func<InputContext, KeyEventArgs, bool>> _keyMap;
 
     public InputRouter(EditorControl host, CaretController caret)
     {
@@ -91,7 +94,7 @@ internal sealed class InputRouter
     /// 修飾 (Ctrl/Shift) と <see cref="EditorControl.ReadOnly"/> の判定は各ハンドラ内で
     /// 元 case の <c>when</c> ガードと等価に行う。
     /// </summary>
-    private static IReadOnlyDictionary<Keys, Func<InputContext, KeyEventArgs, bool>> BuildKeyMap()
+    private static Dictionary<Keys, Func<InputContext, KeyEventArgs, bool>> BuildKeyMap()
     {
         return new Dictionary<Keys, Func<InputContext, KeyEventArgs, bool>>
         {

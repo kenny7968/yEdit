@@ -117,7 +117,7 @@ public sealed class RestoreDialog : Form
         AcceptButton = restore;
     }
 
-    private IReadOnlyList<BackupRecord> CheckedRecords()
+    private List<BackupRecord> CheckedRecords()
     {
         var list = new List<BackupRecord>();
         foreach (int i in _list.CheckedIndices)

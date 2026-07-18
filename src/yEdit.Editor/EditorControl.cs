@@ -30,7 +30,11 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     // Task 10: 変換対象節(TargetConverted)用の Underline|Bold フォント。_underlineFontCache と対称に
     // ctor/ApplyAppearance で寿命同期する(GDI HFONT リーク回避=§0-6 リソース管理)。
     private Font _targetFontCache;
-    private ICharMetrics _metrics;
+
+    // CA1859: 実体は常に GdiCharMetrics(ctor / ApplyAppearance 両経路)であり、
+    // 内部の Paint hot-path から呼ばれる MeasureRun 等が interface dispatch を通らないよう concrete 型で保持する。
+    // 外部公開 (`Metrics` property) は ICharMetrics のまま (contract 不変)。
+    private GdiCharMetrics _metrics;
     private ViewportStyle _style;
     private readonly VScrollBar _vscroll;
     private readonly HScrollBar _hscroll;

@@ -32,7 +32,11 @@ public sealed partial class MainForm : Form
         TextAlign = ContentAlignment.MiddleLeft,
         AccessibleName = "通知",
     };
-    private readonly IAnnouncer _announcer; // コンストラクタで UiaAnnouncer を直接生成（下記参照）
+
+    // CA1859: 実体は常に UiaAnnouncer(65 行下 ctor で直接生成)。
+    // downstream (SearchController / GrepDialog / KinsokuFormatController 等) には
+    // 依然 IAnnouncer として渡される(implicit conversion)ため公開契約は不変。
+    private readonly UiaAnnouncer _announcer;
     private ToolStripMenuItem _recentMenu = null!; // BuildMenu で生成
     private readonly string _settingsPath;
     private AppSettings _settings = new();

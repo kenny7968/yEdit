@@ -15,7 +15,12 @@ public sealed class GrepController
     private readonly IWin32Window _owner;
     private readonly Func<GrepCallbacks, IGrepView> _viewFactory;
     private readonly Func<IGrepResultsView> _resultsFactory;
-    private readonly Func<GrepRequest, IProgress<GrepProgress>?, CancellationToken, Task<GrepOutcome>> _searchFn;
+    private readonly Func<
+        GrepRequest,
+        IProgress<GrepProgress>?,
+        CancellationToken,
+        Task<GrepOutcome>
+    > _searchFn;
     private IGrepView? _view;
     private IGrepResultsView? _resultsView;
     private CancellationTokenSource? _cts;
@@ -26,14 +31,21 @@ public sealed class GrepController
         IWin32Window owner,
         Func<GrepCallbacks, IGrepView> viewFactory,
         Func<IGrepResultsView> resultsFactory,
-        Func<GrepRequest, IProgress<GrepProgress>?, CancellationToken, Task<GrepOutcome>>? searchFn = null)
+        Func<
+            GrepRequest,
+            IProgress<GrepProgress>?,
+            CancellationToken,
+            Task<GrepOutcome>
+        >? searchFn = null
+    )
     {
         _docs = docs;
         _owner = owner;
         _viewFactory = viewFactory;
         _resultsFactory = resultsFactory;
         // 既定=現行の `await Task.Run(() => GrepService.Search(...))` と 1:1(await 位置と例外セマンティクス不変)
-        _searchFn = searchFn ?? ((req, prog, ct) => Task.Run(() => GrepService.Search(req, prog, ct)));
+        _searchFn =
+            searchFn ?? ((req, prog, ct) => Task.Run(() => GrepService.Search(req, prog, ct)));
     }
 
     /// <summary>ダイアログを開く（既定フォルダ＝アクティブ文書のフォルダ）。</summary>
@@ -41,7 +53,8 @@ public sealed class GrepController
     {
         if (_view is null || _view.IsDisposed)
             _view = _viewFactory(new GrepCallbacks(RunAsync, Cancel));
-        if (string.IsNullOrEmpty(_view.Folder)) _view.SetFolder(DefaultFolder());
+        if (string.IsNullOrEmpty(_view.Folder))
+            _view.SetFolder(DefaultFolder());
         _view.ShowAndFocus(_owner);
     }
 
@@ -53,9 +66,12 @@ public sealed class GrepController
             try
             {
                 string? dir = Path.GetDirectoryName(path);
-                if (dir is not null && dir.Length > 0) return dir;
+                if (dir is not null && dir.Length > 0)
+                    return dir;
             }
-            catch { /* 不正パスはマイドキュメントへフォールバック */ }
+            catch
+            { /* 不正パスはマイドキュメントへフォールバック */
+            }
         }
         return Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
     }
@@ -64,15 +80,29 @@ public sealed class GrepController
     internal async Task RunAsync()
     {
         var d = _view;
-        if (d is null) return;
-        if (string.IsNullOrEmpty(d.Pattern)) { d.RaiseNotification("検索文字列を入力してください"); return; }
-        if (!Directory.Exists(d.Folder)) { d.RaiseNotification("フォルダが見つかりません"); return; }
+        if (d is null)
+            return;
+        if (string.IsNullOrEmpty(d.Pattern))
+        {
+            d.RaiseNotification("検索文字列を入力してください");
+            return;
+        }
+        if (!Directory.Exists(d.Folder))
+        {
+            d.RaiseNotification("フォルダが見つかりません");
+            return;
+        }
 
         var opts = new SearchOptions(d.Pattern, d.MatchCase, d.WholeWord, d.UseRegex);
-        if (!new TextSearcher(opts).IsValid) { d.RaiseNotification("正規表現が正しくありません"); return; }
+        if (!new TextSearcher(opts).IsValid)
+        {
+            d.RaiseNotification("正規表現が正しくありません");
+            return;
+        }
 
         var req = new GrepRequest(d.Folder, d.Filter, d.Recursive, opts);
-        string pattern = d.Pattern, folder = d.Folder;
+        string pattern = d.Pattern,
+            folder = d.Folder;
 
         // 連打対策: 直前の実行を中止し、本実行専用の CTS を作る（破棄は本実行の finally で）。
         _cts?.Cancel();
@@ -82,10 +112,13 @@ public sealed class GrepController
         var progress = new Progress<GrepProgress>(p =>
         {
             // 破棄済み・後発実行に追い越された・終了中なら、古い進捗で新しい状態を上書きしない。
-            if (d.IsDisposed || !ReferenceEquals(_cts, cts) || _closing) return;
-            d.SetStatus(p.CurrentFile is null
-                ? $"{p.FilesScanned} ファイル走査・{p.HitCount} 件"
-                : $"{p.FilesScanned} ファイル走査中… {p.HitCount} 件");
+            if (d.IsDisposed || !ReferenceEquals(_cts, cts) || _closing)
+                return;
+            d.SetStatus(
+                p.CurrentFile is null
+                    ? $"{p.FilesScanned} ファイル走査・{p.HitCount} 件"
+                    : $"{p.FilesScanned} ファイル走査中… {p.HitCount} 件"
+            );
         });
 
         d.SetRunning(true);
@@ -99,7 +132,8 @@ public sealed class GrepController
             var outcome = await _searchFn(req, progress, ct);
 
             // ビュー破棄済み・後発の実行に追い越された・終了中なら UI を触らない（結果窓も出さない）。
-            if (d.IsDisposed || !ReferenceEquals(_cts, cts) || _closing) return;
+            if (d.IsDisposed || !ReferenceEquals(_cts, cts) || _closing)
+                return;
 
             ShowResults(pattern, folder, outcome);
             // ヒットがあれば結果窓のフォーカスが SR を駆動するので二重読みを避ける。ただし
@@ -120,7 +154,8 @@ public sealed class GrepController
             if (ReferenceEquals(_cts, cts))
             {
                 _cts = null;
-                if (!d.IsDisposed) d.SetRunning(false);
+                if (!d.IsDisposed)
+                    d.SetRunning(false);
             }
             cts.Dispose();
         }
@@ -129,7 +164,11 @@ public sealed class GrepController
     public void Cancel() => _cts?.Cancel();
 
     /// <summary>アプリ終了開始: 実行中の grep を中止し、以後の結果反映を抑止する。</summary>
-    public void BeginClose() { _closing = true; _cts?.Cancel(); }
+    public void BeginClose()
+    {
+        _closing = true;
+        _cts?.Cancel();
+    }
 
     /// <summary>終了がキャンセルされた場合に通常運用へ戻す。</summary>
     public void CancelClose() => _closing = false;
@@ -148,6 +187,7 @@ public sealed class GrepController
         if (_resultsView is null || _resultsView.IsDisposed)
             _resultsView = _resultsFactory();
         _resultsView.Populate(pattern, folder, outcome);
-        if (outcome.Hits.Count > 0) _resultsView.ShowResults(_owner);
+        if (outcome.Hits.Count > 0)
+            _resultsView.ShowResults(_owner);
     }
 }

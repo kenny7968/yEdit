@@ -12,7 +12,11 @@ public static class ContentSignature
         const ulong offset = 14695981039346656037UL;
         const ulong prime = 1099511628211UL;
         ulong h = offset;
-        foreach (char c in s) { h ^= c; h *= prime; }
+        foreach (char c in s)
+        {
+            h ^= c;
+            h *= prime;
+        }
         h ^= (ulong)s.Length; // 同ハッシュ・異長を分離
         h *= prime;
         return unchecked((long)h);

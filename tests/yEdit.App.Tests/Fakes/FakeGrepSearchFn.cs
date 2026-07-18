@@ -15,23 +15,33 @@ public sealed class FakeGrepSearchFn
 {
     public Queue<TaskCompletionSource<GrepOutcome>> Pending { get; } = new();
     public GrepOutcome DefaultOutcome { get; set; } = EmptyOutcome();
-    public List<(GrepRequest Request, IProgress<GrepProgress>? Progress, CancellationToken Token)> Invocations { get; } = new();
+    public List<(
+        GrepRequest Request,
+        IProgress<GrepProgress>? Progress,
+        CancellationToken Token
+    )> Invocations { get; } = new();
 
-    public Task<GrepOutcome> Invoke(GrepRequest req, IProgress<GrepProgress>? prog, CancellationToken ct)
+    public Task<GrepOutcome> Invoke(
+        GrepRequest req,
+        IProgress<GrepProgress>? prog,
+        CancellationToken ct
+    )
     {
         Invocations.Add((req, prog, ct));
         return Pending.Count > 0 ? Pending.Dequeue().Task : Task.FromResult(DefaultOutcome);
     }
 
-    public static GrepOutcome EmptyOutcome()
-        => new(Array.Empty<GrepHit>(), 0, 0, Array.Empty<GrepError>(), false);
+    public static GrepOutcome EmptyOutcome() =>
+        new(Array.Empty<GrepHit>(), 0, 0, Array.Empty<GrepError>(), false);
+
     public static GrepOutcome OutcomeWith(int hits, int errors = 0, bool cancelled = false)
     {
         var hs = new GrepHit[hits];
         for (int i = 0; i < hits; i++)
             hs[i] = new GrepHit("C:/fake/x.txt", i + 1, 1, "line", 0, 1, i);
         var es = new GrepError[errors];
-        for (int i = 0; i < errors; i++) es[i] = new GrepError("C:/fake/y.txt", "err");
+        for (int i = 0; i < errors; i++)
+            es[i] = new GrepError("C:/fake/y.txt", "err");
         return new GrepOutcome(hs, hits, hits > 0 ? 1 : 0, es, cancelled);
     }
 }

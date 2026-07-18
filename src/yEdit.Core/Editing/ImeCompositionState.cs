@@ -5,7 +5,8 @@ public readonly record struct ImeCompositionState(
     string Text,
     int CursorPos,
     byte[] Attrs,
-    int[] Clauses)
+    int[] Clauses
+)
 {
     public static ImeCompositionState Empty { get; } = new(0, "", 0, [], []);
     public bool IsActive => Text.Length > 0;
@@ -13,7 +14,8 @@ public readonly record struct ImeCompositionState(
     /// <summary>GCS_COMPATTR のバイト列をそのままコピー(未確定文字列 UTF-16 code unit ごと 1 バイト)。</summary>
     public static byte[] ParseAttrs(ReadOnlySpan<byte> src)
     {
-        if (src.Length == 0) return [];
+        if (src.Length == 0)
+            return [];
         var buf = new byte[src.Length];
         src.CopyTo(buf);
         return buf;
@@ -24,7 +26,8 @@ public readonly record struct ImeCompositionState(
     public static int[] ParseClauses(ReadOnlySpan<byte> src)
     {
         int n = src.Length / 4;
-        if (n == 0) return [];
+        if (n == 0)
+            return [];
         var buf = new int[n];
         for (int i = 0; i < n; i++)
         {
@@ -37,7 +40,8 @@ public readonly record struct ImeCompositionState(
     /// <summary>CursorPos がサロゲート pair の low 位置を指していたら high 位置にスナップ。</summary>
     public static int SnapCursorPos(string text, int cursor)
     {
-        if (cursor <= 0 || cursor >= text.Length) return Math.Clamp(cursor, 0, text.Length);
+        if (cursor <= 0 || cursor >= text.Length)
+            return Math.Clamp(cursor, 0, text.Length);
         if (char.IsLowSurrogate(text[cursor]) && char.IsHighSurrogate(text[cursor - 1]))
             return cursor - 1;
         return cursor;

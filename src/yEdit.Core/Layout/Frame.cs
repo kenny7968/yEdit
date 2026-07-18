@@ -26,10 +26,14 @@ public readonly record struct PaintColor(int Rgb, byte Alpha = 255);
 /// </summary>
 public readonly record struct PaintOp(
     PaintOpKind Kind,
-    int X, int Y, int Width, int Height,
+    int X,
+    int Y,
+    int Width,
+    int Height,
     string? Text = null,
     PaintColor Fore = default,
-    PaintColor Back = default);
+    PaintColor Back = default
+);
 
 /// <summary>
 /// 1 フレーム分の描画オペレータ列とクライアント寸法。
@@ -48,7 +52,8 @@ public sealed record ViewportStyle(
     PaintColor SelectionBack,
     PaintColor LineNumberFore,
     PaintColor HighlightOutline,
-    PaintColor WhitespaceGlyph);
+    PaintColor WhitespaceGlyph
+);
 
 /// <summary>
 /// 選択/セルハイライトの char 範囲。End は排他。<c>Start &lt;= End</c> を invariant として構築時に検証する

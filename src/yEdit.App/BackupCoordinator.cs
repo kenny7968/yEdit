@@ -28,10 +28,10 @@ public sealed class BackupCoordinator : IDisposable
     private readonly TimeProvider _clock;
     private readonly Func<IBackupWriter> _writerFactory;
     private readonly IRestorePrompt _restorePrompt;
-    private readonly IBackupTraceSink _trace;    // Task 1b: silent catch を診断可能に(既定=DebugBackupTraceSink)
-    private bool _enabled;                       // UpdateSettings で実行時に切替可能
+    private readonly IBackupTraceSink _trace; // Task 1b: silent catch を診断可能に(既定=DebugBackupTraceSink)
+    private bool _enabled; // UpdateSettings で実行時に切替可能
     private readonly System.Windows.Forms.Timer _timer = new();
-    private IBackupWriter? _writer;              // 無効時は生成しない(有効化時に factory 経由で遅延生成)
+    private IBackupWriter? _writer; // 無効時は生成しない(有効化時に factory 経由で遅延生成)
     private readonly Dictionary<Document, DocBackup> _map = new();
     private readonly ConcurrentQueue<string> _failed = new(); // 背景書込が失敗した Id(UI スレッドで回収)
     private bool _shutDown;
@@ -47,7 +47,8 @@ public sealed class BackupCoordinator : IDisposable
         Func<IBackupWriter> writerFactory,
         IRestorePrompt restorePrompt,
         string? directory = null,
-        IBackupTraceSink? traceSink = null)
+        IBackupTraceSink? traceSink = null
+    )
     {
         _docs = docs;
         _enabled = enabled;
@@ -64,7 +65,8 @@ public sealed class BackupCoordinator : IDisposable
         _timer.Interval = Math.Clamp(intervalSeconds, 5, 3600) * 1000; // 上限クランプで int オーバーフロー防止
         _timer.Tick += (_, _) => Reconcile();
         _docs.ActiveDocumentChanged += (_, _) => Reconcile();
-        if (!_enabled) return;
+        if (!_enabled)
+            return;
 
         _writer = CreateWriter();
         _timer.Start();
@@ -88,16 +90,18 @@ public sealed class BackupCoordinator : IDisposable
     /// </summary>
     public void UpdateSettings(bool enabled, int intervalSeconds)
     {
-        if (_shutDown) return;
+        if (_shutDown)
+            return;
         _timer.Interval = Math.Clamp(intervalSeconds, 5, 3600) * 1000;
-        if (enabled == _enabled) return;
+        if (enabled == _enabled)
+            return;
 
         _enabled = enabled;
         if (enabled)
         {
             _writer ??= CreateWriter();
             _timer.Start();
-            Reconcile();   // 有効化した瞬間の未保存文書を即保護(保護窓を作らない)
+            Reconcile(); // 有効化した瞬間の未保存文書を即保護(保護窓を作らない)
         }
         else
         {
@@ -112,16 +116,35 @@ public sealed class BackupCoordinator : IDisposable
     /// 次回再提案する(明示的に消すのは「すべて破棄」のみ)。
     /// confirm=false ではダイアログを出さず全件復元し、その件数を返す(ダイアログ経路は 0 を返す)。
     /// </summary>
-    public int OfferRestoreOnStartup(IWin32Window owner, Func<BackupRecord, Document> restore, bool confirm)
+    public int OfferRestoreOnStartup(
+        IWin32Window owner,
+        Func<BackupRecord, Document> restore,
+        bool confirm
+    )
     {
-        if (!_enabled) return 0;
-        try { BackupStore.SweepTempFiles(_dir); }
-        catch (Exception ex) { _trace.Warn("sweep-temp", _dir, ex); } // 残骸掃除失敗は無害・診断のため trace
+        if (!_enabled)
+            return 0;
+        try
+        {
+            BackupStore.SweepTempFiles(_dir);
+        }
+        catch (Exception ex)
+        {
+            _trace.Warn("sweep-temp", _dir, ex);
+        } // 残骸掃除失敗は無害・診断のため trace
 
         IReadOnlyList<BackupRecord> records;
-        try { records = BackupStore.LoadAll(_dir); }
-        catch (Exception ex) { _trace.Warn("load-all", _dir, ex); return 0; }
-        if (records.Count == 0) return 0;
+        try
+        {
+            records = BackupStore.LoadAll(_dir);
+        }
+        catch (Exception ex)
+        {
+            _trace.Warn("load-all", _dir, ex);
+            return 0;
+        }
+        if (records.Count == 0)
+            return 0;
 
         var ordered = records.OrderByDescending(r => r.TimestampUtc).ToList();
 
@@ -134,7 +157,12 @@ public sealed class BackupCoordinator : IDisposable
                 try
                 {
                     var doc = restore(rec);
-                    _map[doc] = new DocBackup { Id = rec.Id, LastSig = ContentSignature.Of(doc.Editor.SnapshotText), HasBackup = true };
+                    _map[doc] = new DocBackup
+                    {
+                        Id = rec.Id,
+                        LastSig = ContentSignature.Of(doc.Editor.SnapshotText),
+                        HasBackup = true,
+                    };
                     restored++;
                 }
                 catch (Exception ex)
@@ -156,7 +184,12 @@ public sealed class BackupCoordinator : IDisposable
                     {
                         var doc = restore(rec);
                         // Reconcile が先に新 Id で登録していても、ここで元 Id へ上書きして引き継ぐ。
-                        _map[doc] = new DocBackup { Id = rec.Id, LastSig = ContentSignature.Of(doc.Editor.SnapshotText), HasBackup = true };
+                        _map[doc] = new DocBackup
+                        {
+                            Id = rec.Id,
+                            LastSig = ContentSignature.Of(doc.Editor.SnapshotText),
+                            HasBackup = true,
+                        };
                     }
                     catch (Exception ex)
                     {
@@ -181,20 +214,24 @@ public sealed class BackupCoordinator : IDisposable
     /// App.Tests から直接叩けるよう internal(Timer は本番のみ)。</summary>
     internal void Reconcile()
     {
-        if (!_enabled || _shutDown) return;
+        if (!_enabled || _shutDown)
+            return;
 
         // 背景書込が失敗した文書を強制再書込対象にする(楽観更新で欠落・陳腐化しないように)。
         while (_failed.TryDequeue(out var failedId))
             foreach (var v in _map.Values)
-                if (v.Id == failedId) v.ForceWrite = true;
+                if (v.Id == failedId)
+                    v.ForceWrite = true;
 
         // 閉じた文書(map にあるが現存しない)→ バックアップ削除。
         var current = new HashSet<Document>(_docs.Documents);
         foreach (var doc in _map.Keys.ToList())
         {
-            if (current.Contains(doc)) continue;
+            if (current.Contains(doc))
+                continue;
             var gone = _map[doc];
-            if (gone.HasBackup) _writer?.Delete(gone.Id);
+            if (gone.HasBackup)
+                _writer?.Delete(gone.Id);
             _map.Remove(doc);
         }
 
@@ -210,7 +247,9 @@ public sealed class BackupCoordinator : IDisposable
             string content = modified ? doc.Editor.SnapshotText : ""; // クリーン時はスナップショット不要
             long sig = modified ? ContentSignature.Of(content) : info.LastSig;
 
-            switch (BackupPlanner.Decide(modified, sig, info.LastSig, info.HasBackup, info.ForceWrite))
+            switch (
+                BackupPlanner.Decide(modified, sig, info.LastSig, info.HasBackup, info.ForceWrite)
+            )
             {
                 case BackupAction.Write:
                     EnqueueWrite(info, doc, content);
@@ -234,7 +273,12 @@ public sealed class BackupCoordinator : IDisposable
     private void RegisterNew(Document doc)
     {
         string content = doc.Editor.SnapshotText;
-        var info = new DocBackup { Id = Guid.NewGuid().ToString("N"), LastSig = ContentSignature.Of(content), HasBackup = false };
+        var info = new DocBackup
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            LastSig = ContentSignature.Of(content),
+            HasBackup = false,
+        };
         _map[doc] = info;
         if (doc.Editor.Modified)
         {
@@ -251,15 +295,17 @@ public sealed class BackupCoordinator : IDisposable
         _writer?.Write(rec);
     }
 
-    private BackupRecord BuildRecord(string id, Document doc, string content) => new(
-        Id: id,
-        OriginalPath: doc.State.Path,
-        UntitledNumber: doc.State.UntitledNumber,
-        CodePage: doc.State.Encoding.CodePage,
-        HasBom: doc.State.HasBom,
-        LineEndingId: (int)doc.State.LineEnding,
-        Content: content,
-        TimestampUtc: _clock.GetUtcNow().UtcDateTime);
+    private BackupRecord BuildRecord(string id, Document doc, string content) =>
+        new(
+            Id: id,
+            OriginalPath: doc.State.Path,
+            UntitledNumber: doc.State.UntitledNumber,
+            CodePage: doc.State.Encoding.CodePage,
+            HasBom: doc.State.HasBom,
+            LineEndingId: (int)doc.State.LineEnding,
+            Content: content,
+            TimestampUtc: _clock.GetUtcNow().UtcDateTime
+        );
 
     /// <summary>
     /// クリーン終了: タイマー停止 → 当セッション管理分のバックアップ削除を投入 → 背景書込をドレイン。
@@ -271,11 +317,13 @@ public sealed class BackupCoordinator : IDisposable
         // ガードは _shutDown のみ: セッション途中で無効化されても、有効だった間に書いた
         // バックアップ(_map の HasBackup)をクリーン終了で削除する。一度も有効になって
         // いなければ _map は空・_writer は null で各行は無害に素通りする。
-        if (_shutDown) return;
+        if (_shutDown)
+            return;
         _shutDown = true;
         _timer.Stop();
         foreach (var info in _map.Values)
-            if (info.HasBackup) _writer?.Delete(info.Id);
+            if (info.HasBackup)
+                _writer?.Delete(info.Id);
         _writer?.Dispose(); // 保留ジョブ(削除含む)をドレイン
         _timer.Dispose();
     }
@@ -284,7 +332,8 @@ public sealed class BackupCoordinator : IDisposable
     {
         // Shutdown 済みなら timer/writer は解放済み。未経由(異常系)なら timer/writer を片付ける
         // (孤児バックアップは残し、次回起動で復元提案できるようにする)。冪等。
-        if (_shutDown) return;
+        if (_shutDown)
+            return;
         _shutDown = true;
         _timer.Stop();
         _timer.Dispose();

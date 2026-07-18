@@ -1,9 +1,9 @@
 using System;
 using System.Windows.Forms;
+using Xunit;
 using yEdit.Accessibility;
 using yEdit.Core.Buffers;
 using yEdit.Editor;
-using Xunit;
 
 namespace yEdit.Editor.Tests;
 
@@ -72,8 +72,8 @@ public class EditorControlUiaHostTests
             var buf = TextBuffer.FromString("aaa\nbbb");
             ctrl.SetSource(buf);
             IUiaTextHost host = ctrl;
-            Assert.Equal(3, host.LineEndNoBreakOf(1));   // "aaa" の後・"\n" 前
-            Assert.Equal(7, host.LineEndNoBreakOf(5));   // 末尾行
+            Assert.Equal(3, host.LineEndNoBreakOf(1)); // "aaa" の後・"\n" 前
+            Assert.Equal(7, host.LineEndNoBreakOf(5)); // 末尾行
         });
     }
 
@@ -91,11 +91,17 @@ public class EditorControlUiaHostTests
             ctrl.SetSource(buf);
             ctrl.WrapColumns = 4;
             IUiaTextHost host = ctrl;
-            int startOfMid = host.LineStartOf(6);  // caret 6 の視覚 seg 先頭
-            int startOfEnd = host.LineStartOf(9);  // caret 9 の視覚 seg 先頭
+            int startOfMid = host.LineStartOf(6); // caret 6 の視覚 seg 先頭
+            int startOfEnd = host.LineStartOf(9); // caret 9 の視覚 seg 先頭
             // 継続 seg=論理行先頭(0)ではなく視覚 seg の start
-            Assert.True(startOfMid > 0, $"expected visual seg start > 0 for mid caret, got {startOfMid}");
-            Assert.True(startOfEnd > 0, $"expected visual seg start > 0 for end caret, got {startOfEnd}");
+            Assert.True(
+                startOfMid > 0,
+                $"expected visual seg start > 0 for mid caret, got {startOfMid}"
+            );
+            Assert.True(
+                startOfEnd > 0,
+                $"expected visual seg start > 0 for end caret, got {startOfEnd}"
+            );
         });
     }
 
@@ -126,7 +132,7 @@ public class EditorControlUiaHostTests
             ctrl.WrapColumns = 4;
             IUiaTextHost host = ctrl;
             // 第 1 論理行内の継続 seg の LineEnd は次視覚 seg 先頭=改行を跨がない
-            int end = host.LineEnd(2);   // 第 1 論理行の第 1 seg 内
+            int end = host.LineEnd(2); // 第 1 論理行の第 1 seg 内
             Assert.True(end <= 10, $"continuation LineEnd should not cross break (10), got {end}");
         });
     }
@@ -139,11 +145,11 @@ public class EditorControlUiaHostTests
             using var ctrl = new EditorControl();
             var buf = TextBuffer.FromString("ab\ncd");
             ctrl.SetSource(buf);
-            ctrl.WrapColumns = 4;  // 2 文字は 1 視覚 seg に収まる=通常の論理行と同じ
+            ctrl.WrapColumns = 4; // 2 文字は 1 視覚 seg に収まる=通常の論理行と同じ
             IUiaTextHost host = ctrl;
             // 論理行末最終 seg は改行を含めて次論理行先頭を返す(既存挙動維持)
-            Assert.Equal(3, host.LineEnd(1));  // "ab" の後 = 3(改行含む)
-            Assert.Equal(5, host.LineEnd(4));  // "cd" 末尾 = TextLength
+            Assert.Equal(3, host.LineEnd(1)); // "ab" の後 = 3(改行含む)
+            Assert.Equal(5, host.LineEnd(4)); // "cd" 末尾 = TextLength
         });
     }
 
@@ -153,7 +159,7 @@ public class EditorControlUiaHostTests
         Sta.Run(() =>
         {
             using var ctrl = new EditorControl();
-            var buf = TextBuffer.FromString("aaa\nbbbbbbbbbb");   // wrap OFF なら bbb 側は 1 論理行
+            var buf = TextBuffer.FromString("aaa\nbbbbbbbbbb"); // wrap OFF なら bbb 側は 1 論理行
             ctrl.SetSource(buf);
             // WrapColumns = 0 が既定=wrap OFF
             IUiaTextHost host = ctrl;
@@ -180,15 +186,24 @@ public class EditorControlUiaHostTests
             {
                 var buf = TextBuffer.FromString("あいうえおかきくけこさしすせそたちつてと");
                 ctrl.SetSource(buf);
-                ctrl.WrapColumns = 4;   // 全角 4 col=約 64px=数 seg に分割
+                ctrl.WrapColumns = 4; // 全角 4 col=約 64px=数 seg に分割
                 IUiaTextHost host = ctrl;
                 int startMid = host.LineStartOf(10);
                 int startEnd = host.LineStartOf(18);
                 // 継続 seg=論理行頭(0)ではなく視覚 seg 先頭
-                Assert.True(startMid > 0, $"Japanese wrap mid: got {startMid}, expected visual seg start > 0");
-                Assert.True(startEnd > 0, $"Japanese wrap end: got {startEnd}, expected visual seg start > 0");
+                Assert.True(
+                    startMid > 0,
+                    $"Japanese wrap mid: got {startMid}, expected visual seg start > 0"
+                );
+                Assert.True(
+                    startEnd > 0,
+                    $"Japanese wrap end: got {startEnd}, expected visual seg start > 0"
+                );
             }
-            finally { form.Close(); }
+            finally
+            {
+                form.Close();
+            }
         });
     }
 
@@ -214,8 +229,14 @@ public class EditorControlUiaHostTests
                 Exception? ex = null;
                 var task = System.Threading.Tasks.Task.Run(() =>
                 {
-                    try { result = host.LineStartOf(6); }
-                    catch (Exception e) { ex = e; }
+                    try
+                    {
+                        result = host.LineStartOf(6);
+                    }
+                    catch (Exception e)
+                    {
+                        ex = e;
+                    }
                 });
 
                 // UI スレッドで DoEvents ループを回して Invoke を進行させる
@@ -224,11 +245,17 @@ public class EditorControlUiaHostTests
                     Application.DoEvents();
                 task.Wait(1000);
 
-                Assert.True(task.IsCompleted, "cross-thread host call must complete without deadlock");
+                Assert.True(
+                    task.IsCompleted,
+                    "cross-thread host call must complete without deadlock"
+                );
                 Assert.Null(ex);
                 Assert.NotNull(result);
             }
-            finally { form.Close(); }
+            finally
+            {
+                form.Close();
+            }
         });
     }
 
@@ -296,10 +323,13 @@ public class EditorControlUiaHostTests
             {
                 IUiaTextHost host = ctrl;
                 host.SetSelection(1, 4);
-                Application.DoEvents();   // BeginInvoke を回す
+                Application.DoEvents(); // BeginInvoke を回す
                 Assert.Equal((1, 4), host.GetSelection());
             }
-            finally { form.Close(); }
+            finally
+            {
+                form.Close();
+            }
         });
     }
 }

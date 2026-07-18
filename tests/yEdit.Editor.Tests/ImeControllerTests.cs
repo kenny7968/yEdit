@@ -17,14 +17,14 @@ public class ImeControllerTests
     {
         var host = new FakeImeOverlayHost { CanImeCompose = true };
         var caret = new CaretController();
-        caret.SetTo(3, TextBuffer.FromString("abcdef").Current);   // Caret=3
+        caret.SetTo(3, TextBuffer.FromString("abcdef").Current); // Caret=3
         var ctx = new FakeImeContext();
         var ctrl = new ImeController(() => ctx, caret, host, _ => { });
 
         ctrl.OnStartComposition();
 
-        Assert.Equal(3, ctrl.State.Start);           // _ime.Start = Caret
-        Assert.False(ctrl.IsActive);                 // Text 空 = IsActive false
+        Assert.Equal(3, ctrl.State.Start); // _ime.Start = Caret
+        Assert.False(ctrl.IsActive); // Text 空 = IsActive false
         Assert.Equal(1, host.DeleteSelectionCallCount);
         Assert.Equal(1, host.PositionCaretCallCount);
         Assert.Equal(1, host.InvalidateCallCount);
@@ -61,7 +61,7 @@ public class ImeControllerTests
         ctrl.OnComposition(NativeMethods.GCS_RESULTSTR);
 
         Assert.Equal("漢字", inserted.ToString());
-        Assert.False(ctrl.IsActive);                 // ApplyResult で Empty へ
+        Assert.False(ctrl.IsActive); // ApplyResult で Empty へ
         Assert.True(host.InvalidateCallCount >= 1);
     }
 
@@ -81,7 +81,7 @@ public class ImeControllerTests
         Assert.True(ctrl.IsActive);
         Assert.Equal("あい", ctrl.State.Text);
         Assert.Equal(2, ctrl.State.CursorPos);
-        Assert.Equal(2, ctrl.State.Start);           // 未 Active → _caret.Caret から取り直し
+        Assert.Equal(2, ctrl.State.Start); // 未 Active → _caret.Caret から取り直し
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public class ImeControllerTests
 
         ctrl.OnComposition(NativeMethods.GCS_RESULTSTR);
 
-        Assert.Equal("", inserted.ToString());       // 空文字列 = InsertConfirmedText 呼ばれず (ApplyResult 内で length > 0 ガード)
+        Assert.Equal("", inserted.ToString()); // 空文字列 = InsertConfirmedText 呼ばれず (ApplyResult 内で length > 0 ガード)
         Assert.False(ctrl.IsActive);
     }
 
@@ -125,11 +125,11 @@ public class ImeControllerTests
         ctrl.OnComposition(NativeMethods.GCS_COMPSTR | NativeMethods.GCS_RESULTSTR);
 
         // 元 hIMC == IntPtr.Zero 早期 return と等価挙動:
-        Assert.True(ctrl.IsActive);                      // state 保持 (Empty に潰されない)
-        Assert.Equal("あい", ctrl.State.Text);           // Text 保持
-        Assert.Equal(posBefore, host.PositionCaretCallCount);  // PositionCaret 発火なし
-        Assert.Equal(invBefore, host.InvalidateCallCount);     // Invalidate 発火なし
-        Assert.Empty(confirmed);                                // ApplyResult 経路も発火なし
+        Assert.True(ctrl.IsActive); // state 保持 (Empty に潰されない)
+        Assert.Equal("あい", ctrl.State.Text); // Text 保持
+        Assert.Equal(posBefore, host.PositionCaretCallCount); // PositionCaret 発火なし
+        Assert.Equal(invBefore, host.InvalidateCallCount); // Invalidate 発火なし
+        Assert.Empty(confirmed); // ApplyResult 経路も発火なし
     }
 
     [Fact]
@@ -138,12 +138,20 @@ public class ImeControllerTests
         var host = new FakeImeOverlayHost { CanImeCompose = false };
         var caret = new CaretController();
         int ctxCount = 0;
-        var ctrl = new ImeController(() => { ctxCount++; return new FakeImeContext(); },
-            caret, host, _ => { });
+        var ctrl = new ImeController(
+            () =>
+            {
+                ctxCount++;
+                return new FakeImeContext();
+            },
+            caret,
+            host,
+            _ => { }
+        );
 
         ctrl.OnComposition(NativeMethods.GCS_COMPSTR);
 
-        Assert.Equal(0, ctxCount);                   // ガードで factory 呼ばれず
+        Assert.Equal(0, ctxCount); // ガードで factory 呼ばれず
         Assert.False(ctrl.IsActive);
     }
 
@@ -167,7 +175,7 @@ public class ImeControllerTests
         Assert.True(ctx.CancelCalled);
         Assert.False(ctrl.IsActive);
         Assert.Equal(invalidateBefore + 1, host.InvalidateCallCount);
-        Assert.True(ctx.Disposed);                   // using で必ず Dispose
+        Assert.True(ctx.Disposed); // using で必ず Dispose
     }
 
     [Fact]
@@ -176,12 +184,20 @@ public class ImeControllerTests
         var host = new FakeImeOverlayHost();
         var caret = new CaretController();
         int ctxCount = 0;
-        var ctrl = new ImeController(() => { ctxCount++; return new FakeImeContext(); },
-            caret, host, _ => { });
+        var ctrl = new ImeController(
+            () =>
+            {
+                ctxCount++;
+                return new FakeImeContext();
+            },
+            caret,
+            host,
+            _ => { }
+        );
 
         ctrl.Cancel();
 
-        Assert.Equal(0, ctxCount);                   // ガードで factory 呼ばれず
+        Assert.Equal(0, ctxCount); // ガードで factory 呼ばれず
         Assert.Equal(0, host.InvalidateCallCount);
     }
 
@@ -199,7 +215,7 @@ public class ImeControllerTests
         ctrl.Complete();
 
         Assert.True(ctx.CompleteCalled);
-        Assert.False(ctx.CancelCalled);              // Cancel と混同しない
+        Assert.False(ctx.CancelCalled); // Cancel と混同しない
         Assert.False(ctrl.IsActive);
     }
 
@@ -230,8 +246,16 @@ public class ImeControllerTests
         var caret = new CaretController();
         var contexts = new List<FakeImeContext>();
         var ctrl = new ImeController(
-            () => { var c = new FakeImeContext(); contexts.Add(c); return c; },
-            caret, host, _ => { });
+            () =>
+            {
+                var c = new FakeImeContext();
+                contexts.Add(c);
+                return c;
+            },
+            caret,
+            host,
+            _ => { }
+        );
 
         // active 化のためだけに直接 __TestApplyComposition を叩く (context 消費なし)
         ctrl.__TestApplyComposition("え", 1, new byte[] { 0 }, new int[] { 0, 1 });

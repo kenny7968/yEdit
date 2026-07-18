@@ -17,19 +17,26 @@ public sealed class FileController
 
     private readonly DocumentManager _docs;
     private readonly IWin32Window _owner;
-    private readonly Func<AppSettings> _settings;   // 設定ダイアログ適用で参照が差し替わるため都度解決する
-    private readonly Action _saveSettings;          // 設定の永続化（保存失敗を致命にしない実装は呼び出し側）
-    private readonly Action _recentChanged;         // 「最近のファイル」メニューの再構築
-    private readonly Action _metaChanged;           // タイトル・ステータスの更新
+    private readonly Func<AppSettings> _settings; // 設定ダイアログ適用で参照が差し替わるため都度解決する
+    private readonly Action _saveSettings; // 設定の永続化（保存失敗を致命にしない実装は呼び出し側）
+    private readonly Action _recentChanged; // 「最近のファイル」メニューの再構築
+    private readonly Action _metaChanged; // タイトル・ステータスの更新
     private readonly Action<Document> _openedFresh; // 開く系で新規ロード成功した直後（.csv 自動モードの判定は MainForm 側）
-    private readonly IUserPrompt _prompt;              // 確認・警告の注入点（テストでは FakePrompt）
-    private readonly IFileDialogService _fileDialogs;  // ファイル系ダイアログの注入点（テストでは FakeFileDialogService）
+    private readonly IUserPrompt _prompt; // 確認・警告の注入点（テストでは FakePrompt）
+    private readonly IFileDialogService _fileDialogs; // ファイル系ダイアログの注入点（テストでは FakeFileDialogService）
     private int _untitledSeq; // 無題タブの連番（新規作成毎に増加・セッション内で再利用しない）
 
     public FileController(
-        DocumentManager docs, IWin32Window owner, Func<AppSettings> settings,
-        Action saveSettings, Action recentChanged, Action metaChanged,
-        Action<Document> openedFresh, IUserPrompt prompt, IFileDialogService fileDialogs)
+        DocumentManager docs,
+        IWin32Window owner,
+        Func<AppSettings> settings,
+        Action saveSettings,
+        Action recentChanged,
+        Action metaChanged,
+        Action<Document> openedFresh,
+        IUserPrompt prompt,
+        IFileDialogService fileDialogs
+    )
     {
         _docs = docs;
         _owner = owner;
@@ -67,7 +74,8 @@ public sealed class FileController
     public void OpenFileWithDialog()
     {
         var path = _fileDialogs.PickOpenPath(_owner);
-        if (path is null) return;
+        if (path is null)
+            return;
         TryOpenOrActivate(path);
     }
 
@@ -80,7 +88,12 @@ public sealed class FileController
     public Document? TryOpenOrActivate(string path, bool suppressAutoCsv = false)
     {
         var existing = _docs.FindByPath(path);
-        if (existing is not null) { _docs.Activate(existing); RegisterRecent(path); return existing; }
+        if (existing is not null)
+        {
+            _docs.Activate(existing);
+            RegisterRecent(path);
+            return existing;
+        }
 
         var prev = _docs.Active; // 読込失敗時に戻る先（直前のアクティブタブ）
         var doc = _docs.CreateNew();
@@ -88,11 +101,13 @@ public sealed class FileController
         {
             // 開く系（開く/最近）のみ .csv 自動モードの対象。grep ジャンプは選択＋エディタフォーカスを
             // 機能させるため suppressAutoCsv=true で抑止する（設計 2026-07-04）。
-            if (!suppressAutoCsv) _openedFresh(doc);
+            if (!suppressAutoCsv)
+                _openedFresh(doc);
             return doc;
         }
         _docs.TryClose(doc, _ => true); // 読込失敗→作りかけタブを破棄
-        if (prev is not null) _docs.Activate(prev); // 直前のアクティブへ戻す
+        if (prev is not null)
+            _docs.Activate(prev); // 直前のアクティブへ戻す
         return null;
     }
 
@@ -100,17 +115,21 @@ public sealed class FileController
     public void ReopenWithEncoding()
     {
         var doc = _docs.Active;
-        if (doc is null) return;
+        if (doc is null)
+            return;
         if (doc.State.Path is null)
         {
             _prompt.Info("ファイルを開いてから実行してください。", "yEdit");
             return;
         }
-        if (!ConfirmDiscardIfDirty(doc)) return;
+        if (!ConfirmDiscardIfDirty(doc))
+            return;
         int? picked = _fileDialogs.PickEncoding(_owner, doc.State.Encoding.CodePage);
-        if (picked is null) return;
-        if (!LoadInto(doc, doc.State.Path, forcedCodePage: picked)) return;
-        _openedFresh(doc);   // 開き直しも .csv 自動モードの対象（設計 2026-07-04）
+        if (picked is null)
+            return;
+        if (!LoadInto(doc, doc.State.Path, forcedCodePage: picked))
+            return;
+        _openedFresh(doc); // 開き直しも .csv 自動モードの対象（設計 2026-07-04）
         // CSVモード中の開き直しでは、ダイアログ閉塞時に WinForms がシンクへフォーカスを復元するため明示的に戻す。
         // 自動 CSV モードに入った場合は FocusTarget=シンク、入らなければエディタへ向く。
         doc.FocusTarget.Focus();
@@ -156,14 +175,21 @@ public sealed class FileController
             if (loaded.HadReplacementChar)
             {
                 _prompt.Warn(
-                    "このファイルには現在の文字コードで表せない文字（置換文字）が含まれています。" +
-                    "別の文字コードで開き直してください。",
-                    "文字コードの警告");
+                    "このファイルには現在の文字コードで表せない文字（置換文字）が含まれています。"
+                        + "別の文字コードで開き直してください。",
+                    "文字コードの警告"
+                );
             }
             RegisterRecent(path); // 開けたファイルを最近のファイルへ
             return true;
         }
-        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Security.SecurityException or NotSupportedException)
+        catch (Exception ex)
+            when (ex
+                    is System.IO.IOException
+                        or UnauthorizedAccessException
+                        or System.Security.SecurityException
+                        or NotSupportedException
+            )
         {
             // 想定内の入出力エラーのみ握る。NullReference 等のロジックバグは伝播させる。
             _prompt.Error($"開けませんでした: {ex.Message}", "エラー");
@@ -188,15 +214,23 @@ public sealed class FileController
     }
 
     /// <summary>指定ドキュメントを保存。Path 未確定なら SaveAs にフォールバック。</summary>
-    public bool SaveDocument(Document doc)
-        => doc.State.Path is null ? SaveAsDocument(doc) : WriteToPath(doc, doc.State.Path);
+    public bool SaveDocument(Document doc) =>
+        doc.State.Path is null ? SaveAsDocument(doc) : WriteToPath(doc, doc.State.Path);
 
     /// <summary>指定ドキュメントを名前を付けて保存。成功で State.Path/Encoding/LineEnding とラベルを更新する。</summary>
     private bool SaveAsDocument(Document doc)
     {
-        var picked = _fileDialogs.PickSaveAs(_owner,
-            new SaveAsRequest(doc.State.Path, doc.State.Encoding.CodePage, doc.State.HasBom, doc.State.LineEnding));
-        if (picked is null) return false;
+        var picked = _fileDialogs.PickSaveAs(
+            _owner,
+            new SaveAsRequest(
+                doc.State.Path,
+                doc.State.Encoding.CodePage,
+                doc.State.HasBom,
+                doc.State.LineEnding
+            )
+        );
+        if (picked is null)
+            return false;
         if (string.IsNullOrWhiteSpace(picked.Path))
         {
             _prompt.Warn("ファイル名を指定してください。", "エラー");
@@ -209,9 +243,12 @@ public sealed class FileController
         // Load 経路の HadReplacementChar 警告と対称。UTF-8(65001) は BMP+astral 全表現可でスキップ。
         if (picked.CodePage != 65001 && !CanEncodeBuffer(doc.Editor.CurrentBuffer, newEncoding))
         {
-            if (!_prompt.OkCancel(
-                "選択した文字コードで表せない文字が含まれています。'?' として保存されデータが失われます。続行しますか?",
-                "文字コードの警告"))
+            if (
+                !_prompt.OkCancel(
+                    "選択した文字コードで表せない文字が含まれています。'?' として保存されデータが失われます。続行しますか?",
+                    "文字コードの警告"
+                )
+            )
             {
                 return false;
             }
@@ -247,8 +284,11 @@ public sealed class FileController
     {
         try
         {
-            var probeEnc = Encoding.GetEncoding(encoding.CodePage,
-                EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
+            var probeEnc = Encoding.GetEncoding(
+                encoding.CodePage,
+                EncoderFallback.ExceptionFallback,
+                DecoderFallback.ExceptionFallback
+            );
             using var reader = buffer.Current.CreateReader();
             char[] buf = new char[8 * 1024];
             int n;
@@ -258,7 +298,10 @@ public sealed class FileController
             }
             return true;
         }
-        catch (EncoderFallbackException) { return false; }
+        catch (EncoderFallbackException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -285,18 +328,37 @@ public sealed class FileController
         {
             ApplyEol(doc);
             bool wasReadOnly = doc.Editor.ReadOnly;
-            if (wasReadOnly) doc.Editor.ReadOnly = false;
-            try { doc.Editor.ConvertEols(doc.Editor.EolMode); }
-            finally { if (wasReadOnly) doc.Editor.ReadOnly = true; }
+            if (wasReadOnly)
+                doc.Editor.ReadOnly = false;
+            try
+            {
+                doc.Editor.ConvertEols(doc.Editor.EolMode);
+            }
+            finally
+            {
+                if (wasReadOnly)
+                    doc.Editor.ReadOnly = true;
+            }
             // P6 Task 10: TextBuffer 版 Save に切替(SnapshotText 経由の string 全文化を回避)。
             // CurrentBuffer は SetSource 前でも空 TextBuffer を返す=null チェック不要。
-            TextFileService.Save(path, doc.Editor.CurrentBuffer, doc.State.Encoding, doc.State.HasBom);
+            TextFileService.Save(
+                path,
+                doc.Editor.CurrentBuffer,
+                doc.State.Encoding,
+                doc.State.HasBom
+            );
             doc.Editor.SetSavePoint();
             _docs.UpdateLabel(doc);
             _metaChanged();
             return true;
         }
-        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Security.SecurityException or NotSupportedException)
+        catch (Exception ex)
+            when (ex
+                    is System.IO.IOException
+                        or UnauthorizedAccessException
+                        or System.Security.SecurityException
+                        or NotSupportedException
+            )
         {
             // バグ 1+2 修正: ConvertEols が非 fast-path で新規 TextBuffer に差し替えている場合は
             // 旧バッファ参照へ戻す(fast-path 済み=同一参照ならキャレット/スクロールリセットを避けて no-op)。
@@ -317,7 +379,8 @@ public sealed class FileController
     /// </summary>
     public bool ConfirmDiscardIfDirty(Document doc)
     {
-        if (!doc.Editor.Modified) return true;
+        if (!doc.Editor.Modified)
+            return true;
         var r = _prompt.YesNoCancel($"{doc.State.DisplayName} の変更を保存しますか？", "yEdit");
         return r switch
         {
@@ -337,7 +400,8 @@ public sealed class FileController
         if (rec.OriginalPath is null)
         {
             int n = rec.UntitledNumber > 0 ? rec.UntitledNumber : ++_untitledSeq;
-            if (n > _untitledSeq) _untitledSeq = n;
+            if (n > _untitledSeq)
+                _untitledSeq = n;
             doc.State.UntitledNumber = n;
         }
         else
@@ -377,6 +441,5 @@ public sealed class FileController
     }
 
     /// <summary>doc.State.LineEnding をそのエディタの EOL モードへ反映する。</summary>
-    private static void ApplyEol(Document doc)
-        => doc.Editor.EolMode = doc.State.LineEnding;
+    private static void ApplyEol(Document doc) => doc.Editor.EolMode = doc.State.LineEnding;
 }

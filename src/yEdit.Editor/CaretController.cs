@@ -30,7 +30,11 @@ internal sealed class CaretController
     public int Anchor => _anchor;
 
     /// <summary>上下移動で保持する desired X(px)。-1=未計算。</summary>
-    public int DesiredXpx { get => _desiredXpx; set => _desiredXpx = value; }
+    public int DesiredXpx
+    {
+        get => _desiredXpx;
+        set => _desiredXpx = value;
+    }
 
     /// <summary>現在の選択範囲(UTF-16 文字オフセット・Start &lt;= End で返す)。</summary>
     public (int Start, int End) Selection => (Math.Min(_caret, _anchor), Math.Max(_caret, _anchor));
@@ -57,7 +61,8 @@ internal sealed class CaretController
     {
         int c = SnapAndClamp(newPos, snap);
         _caret = c;
-        if (!extend) _anchor = c;
+        if (!extend)
+            _anchor = c;
     }
 
     /// <summary>
@@ -81,14 +86,17 @@ internal sealed class CaretController
     /// </summary>
     public int SnapAndClamp(int offset, TextSnapshot snap)
     {
-        if (offset <= 0) return 0;
-        if (offset >= snap.CharLength) return snap.CharLength;
+        if (offset <= 0)
+            return 0;
+        if (offset >= snap.CharLength)
+            return snap.CharLength;
         // offset > 0 は前段の早期 return で保証済み
         char c = snap.GetChar(offset);
         if (char.IsLowSurrogate(c))
         {
             char prev = snap.GetChar(offset - 1);
-            if (char.IsHighSurrogate(prev)) return offset - 1;
+            if (char.IsHighSurrogate(prev))
+                return offset - 1;
         }
         return offset;
     }

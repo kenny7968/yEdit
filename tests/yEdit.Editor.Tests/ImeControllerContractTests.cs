@@ -13,28 +13,37 @@ public class ImeControllerContractTests
     {
         var ctrlType = typeof(EditorControl).Assembly.GetType("yEdit.Editor.ImeController");
         Assert.NotNull(ctrlType);
-        var ctors = ctrlType!.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        var ctors = ctrlType!.GetConstructors(
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic
+        );
         Assert.NotEmpty(ctors);
         bool hasImeContextParam = ctors.Any(c =>
-            c.GetParameters().Any(p =>
-                p.ParameterType == typeof(Func<IImeContext>) ||
-                p.ParameterType == typeof(IImeContext)));
+            c.GetParameters()
+                .Any(p =>
+                    p.ParameterType == typeof(Func<IImeContext>)
+                    || p.ParameterType == typeof(IImeContext)
+                )
+        );
         Assert.True(hasImeContextParam, "ImeController must accept IImeContext via ctor");
     }
 
     [Fact]
     public void EditorControl_ImeField_Removed()
     {
-        var f = typeof(EditorControl).GetField("_ime",
-            BindingFlags.Instance | BindingFlags.NonPublic);
+        var f = typeof(EditorControl).GetField(
+            "_ime",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
         Assert.Null(f);
     }
 
     [Fact]
     public void EditorControl_HoldsImeController_ByField()
     {
-        var f = typeof(EditorControl).GetField("_imeCtrl",
-            BindingFlags.Instance | BindingFlags.NonPublic);
+        var f = typeof(EditorControl).GetField(
+            "_imeCtrl",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
         Assert.NotNull(f);
     }
 }

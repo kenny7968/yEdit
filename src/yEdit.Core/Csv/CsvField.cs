@@ -1,7 +1,13 @@
 namespace yEdit.Core.Csv;
 
 /// <summary>セル移動の方向。</summary>
-public enum Direction { Up, Down, Left, Right }
+public enum Direction
+{
+    Up,
+    Down,
+    Left,
+    Right,
+}
 
 /// <summary>
 /// CSV の1フィールド。Start/Length は元テキスト上の UTF-16 文字スパン（引用符込み）で、

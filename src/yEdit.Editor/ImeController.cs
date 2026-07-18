@@ -49,12 +49,14 @@ internal sealed class ImeController
         Func<IImeContext> contextFactory,
         CaretController caret,
         IImeOverlayHost host,
-        Action<string> insertConfirmedText)
+        Action<string> insertConfirmedText
+    )
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _caret = caret ?? throw new ArgumentNullException(nameof(caret));
         _host = host ?? throw new ArgumentNullException(nameof(host));
-        _insertConfirmedText = insertConfirmedText ?? throw new ArgumentNullException(nameof(insertConfirmedText));
+        _insertConfirmedText =
+            insertConfirmedText ?? throw new ArgumentNullException(nameof(insertConfirmedText));
     }
 
     /// <summary>
@@ -64,7 +66,8 @@ internal sealed class ImeController
     /// </summary>
     public void OnStartComposition()
     {
-        if (!_host.CanImeCompose) return;
+        if (!_host.CanImeCompose)
+            return;
         _host.DeleteSelectionForImeStart();
         _ime = ImeCompositionState.Empty with { Start = _caret.Caret };
         _host.PositionCaret();
@@ -78,25 +81,37 @@ internal sealed class ImeController
     /// </summary>
     public void OnComposition(long gcsFlags)
     {
-        if (!_host.CanImeCompose) return;
+        if (!_host.CanImeCompose)
+            return;
         using var ctx = _contextFactory();
         // IMP-1 fixup: 元 EditorControl.Ime.cs:122 の `if (hIMC == IntPtr.Zero) return;` と bit-perfect。
         // himc==0 で ApplyComposition("", ...) / ApplyResult("") まで流すと _ime state が Empty に
         // 上書きされる (元は保持) + PositionCaret/Invalidate 副作用が漏れる=IME transient 失敗時に
         // 未確定 overlay が消えて非 IME キャレットへジャンプする退行を招く (rare edge case)。
-        if (!ctx.IsAvailable) return;
+        if (!ctx.IsAvailable)
+            return;
         if ((gcsFlags & NativeMethods.GCS_COMPSTR) != 0)
         {
             string compStr = ctx.GetCompositionString(NativeMethods.GCS_COMPSTR) ?? "";
-            byte[] attrs = (gcsFlags & NativeMethods.GCS_COMPATTR) != 0
-                ? ImeCompositionState.ParseAttrs(ctx.GetCompositionBytes(NativeMethods.GCS_COMPATTR) ?? [])
-                : [];
-            int[] clauses = (gcsFlags & NativeMethods.GCS_COMPCLAUSE) != 0
-                ? ImeCompositionState.ParseClauses(ctx.GetCompositionBytes(NativeMethods.GCS_COMPCLAUSE) ?? [])
-                : [];
-            int cursor = (gcsFlags & NativeMethods.GCS_CURSORPOS) != 0
-                ? ImeCompositionState.SnapCursorPos(compStr, ctx.GetCompositionInt(NativeMethods.GCS_CURSORPOS))
-                : 0;
+            byte[] attrs =
+                (gcsFlags & NativeMethods.GCS_COMPATTR) != 0
+                    ? ImeCompositionState.ParseAttrs(
+                        ctx.GetCompositionBytes(NativeMethods.GCS_COMPATTR) ?? []
+                    )
+                    : [];
+            int[] clauses =
+                (gcsFlags & NativeMethods.GCS_COMPCLAUSE) != 0
+                    ? ImeCompositionState.ParseClauses(
+                        ctx.GetCompositionBytes(NativeMethods.GCS_COMPCLAUSE) ?? []
+                    )
+                    : [];
+            int cursor =
+                (gcsFlags & NativeMethods.GCS_CURSORPOS) != 0
+                    ? ImeCompositionState.SnapCursorPos(
+                        compStr,
+                        ctx.GetCompositionInt(NativeMethods.GCS_CURSORPOS)
+                    )
+                    : 0;
             ApplyComposition(compStr, cursor, attrs, clauses);
         }
         if ((gcsFlags & NativeMethods.GCS_RESULTSTR) != 0)
@@ -139,7 +154,8 @@ internal sealed class ImeController
     /// </summary>
     public void Cancel()
     {
-        if (!IsActive) return;
+        if (!IsActive)
+            return;
         using (var ctx = _contextFactory())
         {
             ctx.CancelComposition();
@@ -154,7 +170,8 @@ internal sealed class ImeController
     /// </summary>
     public void Complete()
     {
-        if (!IsActive) return;
+        if (!IsActive)
+            return;
         using (var ctx = _contextFactory())
         {
             ctx.CompleteComposition();
@@ -174,26 +191,38 @@ internal sealed class ImeController
     /// </remarks>
     public void Draw(Graphics g)
     {
-        if (!_host.HasBuffer || _ime.Text.Length == 0) return;
+        if (!_host.HasBuffer || _ime.Text.Length == 0)
+            return;
         var (x, y, visible) = _host.ComputeCaretPoint(_ime.Start);
-        if (!visible) return;
+        if (!visible)
+            return;
 
         int curX = x - _host.ScrollX;
 
         // Clauses が空 or 節境界が 2 未満なら 1 節扱い (Task 9 と同挙動)
         if (_ime.Clauses.Length < 2)
         {
-            TextRenderer.DrawText(g, _ime.Text, _host.UnderlineFont, new Point(curX, y), _host.ForeColor,
-                TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+            TextRenderer.DrawText(
+                g,
+                _ime.Text,
+                _host.UnderlineFont,
+                new Point(curX, y),
+                _host.ForeColor,
+                TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix
+            );
             return;
         }
 
         for (int i = 0; i < _ime.Clauses.Length - 1; i++)
         {
-            int s = _ime.Clauses[i], e = _ime.Clauses[i + 1];
-            if (s < 0) continue;                          // 悪意/誤動作 IME の負値防御 (Task 10 M-2)
-            if (e > _ime.Text.Length) e = _ime.Text.Length;
-            if (s >= e) continue;
+            int s = _ime.Clauses[i],
+                e = _ime.Clauses[i + 1];
+            if (s < 0)
+                continue; // 悪意/誤動作 IME の負値防御 (Task 10 M-2)
+            if (e > _ime.Text.Length)
+                e = _ime.Text.Length;
+            if (s >= e)
+                continue;
             string clause = _ime.Text[s..e];
 
             // 節先頭の Attr を代表値として採用 (Attrs 長不整合防御 = Task 2 M-5)
@@ -202,20 +231,37 @@ internal sealed class ImeController
 
             // 描画フォントで測って背景 rect 幅と curX 進み幅を一致させる (Task 10 I-1)。
             Font drawFont = isTarget ? _host.TargetFont : _host.UnderlineFont;
-            Size sz = TextRenderer.MeasureText(g, clause, drawFont, new Size(int.MaxValue, int.MaxValue),
-                TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+            Size sz = TextRenderer.MeasureText(
+                g,
+                clause,
+                drawFont,
+                new Size(int.MaxValue, int.MaxValue),
+                TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix
+            );
 
             if (isTarget)
             {
                 using var brush = new SolidBrush(_host.SelectionBackColor);
                 g.FillRectangle(brush, curX, y, sz.Width, _host.LineHeightPx);
-                TextRenderer.DrawText(g, clause, drawFont, new Point(curX, y), _host.ForeColor,
-                    TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+                TextRenderer.DrawText(
+                    g,
+                    clause,
+                    drawFont,
+                    new Point(curX, y),
+                    _host.ForeColor,
+                    TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix
+                );
             }
             else
             {
-                TextRenderer.DrawText(g, clause, drawFont, new Point(curX, y), _host.ForeColor,
-                    TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+                TextRenderer.DrawText(
+                    g,
+                    clause,
+                    drawFont,
+                    new Point(curX, y),
+                    _host.ForeColor,
+                    TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix
+                );
             }
             curX += sz.Width;
         }
@@ -232,14 +278,17 @@ internal sealed class ImeController
     /// </remarks>
     public void NotifyCandidateWindow()
     {
-        if (!IsActive || !_host.HasBuffer || !_host.HasFocus) return;
+        if (!IsActive || !_host.HasBuffer || !_host.HasFocus)
+            return;
         using var ctx = _contextFactory();
         // IMP-1 fixup (対称): himc==0 で ComputeCaretPoint を呼ばずに早期 return。元
         // EditorControl.NotifyCandidateWindow の `if (hIMC == IntPtr.Zero) return;` と bit-perfect。
         // OnComposition と同じガードを揃えることで意図が明確 (SetCandidateWindow 側の no-op 吸収に頼らない)。
-        if (!ctx.IsAvailable) return;
+        if (!ctx.IsAvailable)
+            return;
         var (x, y, visible) = _host.ComputeCaretPoint(_ime.Start);
-        if (!visible) return;
+        if (!visible)
+            return;
         ctx.SetCandidateWindow(x - _host.ScrollX, y + _host.LineHeightPx);
     }
 
@@ -255,8 +304,8 @@ internal sealed class ImeController
 
     // === Test hooks (Ime.cs の __TestApply* のバッキング。実 IME を介さない状態遷移テスト用) ===
 
-    internal void __TestApplyComposition(string text, int cursorPos, byte[] attrs, int[] clauses)
-        => ApplyComposition(text, cursorPos, attrs, clauses);
+    internal void __TestApplyComposition(string text, int cursorPos, byte[] attrs, int[] clauses) =>
+        ApplyComposition(text, cursorPos, attrs, clauses);
 
     internal void __TestApplyResult(string text) => ApplyResult(text);
 
@@ -269,8 +318,9 @@ internal sealed class ImeController
     /// </summary>
     private void ApplyResult(string text)
     {
-        _ime = ImeCompositionState.Empty;   // overlay を先に外して Insert 経路と競合させない
-        if (text.Length > 0) _insertConfirmedText(text);
+        _ime = ImeCompositionState.Empty; // overlay を先に外して Insert 経路と競合させない
+        if (text.Length > 0)
+            _insertConfirmedText(text);
         _host.Invalidate();
     }
 
@@ -285,7 +335,8 @@ internal sealed class ImeController
             Text: text,
             CursorPos: cursorPos,
             Attrs: attrs,
-            Clauses: clauses);
+            Clauses: clauses
+        );
         _host.PositionCaret();
         _host.Invalidate();
     }

@@ -1,27 +1,30 @@
-using yEdit.Core.Search;
 using Xunit;
+using yEdit.Core.Search;
 
 namespace yEdit.Core.Tests.Search;
 
 public class TextSearcherTests
 {
     private static TextSearcher Make(
-        string pattern, bool matchCase = false, bool wholeWord = false, bool useRegex = false)
-        => new(new SearchOptions(pattern, matchCase, wholeWord, useRegex));
+        string pattern,
+        bool matchCase = false,
+        bool wholeWord = false,
+        bool useRegex = false
+    ) => new(new SearchOptions(pattern, matchCase, wholeWord, useRegex));
 
     // ----- Count（照合件数） -----
 
     [Fact]
-    public void Count_literal_is_case_insensitive_by_default()
-        => Assert.Equal(3, Make("ab").Count("ab AB Ab xy"));
+    public void Count_literal_is_case_insensitive_by_default() =>
+        Assert.Equal(3, Make("ab").Count("ab AB Ab xy"));
 
     [Fact]
-    public void Count_with_match_case_distinguishes()
-        => Assert.Equal(1, Make("ab", matchCase: true).Count("ab AB Ab xy"));
+    public void Count_with_match_case_distinguishes() =>
+        Assert.Equal(1, Make("ab", matchCase: true).Count("ab AB Ab xy"));
 
     [Fact]
-    public void Count_whole_word_excludes_substrings()
-        => Assert.Equal(2, Make("cat", wholeWord: true).Count("cat category cat-dog"));
+    public void Count_whole_word_excludes_substrings() =>
+        Assert.Equal(2, Make("cat", wholeWord: true).Count("cat category cat-dog"));
 
     [Fact]
     public void Count_literal_treats_meta_chars_literally()
@@ -75,8 +78,8 @@ public class TextSearcherTests
     }
 
     [Fact]
-    public void FindNext_clamps_negative_from_to_zero()
-        => Assert.Equal(new MatchSpan(0, 2), Make("ab").FindNext("ab ab", -5));
+    public void FindNext_clamps_negative_from_to_zero() =>
+        Assert.Equal(new MatchSpan(0, 2), Make("ab").FindNext("ab ab", -5));
 
     // ----- FindPrev（厳密前・折り返しなし） -----
 
@@ -89,28 +92,28 @@ public class TextSearcherTests
     }
 
     [Fact]
-    public void FindPrev_is_strict_and_excludes_hit_at_before()
-        => Assert.Equal(new MatchSpan(0, 2), Make("ab").FindPrev("ab ab ab", 3));
+    public void FindPrev_is_strict_and_excludes_hit_at_before() =>
+        Assert.Equal(new MatchSpan(0, 2), Make("ab").FindPrev("ab ab ab", 3));
 
     [Fact]
-    public void FindPrev_returns_null_when_no_hit_before()
-        => Assert.Null(Make("ab").FindPrev("ab ab ab", 0));
+    public void FindPrev_returns_null_when_no_hit_before() =>
+        Assert.Null(Make("ab").FindPrev("ab ab ab", 0));
 
     // ----- CJK オフセットは UTF-16 文字位置 -----
 
     [Fact]
-    public void Offsets_are_utf16_char_positions_for_cjk()
-        => Assert.Equal(new MatchSpan(5, 2), Make("世界").FindNext("こんにちは世界", 0));
+    public void Offsets_are_utf16_char_positions_for_cjk() =>
+        Assert.Equal(new MatchSpan(5, 2), Make("世界").FindNext("こんにちは世界", 0));
 
     // ----- Locate（何件目か・1始まり） -----
 
     [Fact]
-    public void Locate_returns_one_based_ordinal_and_total()
-        => Assert.Equal((2, 3), Make("ab").Locate("ab ab ab", new MatchSpan(3, 2)));
+    public void Locate_returns_one_based_ordinal_and_total() =>
+        Assert.Equal((2, 3), Make("ab").Locate("ab ab ab", new MatchSpan(3, 2)));
 
     [Fact]
-    public void Locate_returns_null_when_span_is_not_a_hit()
-        => Assert.Null(Make("ab").Locate("ab ab ab", new MatchSpan(1, 2)));
+    public void Locate_returns_null_when_span_is_not_a_hit() =>
+        Assert.Null(Make("ab").Locate("ab ab ab", new MatchSpan(1, 2)));
 
     // ----- ReplacementAt（当該ヒットの置換後文字列） -----
 
@@ -130,8 +133,8 @@ public class TextSearcherTests
     }
 
     [Fact]
-    public void ReplacementAt_returns_null_when_span_is_not_a_hit()
-        => Assert.Null(Make("ab").ReplacementAt("ab", new MatchSpan(1, 1), "X"));
+    public void ReplacementAt_returns_null_when_span_is_not_a_hit() =>
+        Assert.Null(Make("ab").ReplacementAt("ab", new MatchSpan(1, 1), "X"));
 
     // ----- ReplaceAll（全文置換） -----
 
@@ -217,12 +220,10 @@ public class TextSearcherTests
     // ----- 端点・値の契約 -----
 
     [Fact]
-    public void FindNext_at_exact_end_returns_null()
-        => Assert.Null(Make("ab").FindNext("ab", 2));
+    public void FindNext_at_exact_end_returns_null() => Assert.Null(Make("ab").FindNext("ab", 2));
 
     [Fact]
-    public void MatchSpan_End_is_start_plus_length()
-        => Assert.Equal(7, new MatchSpan(5, 2).End);
+    public void MatchSpan_End_is_start_plus_length() => Assert.Equal(7, new MatchSpan(5, 2).End);
 
     // ----- サロゲートペア（astral 文字, I-1） -----
 

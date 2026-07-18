@@ -12,7 +12,12 @@ namespace yEdit.App;
 public sealed class GrepResultsWindow : Form, IGrepResultsView
 {
     private readonly GrepResultsCallbacks _cb;
-    private readonly ListBox _list = new() { Dock = DockStyle.Fill, IntegralHeight = false, HorizontalScrollbar = true };
+    private readonly ListBox _list = new()
+    {
+        Dock = DockStyle.Fill,
+        IntegralHeight = false,
+        HorizontalScrollbar = true,
+    };
     private string _baseFolder = "";
 
     public GrepResultsWindow(GrepResultsCallbacks callbacks)
@@ -38,19 +43,23 @@ public sealed class GrepResultsWindow : Form, IGrepResultsView
         foreach (var hit in outcome.Hits)
             _list.Items.Add(new Row(hit, Format(hit)));
         _list.EndUpdate();
-        if (_list.Items.Count > 0) _list.SelectedIndex = 0;
+        if (_list.Items.Count > 0)
+            _list.SelectedIndex = 0;
 
         string suffix = outcome.Cancelled ? "（中断）" : "";
-        if (outcome.Errors.Count > 0) suffix += $"（読み取り不可 {outcome.Errors.Count} 件）";
-        Text = outcome.Hits.Count == 0
-            ? $"grep: \"{pattern}\" — 見つかりません{suffix}"
-            : $"grep: \"{pattern}\" — {outcome.Hits.Count} 行 / {outcome.FilesMatched} ファイル{suffix}";
+        if (outcome.Errors.Count > 0)
+            suffix += $"（読み取り不可 {outcome.Errors.Count} 件）";
+        Text =
+            outcome.Hits.Count == 0
+                ? $"grep: \"{pattern}\" — 見つかりません{suffix}"
+                : $"grep: \"{pattern}\" — {outcome.Hits.Count} 行 / {outcome.FilesMatched} ファイル{suffix}";
     }
 
     /// <summary>窓を前面に出して結果リストへフォーカスする（SR が先頭ヒットを読む）。</summary>
     public void ShowResults(IWin32Window owner)
     {
-        if (!Visible) Show(owner);
+        if (!Visible)
+            Show(owner);
         Activate();
         _list.Focus();
     }
@@ -62,7 +71,8 @@ public sealed class GrepResultsWindow : Form, IGrepResultsView
         if (line.Length > 200)
         {
             int cut = 200;
-            if (char.IsHighSurrogate(line[cut - 1])) cut--; // サロゲートペアを割らない
+            if (char.IsHighSurrogate(line[cut - 1]))
+                cut--; // サロゲートペアを割らない
             line = line.Substring(0, cut) + "…";
         }
         return $"{rel} (行 {hit.LineNumber}): {line}";
@@ -70,21 +80,32 @@ public sealed class GrepResultsWindow : Form, IGrepResultsView
 
     private string RelativePath(string full)
     {
-        try { return Path.GetRelativePath(_baseFolder, full); }
-        catch { return full; }
+        try
+        {
+            return Path.GetRelativePath(_baseFolder, full);
+        }
+        catch
+        {
+            return full;
+        }
     }
 
     private void ActivateSelected()
     {
-        if (_list.SelectedItem is Row row) _cb.OnActivate(row.Hit);
+        if (_list.SelectedItem is Row row)
+            _cb.OnActivate(row.Hit);
     }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         switch (keyData)
         {
-            case Keys.Enter when _list.Focused: ActivateSelected(); return true;
-            case Keys.Escape: Hide(); return true;
+            case Keys.Enter when _list.Focused:
+                ActivateSelected();
+                return true;
+            case Keys.Escape:
+                Hide();
+                return true;
         }
         return base.ProcessCmdKey(ref msg, keyData);
     }
@@ -92,7 +113,12 @@ public sealed class GrepResultsWindow : Form, IGrepResultsView
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         // モードレスで再利用するため、ユーザーのクローズは破棄せず隠す。
-        if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); return; }
+        if (e.CloseReason == CloseReason.UserClosing)
+        {
+            e.Cancel = true;
+            Hide();
+            return;
+        }
         base.OnFormClosing(e);
     }
 

@@ -40,8 +40,10 @@ public class ClipboardTests
 
     private static void SendKey(EditorControl c, Keys keyData)
     {
-        var mi = typeof(EditorControl).GetMethod("OnKeyDown",
-            BindingFlags.Instance | BindingFlags.NonPublic);
+        var mi = typeof(EditorControl).GetMethod(
+            "OnKeyDown",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
         mi!.Invoke(c, new object[] { new KeyEventArgs(keyData) });
     }
 
@@ -56,7 +58,10 @@ public class ClipboardTests
     /// 数十 ms で通る・単発読み一致だけを終了条件にすると「1 回目 OK・2 回目空」の瞬間で
     /// 抜けてしまい後続の Paste で読み損ねるため連続一致条件を採用)。
     /// </summary>
-    private static void SetClipboardTextAndWait(string text, TextDataFormat format = TextDataFormat.UnicodeText)
+    private static void SetClipboardTextAndWait(
+        string text,
+        TextDataFormat format = TextDataFormat.UnicodeText
+    )
     {
         Clipboard.SetText(text, format);
         // 3 回連続で期待値を読めるまで待つ(単発読みでは OS の delayed rendering / WM_CLIPBOARDUPDATE
@@ -64,11 +69,12 @@ public class ClipboardTests
         int streak = 0;
         for (int i = 0; i < 30; i++)
         {
-            Application.DoEvents();   // 短命 STA スレッドのメッセージキューを空にする
+            Application.DoEvents(); // 短命 STA スレッドのメッセージキューを空にする
             if (Clipboard.ContainsText(format) && Clipboard.GetText(format) == text)
             {
                 streak++;
-                if (streak >= 3) return;
+                if (streak >= 3)
+                    return;
             }
             else
             {
@@ -88,7 +94,9 @@ public class ClipboardTests
     /// 空でない値が読めた時点で return する。全て空だった場合は最後に読んだ値(=空文字列)を返して
     /// 呼び出し側の Assert に判定を委ねる。
     /// </summary>
-    private static string GetClipboardTextWithRetry(TextDataFormat format = TextDataFormat.UnicodeText)
+    private static string GetClipboardTextWithRetry(
+        TextDataFormat format = TextDataFormat.UnicodeText
+    )
     {
         string last = string.Empty;
         for (int i = 0; i < 30; i++)
@@ -97,7 +105,8 @@ public class ClipboardTests
             if (Clipboard.ContainsText(format))
             {
                 last = Clipboard.GetText(format);
-                if (!string.IsNullOrEmpty(last)) return last;
+                if (!string.IsNullOrEmpty(last))
+                    return last;
             }
             Thread.Sleep(10);
         }
@@ -107,258 +116,294 @@ public class ClipboardTests
     // ===== Copy =====
 
     [Fact]
-    public void Copy_PutsSelectedText_OnClipboard() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("hello");
-        using (f) using (c)
+    public void Copy_PutsSelectedText_OnClipboard() =>
+        Sta.Run(() =>
         {
-            c.SetSelectionCharRange(1, 4);
-            c.Copy();
-            Assert.Equal("ell", GetClipboardTextWithRetry());
-            Assert.Equal("hello", c.GetText());   // Copy は本文不変
-        }
-    });
+            var (f, c) = MakeControl("hello");
+            using (f)
+            using (c)
+            {
+                c.SetSelectionCharRange(1, 4);
+                c.Copy();
+                Assert.Equal("ell", GetClipboardTextWithRetry());
+                Assert.Equal("hello", c.GetText()); // Copy は本文不変
+            }
+        });
 
     [Fact]
-    public void Copy_NoSelection_NoOp() => Sta.Run(() =>
-    {
-        SetClipboardTextAndWait("SENTINEL");   // sanity(反映確定を待つ)
-        var (f, c) = MakeControl("hello");
-        using (f) using (c)
+    public void Copy_NoSelection_NoOp() =>
+        Sta.Run(() =>
         {
-            c.SetCaretCharOffset(2);
-            c.Copy();
-            // Clipboard 内容が SENTINEL のまま(=Copy が触っていない)
-            Assert.Equal("SENTINEL", Clipboard.GetText(TextDataFormat.UnicodeText));
-        }
-    });
+            SetClipboardTextAndWait("SENTINEL"); // sanity(反映確定を待つ)
+            var (f, c) = MakeControl("hello");
+            using (f)
+            using (c)
+            {
+                c.SetCaretCharOffset(2);
+                c.Copy();
+                // Clipboard 内容が SENTINEL のまま(=Copy が触っていない)
+                Assert.Equal("SENTINEL", Clipboard.GetText(TextDataFormat.UnicodeText));
+            }
+        });
 
     // ===== Cut =====
 
     [Fact]
-    public void Cut_RemovesSelection_AndPutsOnClipboard() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("hello");
-        using (f) using (c)
+    public void Cut_RemovesSelection_AndPutsOnClipboard() =>
+        Sta.Run(() =>
         {
-            c.SetSelectionCharRange(1, 4);
-            c.Cut();
-            Assert.Equal("ell", GetClipboardTextWithRetry());
-            Assert.Equal("ho", c.GetText());
-            Assert.Equal(1, c.CaretCharOffset);
-        }
-    });
+            var (f, c) = MakeControl("hello");
+            using (f)
+            using (c)
+            {
+                c.SetSelectionCharRange(1, 4);
+                c.Cut();
+                Assert.Equal("ell", GetClipboardTextWithRetry());
+                Assert.Equal("ho", c.GetText());
+                Assert.Equal(1, c.CaretCharOffset);
+            }
+        });
 
     [Fact]
-    public void Cut_ReadOnly_NoOp() => Sta.Run(() =>
-    {
-        SetClipboardTextAndWait("SENTINEL");
-        var (f, c) = MakeControl("hello");
-        using (f) using (c)
+    public void Cut_ReadOnly_NoOp() =>
+        Sta.Run(() =>
         {
-            c.SetSelectionCharRange(1, 4);
-            c.ReadOnly = true;
-            c.Cut();
-            Assert.Equal("SENTINEL", Clipboard.GetText(TextDataFormat.UnicodeText));
-            Assert.Equal("hello", c.GetText());
-        }
-    });
+            SetClipboardTextAndWait("SENTINEL");
+            var (f, c) = MakeControl("hello");
+            using (f)
+            using (c)
+            {
+                c.SetSelectionCharRange(1, 4);
+                c.ReadOnly = true;
+                c.Cut();
+                Assert.Equal("SENTINEL", Clipboard.GetText(TextDataFormat.UnicodeText));
+                Assert.Equal("hello", c.GetText());
+            }
+        });
 
     [Fact]
-    public void Cut_NoSelection_NoOp() => Sta.Run(() =>
-    {
-        // 選択なしでの Cut は本文・キャレット・クリップボードすべて不変
-        // (Copy_NoSelection_NoOp と対で S-2 レビュー対応: 選択なし時の Cut が
-        //  誤って全文/カレント行等を切り取る退行を検知するため)
-        SetClipboardTextAndWait("SENTINEL");
-        var (f, c) = MakeControl("hello");
-        using (f) using (c)
+    public void Cut_NoSelection_NoOp() =>
+        Sta.Run(() =>
         {
-            c.SetCaretCharOffset(2);
-            c.Cut();
-            Assert.Equal("SENTINEL", Clipboard.GetText(TextDataFormat.UnicodeText));
-            Assert.Equal("hello", c.GetText());
-            Assert.Equal(2, c.CaretCharOffset);
-        }
-    });
+            // 選択なしでの Cut は本文・キャレット・クリップボードすべて不変
+            // (Copy_NoSelection_NoOp と対で S-2 レビュー対応: 選択なし時の Cut が
+            //  誤って全文/カレント行等を切り取る退行を検知するため)
+            SetClipboardTextAndWait("SENTINEL");
+            var (f, c) = MakeControl("hello");
+            using (f)
+            using (c)
+            {
+                c.SetCaretCharOffset(2);
+                c.Cut();
+                Assert.Equal("SENTINEL", Clipboard.GetText(TextDataFormat.UnicodeText));
+                Assert.Equal("hello", c.GetText());
+                Assert.Equal(2, c.CaretCharOffset);
+            }
+        });
 
     // ===== Paste =====
 
     [Fact]
-    public void Paste_InsertsClipboardAtCaret() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("hello");
-        using (f) using (c)
+    public void Paste_InsertsClipboardAtCaret() =>
+        Sta.Run(() =>
         {
-            SetClipboardTextAndWait("XY");
-            c.SetCaretCharOffset(2);
-            c.Paste();
-            Assert.Equal("heXYllo", c.GetText());
-            Assert.Equal(4, c.CaretCharOffset);
-        }
-    });
+            var (f, c) = MakeControl("hello");
+            using (f)
+            using (c)
+            {
+                SetClipboardTextAndWait("XY");
+                c.SetCaretCharOffset(2);
+                c.Paste();
+                Assert.Equal("heXYllo", c.GetText());
+                Assert.Equal(4, c.CaretCharOffset);
+            }
+        });
 
     [Fact]
-    public void Paste_ReplacesSelection() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("hello");
-        using (f) using (c)
+    public void Paste_ReplacesSelection() =>
+        Sta.Run(() =>
         {
-            SetClipboardTextAndWait("XY");
-            c.SetSelectionCharRange(1, 4);
-            c.Paste();
-            Assert.Equal("hXYo", c.GetText());
-            Assert.Equal(3, c.CaretCharOffset);
-        }
-    });
+            var (f, c) = MakeControl("hello");
+            using (f)
+            using (c)
+            {
+                SetClipboardTextAndWait("XY");
+                c.SetSelectionCharRange(1, 4);
+                c.Paste();
+                Assert.Equal("hXYo", c.GetText());
+                Assert.Equal(3, c.CaretCharOffset);
+            }
+        });
 
     [Fact]
-    public void Paste_ReadOnly_NoOp() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("hello");
-        using (f) using (c)
+    public void Paste_ReadOnly_NoOp() =>
+        Sta.Run(() =>
         {
-            SetClipboardTextAndWait("XY");
-            c.ReadOnly = true;
-            c.SetCaretCharOffset(2);
-            c.Paste();
-            Assert.Equal("hello", c.GetText());
-        }
-    });
+            var (f, c) = MakeControl("hello");
+            using (f)
+            using (c)
+            {
+                SetClipboardTextAndWait("XY");
+                c.ReadOnly = true;
+                c.SetCaretCharOffset(2);
+                c.Paste();
+                Assert.Equal("hello", c.GetText());
+            }
+        });
 
     [Fact]
-    public void Paste_EmptyClipboard_NoOp() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("hello");
-        using (f) using (c)
+    public void Paste_EmptyClipboard_NoOp() =>
+        Sta.Run(() =>
         {
-            Clipboard.Clear();
-            c.SetCaretCharOffset(2);
-            c.Paste();
-            Assert.Equal("hello", c.GetText());
-        }
-    });
+            var (f, c) = MakeControl("hello");
+            using (f)
+            using (c)
+            {
+                Clipboard.Clear();
+                c.SetCaretCharOffset(2);
+                c.Paste();
+                Assert.Equal("hello", c.GetText());
+            }
+        });
 
     // ===== SelectAll =====
 
     [Fact]
-    public void SelectAll_SelectsWholeDocument() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("hello");
-        using (f) using (c)
+    public void SelectAll_SelectsWholeDocument() =>
+        Sta.Run(() =>
         {
-            c.SelectAll();
-            Assert.Equal((0, 5), c.GetSelectionCharRange());
-        }
-    });
+            var (f, c) = MakeControl("hello");
+            using (f)
+            using (c)
+            {
+                c.SelectAll();
+                Assert.Equal((0, 5), c.GetSelectionCharRange());
+            }
+        });
 
     // ===== Ctrl+X/C/V =====
 
     [Fact]
-    public void CtrlC_Copy() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("hello");
-        using (f) using (c)
+    public void CtrlC_Copy() =>
+        Sta.Run(() =>
         {
-            c.SetSelectionCharRange(0, 5);
-            SendKey(c, Keys.C | Keys.Control);
-            Assert.Equal("hello", GetClipboardTextWithRetry());
-        }
-    });
+            var (f, c) = MakeControl("hello");
+            using (f)
+            using (c)
+            {
+                c.SetSelectionCharRange(0, 5);
+                SendKey(c, Keys.C | Keys.Control);
+                Assert.Equal("hello", GetClipboardTextWithRetry());
+            }
+        });
 
     [Fact]
-    public void CtrlX_Cut() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("hello");
-        using (f) using (c)
+    public void CtrlX_Cut() =>
+        Sta.Run(() =>
         {
-            c.SetSelectionCharRange(0, 5);
-            SendKey(c, Keys.X | Keys.Control);
-            Assert.Equal("hello", GetClipboardTextWithRetry());
-            Assert.Equal("", c.GetText());
-        }
-    });
+            var (f, c) = MakeControl("hello");
+            using (f)
+            using (c)
+            {
+                c.SetSelectionCharRange(0, 5);
+                SendKey(c, Keys.X | Keys.Control);
+                Assert.Equal("hello", GetClipboardTextWithRetry());
+                Assert.Equal("", c.GetText());
+            }
+        });
 
     [Fact]
-    public void CtrlV_Paste() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("abc");
-        using (f) using (c)
+    public void CtrlV_Paste() =>
+        Sta.Run(() =>
         {
-            SetClipboardTextAndWait("Z");
-            c.SetCaretCharOffset(1);
-            SendKey(c, Keys.V | Keys.Control);
-            Assert.Equal("aZbc", c.GetText());
-        }
-    });
+            var (f, c) = MakeControl("abc");
+            using (f)
+            using (c)
+            {
+                SetClipboardTextAndWait("Z");
+                c.SetCaretCharOffset(1);
+                SendKey(c, Keys.V | Keys.Control);
+                Assert.Equal("aZbc", c.GetText());
+            }
+        });
 
     // ===== レガシーキー =====
 
     [Fact]
-    public void CtrlInsert_Copy() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("hello");
-        using (f) using (c)
+    public void CtrlInsert_Copy() =>
+        Sta.Run(() =>
         {
-            c.SetSelectionCharRange(0, 5);
-            SendKey(c, Keys.Insert | Keys.Control);
-            Assert.Equal("hello", GetClipboardTextWithRetry());
-        }
-    });
+            var (f, c) = MakeControl("hello");
+            using (f)
+            using (c)
+            {
+                c.SetSelectionCharRange(0, 5);
+                SendKey(c, Keys.Insert | Keys.Control);
+                Assert.Equal("hello", GetClipboardTextWithRetry());
+            }
+        });
 
     [Fact]
-    public void ShiftInsert_Paste() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("abc");
-        using (f) using (c)
+    public void ShiftInsert_Paste() =>
+        Sta.Run(() =>
         {
-            SetClipboardTextAndWait("Z");
-            c.SetCaretCharOffset(1);
-            SendKey(c, Keys.Insert | Keys.Shift);
-            Assert.Equal("aZbc", c.GetText());
-        }
-    });
+            var (f, c) = MakeControl("abc");
+            using (f)
+            using (c)
+            {
+                SetClipboardTextAndWait("Z");
+                c.SetCaretCharOffset(1);
+                SendKey(c, Keys.Insert | Keys.Shift);
+                Assert.Equal("aZbc", c.GetText());
+            }
+        });
 
     [Fact]
-    public void ShiftDelete_Cut() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("hello");
-        using (f) using (c)
+    public void ShiftDelete_Cut() =>
+        Sta.Run(() =>
         {
-            c.SetSelectionCharRange(0, 5);
-            SendKey(c, Keys.Delete | Keys.Shift);
-            Assert.Equal("hello", GetClipboardTextWithRetry());
-            Assert.Equal("", c.GetText());
-        }
-    });
+            var (f, c) = MakeControl("hello");
+            using (f)
+            using (c)
+            {
+                c.SetSelectionCharRange(0, 5);
+                SendKey(c, Keys.Delete | Keys.Shift);
+                Assert.Equal("hello", GetClipboardTextWithRetry());
+                Assert.Equal("", c.GetText());
+            }
+        });
 
     // ===== Insert が Overtype をトグル(既存挙動維持)=====
 
     [Fact]
-    public void Insert_TogglesOvertype_StillWorks_AfterAddingCopyPaste() => Sta.Run(() =>
-    {
-        // Task 9 の Insert case が残っていること・Ctrl/Shift+Insert が横取りしていること
-        var (f, c) = MakeControl("abc");
-        using (f) using (c)
+    public void Insert_TogglesOvertype_StillWorks_AfterAddingCopyPaste() =>
+        Sta.Run(() =>
         {
-            SendKey(c, Keys.Insert);
-            Assert.True(c.Overtype);
-        }
-    });
+            // Task 9 の Insert case が残っていること・Ctrl/Shift+Insert が横取りしていること
+            var (f, c) = MakeControl("abc");
+            using (f)
+            using (c)
+            {
+                SendKey(c, Keys.Insert);
+                Assert.True(c.Overtype);
+            }
+        });
 
     [Fact]
-    public void CtrlInsert_DoesNotToggleOvertype() => Sta.Run(() =>
-    {
-        // Ctrl+Insert は Copy が横取り=Overtype はトグルされない(Task 9 の Keys.Insert case は届かない)。
-        // C# switch のフォールスルーは無いため理論的には不要だが、将来 case 順序が入れ替わった際の
-        // 回帰検出のため保険で敷く(S-3 レビュー対応・OnKeyDown xmldoc の case 順序規約と対)。
-        var (f, c) = MakeControl("hello");
-        using (f) using (c)
+    public void CtrlInsert_DoesNotToggleOvertype() =>
+        Sta.Run(() =>
         {
-            c.SetSelectionCharRange(0, 5);
-            bool before = c.Overtype;
-            SendKey(c, Keys.Insert | Keys.Control);
-            Assert.Equal(before, c.Overtype);
-        }
-    });
+            // Ctrl+Insert は Copy が横取り=Overtype はトグルされない(Task 9 の Keys.Insert case は届かない)。
+            // C# switch のフォールスルーは無いため理論的には不要だが、将来 case 順序が入れ替わった際の
+            // 回帰検出のため保険で敷く(S-3 レビュー対応・OnKeyDown xmldoc の case 順序規約と対)。
+            var (f, c) = MakeControl("hello");
+            using (f)
+            using (c)
+            {
+                c.SetSelectionCharRange(0, 5);
+                bool before = c.Overtype;
+                SendKey(c, Keys.Insert | Keys.Control);
+                Assert.Equal(before, c.Overtype);
+            }
+        });
 }

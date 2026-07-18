@@ -12,4 +12,5 @@ public sealed record BackupRecord(
     bool HasBom,
     int LineEndingId,
     string Content,
-    DateTime TimestampUtc);
+    DateTime TimestampUtc
+);

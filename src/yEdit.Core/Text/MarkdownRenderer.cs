@@ -12,8 +12,9 @@ public static class MarkdownRenderer
     public const string PreviewBaseHref = "https://" + PreviewVirtualHost + "/";
 
     // CommonMark + GFM 拡張（表・チェックリスト・自動リンク等）。スレッドセーフなので使い回す。
-    private static readonly MarkdownPipeline Pipeline =
-        new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
+    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .Build();
 
     /// <summary>
     /// markdown を HTML 化し、&lt;base href&gt;・charset・読みやすい CSS を備えた

@@ -1,5 +1,5 @@
-using yEdit.Core.Backup;
 using Xunit;
+using yEdit.Core.Backup;
 
 namespace yEdit.Core.Tests.Backup;
 
@@ -8,23 +8,34 @@ public class BackupStoreTests
     private sealed class TempDir : IDisposable
     {
         public string Root { get; }
+
         public TempDir()
         {
             Root = Path.Combine(Path.GetTempPath(), "yedit_bak_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Root);
         }
-        public void Dispose() { try { Directory.Delete(Root, recursive: true); } catch { } }
+
+        public void Dispose()
+        {
+            try
+            {
+                Directory.Delete(Root, recursive: true);
+            }
+            catch { }
+        }
     }
 
-    private static BackupRecord Rec(string id, string? path, string content) => new(
-        Id: id,
-        OriginalPath: path,
-        UntitledNumber: path is null ? 3 : 0,
-        CodePage: 65001,
-        HasBom: false,
-        LineEndingId: 0,
-        Content: content,
-        TimestampUtc: new DateTime(2026, 6, 26, 12, 0, 0, DateTimeKind.Utc));
+    private static BackupRecord Rec(string id, string? path, string content) =>
+        new(
+            Id: id,
+            OriginalPath: path,
+            UntitledNumber: path is null ? 3 : 0,
+            CodePage: 65001,
+            HasBom: false,
+            LineEndingId: 0,
+            Content: content,
+            TimestampUtc: new DateTime(2026, 6, 26, 12, 0, 0, DateTimeKind.Utc)
+        );
 
     [Fact]
     public void Write_then_LoadAll_roundtrips_content_and_metadata()
@@ -95,7 +106,10 @@ public class BackupStoreTests
     [Fact]
     public void LoadAll_on_missing_directory_returns_empty()
     {
-        string missing = Path.Combine(Path.GetTempPath(), "yedit_bak_missing_" + Guid.NewGuid().ToString("N"));
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            "yedit_bak_missing_" + Guid.NewGuid().ToString("N")
+        );
         Assert.Empty(BackupStore.LoadAll(missing));
     }
 
@@ -104,6 +118,6 @@ public class BackupStoreTests
     {
         using var t = new TempDir();
         BackupStore.Delete(t.Root, "does-not-exist"); // 例外を投げない
-        BackupStore.DeleteAll(t.Root);                // 空でも無害
+        BackupStore.DeleteAll(t.Root); // 空でも無害
     }
 }

@@ -32,6 +32,7 @@ public interface IGrepView
     void SetRunning(bool running);
     void SetStatus(string text);
     void RaiseNotification(string message);
+
     /// <summary>従来の Open 手順「非表示なら Show(owner)→Activate→FocusPattern」を 1 メソッドに集約(Stage 4 と同型)。</summary>
     void ShowAndFocus(IWin32Window owner);
 }

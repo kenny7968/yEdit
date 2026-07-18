@@ -1,5 +1,5 @@
-using yEdit.Core.Settings;
 using Xunit;
+using yEdit.Core.Settings;
 
 namespace yEdit.Core.Tests.Settings;
 
@@ -10,15 +10,15 @@ public class AppearanceThemeTests
     [InlineData("white-on-black")]
     [InlineData("yellow-on-black")]
     [InlineData("green-on-black")]
-    public void Known_ids_resolve_to_themselves(string id)
-        => Assert.Equal(id, AppearanceThemes.ById(id).Id);
+    public void Known_ids_resolve_to_themselves(string id) =>
+        Assert.Equal(id, AppearanceThemes.ById(id).Id);
 
     [Theory]
     [InlineData("")]
     [InlineData(null)]
     [InlineData("does-not-exist")]
-    public void Unknown_id_falls_back_to_default(string? id)
-        => Assert.Equal("default", AppearanceThemes.ById(id).Id);
+    public void Unknown_id_falls_back_to_default(string? id) =>
+        Assert.Equal("default", AppearanceThemes.ById(id).Id);
 
     [Fact]
     public void All_themes_have_distinct_ids_and_rgb_in_range()

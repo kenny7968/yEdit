@@ -1,6 +1,6 @@
+using Xunit;
 using yEdit.Core.Buffers;
 using yEdit.Core.Search;
-using Xunit;
 
 namespace yEdit.Core.Tests.Search;
 
@@ -14,14 +14,21 @@ public class SnapshotSearcherTests
 {
     /// <summary>既定コンストラクタ(本番用の 32M chars 閾値)。閾値以下経路のテスト用。</summary>
     private static SnapshotSearcher Make(
-        string pattern, bool matchCase = false, bool wholeWord = false, bool useRegex = false)
-        => new(new SearchOptions(pattern, matchCase, wholeWord, useRegex));
+        string pattern,
+        bool matchCase = false,
+        bool wholeWord = false,
+        bool useRegex = false
+    ) => new(new SearchOptions(pattern, matchCase, wholeWord, useRegex));
 
     /// <summary>閾値・窓サイズをテスト用に小さくした SnapshotSearcher。閾値超経路のテスト用。</summary>
     private static SnapshotSearcher MakeLarge(
-        string pattern, bool matchCase = false, bool wholeWord = false, bool useRegex = false,
-        int threshold = 4, int window = 8)
-        => new(new SearchOptions(pattern, matchCase, wholeWord, useRegex), threshold, window);
+        string pattern,
+        bool matchCase = false,
+        bool wholeWord = false,
+        bool useRegex = false,
+        int threshold = 4,
+        int window = 8
+    ) => new(new SearchOptions(pattern, matchCase, wholeWord, useRegex), threshold, window);
 
     private static TextSnapshot Snap(string text) => TextBuffer.FromString(text).Current;
 
@@ -129,7 +136,13 @@ public class SnapshotSearcherTests
     {
         var snap = Snap("foo\nbar\nfoo\nbar");
         var below = Make(@"foo\r?\nbar", useRegex: true, matchCase: true);
-        var above = MakeLarge(@"foo\r?\nbar", useRegex: true, matchCase: true, threshold: 4, window: 6);
+        var above = MakeLarge(
+            @"foo\r?\nbar",
+            useRegex: true,
+            matchCase: true,
+            threshold: 4,
+            window: 6
+        );
 
         // 閾値以下(TextSearcher)は改行またぎ regex を検出できる
         Assert.NotNull(below.FindNext(snap, 0));
@@ -226,8 +239,8 @@ public class SnapshotSearcherTests
         var above = MakeLarge("ab", useRegex: true, matchCase: true, threshold: 4, window: 6);
         var (belowFrag, belowCount) = below.ReplaceInRange(snap, 0, 5, "X");
         var (aboveFrag, aboveCount) = above.ReplaceInRange(snap, 0, 5, "X");
-        Assert.Equal(belowFrag, aboveFrag);       // = "X_X"
-        Assert.Equal(belowCount, aboveCount);     // = 2
+        Assert.Equal(belowFrag, aboveFrag); // = "X_X"
+        Assert.Equal(belowCount, aboveCount); // = 2
     }
 
     [Fact]
@@ -236,8 +249,9 @@ public class SnapshotSearcherTests
         // 複数行にまたがる範囲 [3, snap.CharLength - 2) を切る。
         // 行内 substring [rangeInLineStart, rangeInLineEnd) の中身のみが Fragment
         // に入る契約=行外(左端の前3文字・右端の後2文字)は Fragment に混入しない。
-        var snap = Snap("abcde\nfghij\nklmno");    // 5+1+5+1+5 = 17
-        int start = 3, end = snap.CharLength - 2;  // = 15
+        var snap = Snap("abcde\nfghij\nklmno"); // 5+1+5+1+5 = 17
+        int start = 3,
+            end = snap.CharLength - 2; // = 15
         var below = Make("[a-z]", useRegex: true, matchCase: true);
         var above = MakeLarge("[a-z]", useRegex: true, matchCase: true, threshold: 4, window: 6);
         var (belowFrag, belowCount) = below.ReplaceInRange(snap, start, end - start, "X");

@@ -5,8 +5,8 @@ namespace yEdit.Core.Tests.Buffers;
 
 public class TextBufferBuilderTests
 {
-    private static string FullText(TextBuffer buffer)
-        => buffer.Current.GetText(0, buffer.Current.CharLength);
+    private static string FullText(TextBuffer buffer) =>
+        buffer.Current.GetText(0, buffer.Current.CharLength);
 
     [Fact]
     public void FromString_empty_gives_empty_document()
@@ -56,7 +56,7 @@ public class TextBufferBuilderTests
         while (sb.Length < 1_300_000)
             sb.Append("line of ascii text 0123456789\r\nあいうえお漢字カナ😀🈴まみむめも\n");
         string doc = sb.ToString();
-        byte[] bytes = Encoding.UTF8.GetBytes(doc);   // 2MB超
+        byte[] bytes = Encoding.UTF8.GetBytes(doc); // 2MB超
         Assert.True(bytes.Length > 2_000_000);
 
         var builder = new TextBufferBuilder();
@@ -75,7 +75,7 @@ public class TextBufferBuilderTests
     {
         var builder = new TextBufferBuilder();
         builder.Add("ab"u8);
-        builder.Add([0xE3, 0x81]);   // 「あ」の先頭2バイトで終端
+        builder.Add([0xE3, 0x81]); // 「あ」の先頭2バイトで終端
         var buffer = builder.Build();
         Assert.True(builder.HadReplacement);
         Assert.Equal("ab�", FullText(buffer));
@@ -85,7 +85,7 @@ public class TextBufferBuilderTests
     public void Invalid_bytes_mid_stream_are_replaced()
     {
         var builder = new TextBufferBuilder();
-        builder.Add([(byte)'a', 0x80, (byte)'b']);   // 孤立継続バイト
+        builder.Add([(byte)'a', 0x80, (byte)'b']); // 孤立継続バイト
         var buffer = builder.Build();
         Assert.True(builder.HadReplacement);
         Assert.Equal("a�b", FullText(buffer));

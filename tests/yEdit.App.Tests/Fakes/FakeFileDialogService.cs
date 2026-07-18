@@ -16,7 +16,11 @@ public sealed class FakeFileDialogService : IFileDialogService
     public int PickOpenCount;
     public int PickEncodingCount;
 
-    public string? PickOpenPath(IWin32Window owner) { PickOpenCount++; return OpenPath; }
+    public string? PickOpenPath(IWin32Window owner)
+    {
+        PickOpenCount++;
+        return OpenPath;
+    }
 
     public SaveAsResult? PickSaveAs(IWin32Window owner, SaveAsRequest current)
     {
@@ -24,5 +28,9 @@ public sealed class FakeFileDialogService : IFileDialogService
         return SaveAs;
     }
 
-    public int? PickEncoding(IWin32Window owner, int currentCodePage) { PickEncodingCount++; return EncodingCodePage; }
+    public int? PickEncoding(IWin32Window owner, int currentCodePage)
+    {
+        PickEncodingCount++;
+        return EncodingCodePage;
+    }
 }

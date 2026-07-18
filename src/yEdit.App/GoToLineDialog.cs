@@ -4,7 +4,12 @@ namespace yEdit.App;
 public sealed class GoToLineDialog : Form
 {
     // IME を無効化し、JIS 環境で全角数字が入って受理されない事故を防ぐ。
-    private readonly NumericUpDown _number = new() { Minimum = 1, Width = 120, ImeMode = ImeMode.Disable };
+    private readonly NumericUpDown _number = new()
+    {
+        Minimum = 1,
+        Width = 120,
+        ImeMode = ImeMode.Disable,
+    };
 
     public GoToLineDialog(int current, int maxLine)
     {
@@ -28,13 +33,38 @@ public sealed class GoToLineDialog : Form
 
     private void BuildLayout(int maxLine)
     {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, AutoSize = true, Padding = new Padding(10) };
-        root.Controls.Add(new Label { Text = $"行番号(&L)（1〜{maxLine}）:", AutoSize = true }, 0, 0);
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            AutoSize = true,
+            Padding = new Padding(10),
+        };
+        root.Controls.Add(
+            new Label { Text = $"行番号(&L)（1〜{maxLine}）:", AutoSize = true },
+            0,
+            0
+        );
         root.Controls.Add(_number, 1, 0);
 
-        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true };
-        var cancel = new Button { Text = "キャンセル", DialogResult = DialogResult.Cancel, AutoSize = true };
-        var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
+        var ok = new Button
+        {
+            Text = "OK",
+            DialogResult = DialogResult.OK,
+            AutoSize = true,
+        };
+        var cancel = new Button
+        {
+            Text = "キャンセル",
+            DialogResult = DialogResult.Cancel,
+            AutoSize = true,
+        };
+        var buttons = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            FlowDirection = FlowDirection.RightToLeft,
+            Dock = DockStyle.Fill,
+        };
         buttons.Controls.AddRange(new Control[] { ok, cancel });
         root.Controls.Add(buttons, 0, 1);
         root.SetColumnSpan(buttons, 2);

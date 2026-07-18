@@ -21,24 +21,32 @@ public class SerialBackupWriterTests
     private sealed class TempDir : IDisposable
     {
         public string Root { get; } = Directory.CreateTempSubdirectory("yEditSbw_").FullName;
+
         public void Dispose()
         {
-            try { Directory.Delete(Root, recursive: true); }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* 掃除失敗は無害 */ }
+            try
+            {
+                Directory.Delete(Root, recursive: true);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            { /* 掃除失敗は無害 */
+            }
         }
     }
 
     /// <summary>テスト用の BackupRecord ファクトリ(BackupCoordinatorTests.Rec と同じ形)。
     /// TimestampUtc は固定値でロードバック検証を deterministic に。</summary>
-    private static BackupRecord Rec(string id, string content) => new(
-        Id: id,
-        OriginalPath: null,
-        UntitledNumber: 1,
-        CodePage: 65001,
-        HasBom: false,
-        LineEndingId: 0,
-        Content: content,
-        TimestampUtc: new DateTime(2026, 07, 15, 12, 0, 0, DateTimeKind.Utc));
+    private static BackupRecord Rec(string id, string content) =>
+        new(
+            Id: id,
+            OriginalPath: null,
+            UntitledNumber: 1,
+            CodePage: 65001,
+            HasBom: false,
+            LineEndingId: 0,
+            Content: content,
+            TimestampUtc: new DateTime(2026, 07, 15, 12, 0, 0, DateTimeKind.Utc)
+        );
 
     // ===== ドレイン契約(CompleteAdding+Join で保留ジョブがディスクに現れる) =====
 
@@ -141,10 +149,16 @@ public class SerialBackupWriterTests
         // (Write の catch:33-34 内で Invoke)。テスト側の記録は lock で保護する。
         Exception? disposeException = null;
 
-        using (var w = new SerialBackupWriter(tmp.Root)
-        {
-            OnWriteFailed = id => { lock (lockObj) failures.Add(id); }
-        })
+        using (
+            var w = new SerialBackupWriter(tmp.Root)
+            {
+                OnWriteFailed = id =>
+                {
+                    lock (lockObj)
+                        failures.Add(id);
+                },
+            }
+        )
         {
             var badRec = Rec("will-fail", "boom");
             w.Write(badRec);
@@ -152,12 +166,19 @@ public class SerialBackupWriterTests
             w.Delete("nonexistent-id");
 
             // Dispose が 15s Join 上限内に戻ること(=worker が生きていて素直に終わった)を後段で確認。
-            try { w.Dispose(); }
-            catch (Exception ex) { disposeException = ex; }
+            try
+            {
+                w.Dispose();
+            }
+            catch (Exception ex)
+            {
+                disposeException = ex;
+            }
         }
 
-        Assert.Null(disposeException);                          // Dispose が例外なく戻る=worker 死んでいない
-        lock (lockObj) Assert.Contains("will-fail", failures);  // 失敗コールバックが Id 付きで発火
+        Assert.Null(disposeException); // Dispose が例外なく戻る=worker 死んでいない
+        lock (lockObj)
+            Assert.Contains("will-fail", failures); // 失敗コールバックが Id 付きで発火
         // 失敗した *.json は書き込まれていない(BackupStore.LoadAll は will-fail ディレクトリを *.json glob で拾うが
         // Directory.EnumerateFiles はディレクトリを列挙しないためスキップされる=空)。
         Assert.Empty(BackupStore.LoadAll(tmp.Root));
@@ -199,13 +220,19 @@ public class SerialBackupWriterTests
         // Wait 側の後続参照は Set の memory barrier で確実に可視化される=lock 不要。
         using var writer = new SerialBackupWriter(tmp.Root)
         {
-            OnWriteFailed = id => { capturedId = id; doneEvent.Set(); }
+            OnWriteFailed = id =>
+            {
+                capturedId = id;
+                doneEvent.Set();
+            },
         };
 
         writer.Write(Rec("id-mre", "boom"));
 
-        Assert.True(doneEvent.Wait(TimeSpan.FromSeconds(15)),
-            "OnWriteFailed が背景スレッドから発火しなかった(タイムアウト)");
+        Assert.True(
+            doneEvent.Wait(TimeSpan.FromSeconds(15)),
+            "OnWriteFailed が背景スレッドから発火しなかった(タイムアウト)"
+        );
         Assert.Equal("id-mre", capturedId);
     }
 

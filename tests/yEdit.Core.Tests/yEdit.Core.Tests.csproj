@@ -1,5 +1,4 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFramework>net9.0-windows</TargetFramework>
     <IsPackable>false</IsPackable>
@@ -25,5 +24,4 @@
     <ProjectReference Include="..\..\src\yEdit.Core\yEdit.Core.csproj" />
     <ProjectReference Include="..\..\src\yEdit.Accessibility\yEdit.Accessibility.csproj" />
   </ItemGroup>
-
 </Project>

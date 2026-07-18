@@ -10,17 +10,22 @@ public class FrameBuilderTests
 
     // テスト用スタイル: 全フィールドを識別可能な RGB で埋める。
     // (実装が style から色を拾わずに default を返しているとテストが落ちる)
-    private static ViewportStyle TestStyle() => new(
-        Foreground:      new PaintColor(0x000000),
-        Background:      new PaintColor(0xFFFFFF),
-        CurrentLineBack: new PaintColor(0x88FF88),
-        SelectionBack:   new PaintColor(0xADD8E6),
-        LineNumberFore:  new PaintColor(0x777777),
-        HighlightOutline: new PaintColor(0xFF8800),
-        WhitespaceGlyph: new PaintColor(0xCCCCCC));
+    private static ViewportStyle TestStyle() =>
+        new(
+            Foreground: new PaintColor(0x000000),
+            Background: new PaintColor(0xFFFFFF),
+            CurrentLineBack: new PaintColor(0x88FF88),
+            SelectionBack: new PaintColor(0xADD8E6),
+            LineNumberFore: new PaintColor(0x777777),
+            HighlightOutline: new PaintColor(0xFF8800),
+            WhitespaceGlyph: new PaintColor(0xCCCCCC)
+        );
 
-    private static IReadOnlyList<VisualRow> BuildRows(TextSnapshot snap, int wrapCols = 0, int height = 1000)
-        => ViewportLayout.Build(snap, topLine: 0, heightPx: height, wrapColumns: wrapCols, M);
+    private static IReadOnlyList<VisualRow> BuildRows(
+        TextSnapshot snap,
+        int wrapCols = 0,
+        int height = 1000
+    ) => ViewportLayout.Build(snap, topLine: 0, heightPx: height, wrapColumns: wrapCols, M);
 
     // ---------- 仕様 1: 背景塗り ----------
     [Fact]
@@ -31,13 +36,18 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 200, clientHeight: 100,
+            buf.Current,
+            rows,
+            clientWidth: 200,
+            clientHeight: 100,
             lineNumberMarginPx: 0,
             currentLineLogical: -1,
-            selection: null, cellHighlight: null,
+            selection: null,
+            cellHighlight: null,
             showWhitespace: false,
-            style, M);
+            style,
+            M
+        );
 
         var first = frame.Ops[0];
         Assert.Equal(PaintOpKind.FillRect, first.Kind);
@@ -59,16 +69,21 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 100, clientHeight: 20,
+            buf.Current,
+            rows,
+            clientWidth: 100,
+            clientHeight: 20,
             lineNumberMarginPx: 0,
             currentLineLogical: -1,
-            selection: null, cellHighlight: null,
+            selection: null,
+            cellHighlight: null,
             showWhitespace: false,
-            style, M);
+            style,
+            M
+        );
 
-        var bodyTexts = frame.Ops
-            .Where(op => op.Kind == PaintOpKind.DrawText)
+        var bodyTexts = frame
+            .Ops.Where(op => op.Kind == PaintOpKind.DrawText)
             .Where(op => op.Text is "ab" or "cd")
             .OrderBy(op => op.Y)
             .ToList();
@@ -92,23 +107,32 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 100, clientHeight: 30,
+            buf.Current,
+            rows,
+            clientWidth: 100,
+            clientHeight: 30,
             lineNumberMarginPx: 0,
             currentLineLogical: 1, // "cd" 行
-            selection: null, cellHighlight: null,
+            selection: null,
+            cellHighlight: null,
             showWhitespace: false,
-            style, M);
+            style,
+            M
+        );
 
         int currentLineRectIdx = -1;
         int cdTextIdx = -1;
         for (int i = 0; i < frame.Ops.Count; i++)
         {
             var op = frame.Ops[i];
-            if (op.Kind == PaintOpKind.FillRect
-                && op.Y == 10 && op.Height == 10
-                && op.X == 0 && op.Width == 100
-                && op.Back == style.CurrentLineBack)
+            if (
+                op.Kind == PaintOpKind.FillRect
+                && op.Y == 10
+                && op.Height == 10
+                && op.X == 0
+                && op.Width == 100
+                && op.Back == style.CurrentLineBack
+            )
             {
                 currentLineRectIdx = i;
             }
@@ -118,7 +142,10 @@ public class FrameBuilderTests
 
         Assert.NotEqual(-1, currentLineRectIdx);
         Assert.NotEqual(-1, cdTextIdx);
-        Assert.True(currentLineRectIdx < cdTextIdx, "現在行強調は本文テキストより前に配置されている必要がある");
+        Assert.True(
+            currentLineRectIdx < cdTextIdx,
+            "現在行強調は本文テキストより前に配置されている必要がある"
+        );
     }
 
     // ---------- 仕様 4: 選択 ----------
@@ -130,28 +157,37 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 100, clientHeight: 20,
+            buf.Current,
+            rows,
+            clientWidth: 100,
+            clientHeight: 20,
             lineNumberMarginPx: 0,
             currentLineLogical: -1,
             selection: new SelectionRange(1, 3),
             cellHighlight: null,
             showWhitespace: false,
-            style, M);
+            style,
+            M
+        );
 
         int selRectIdx = -1;
         int abcdTextIdx = -1;
         for (int i = 0; i < frame.Ops.Count; i++)
         {
             var op = frame.Ops[i];
-            if (op.Kind == PaintOpKind.FillRect
-                && op.X == 1 && op.Width == 2 // OffsetToPx(1)=1, OffsetToPx(3)=3, W=2
-                && op.Y == 0 && op.Height == 10
-                && op.Back == style.SelectionBack)
+            if (
+                op.Kind == PaintOpKind.FillRect
+                && op.X == 1
+                && op.Width == 2 // OffsetToPx(1)=1, OffsetToPx(3)=3, W=2
+                && op.Y == 0
+                && op.Height == 10
+                && op.Back == style.SelectionBack
+            )
             {
                 selRectIdx = i;
             }
-            if (op.Kind == PaintOpKind.DrawText && op.Text == "abcd") abcdTextIdx = i;
+            if (op.Kind == PaintOpKind.DrawText && op.Text == "abcd")
+                abcdTextIdx = i;
         }
 
         Assert.NotEqual(-1, selRectIdx);
@@ -168,25 +204,34 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 200, clientHeight: 30,
+            buf.Current,
+            rows,
+            clientWidth: 200,
+            clientHeight: 30,
             lineNumberMarginPx: 30,
             currentLineLogical: -1,
-            selection: null, cellHighlight: null,
+            selection: null,
+            cellHighlight: null,
             showWhitespace: false,
-            style, M);
+            style,
+            M
+        );
 
         // 本文が X=30 で描かれる
-        var body = frame.Ops
-            .Where(op => op.Kind == PaintOpKind.DrawText && (op.Text == "ab" || op.Text == "cd"))
-            .OrderBy(op => op.Y).ToList();
+        var body = frame
+            .Ops.Where(op =>
+                op.Kind == PaintOpKind.DrawText && (op.Text == "ab" || op.Text == "cd")
+            )
+            .OrderBy(op => op.Y)
+            .ToList();
         Assert.Equal(2, body.Count);
         Assert.All(body, op => Assert.Equal(30, op.X));
 
         // 行番号 "1"/"2" が LineNumberFore で描かれる(右寄せ・X < 30)
-        var numbers = frame.Ops
-            .Where(op => op.Kind == PaintOpKind.DrawText && (op.Text == "1" || op.Text == "2"))
-            .OrderBy(op => op.Y).ToList();
+        var numbers = frame
+            .Ops.Where(op => op.Kind == PaintOpKind.DrawText && (op.Text == "1" || op.Text == "2"))
+            .OrderBy(op => op.Y)
+            .ToList();
         Assert.Equal(2, numbers.Count);
         Assert.Equal("1", numbers[0].Text);
         Assert.Equal(0, numbers[0].Y);
@@ -206,27 +251,36 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 100, clientHeight: 20,
+            buf.Current,
+            rows,
+            clientWidth: 100,
+            clientHeight: 20,
             lineNumberMarginPx: 0,
             currentLineLogical: -1,
             selection: null,
             cellHighlight: new SelectionRange(1, 3),
             showWhitespace: false,
-            style, M);
+            style,
+            M
+        );
 
         // 半透明 FillRect(Alpha=60・SelectionBack ではなく HighlightOutline 由来の色)
-        var hlBack = frame.Ops.Where(op =>
-            op.Kind == PaintOpKind.FillRect
-            && op.Y == 0 && op.Height == 10
-            && op.X == 1 && op.Width == 2
-            && op.Back.Alpha == 60).ToList();
+        var hlBack = frame
+            .Ops.Where(op =>
+                op.Kind == PaintOpKind.FillRect
+                && op.Y == 0
+                && op.Height == 10
+                && op.X == 1
+                && op.Width == 2
+                && op.Back.Alpha == 60
+            )
+            .ToList();
         Assert.Single(hlBack);
 
         // 枠 DrawLine が 4 本(上下左右)
-        var lines = frame.Ops.Where(op =>
-            op.Kind == PaintOpKind.DrawLine
-            && op.Fore == style.HighlightOutline).ToList();
+        var lines = frame
+            .Ops.Where(op => op.Kind == PaintOpKind.DrawLine && op.Fore == style.HighlightOutline)
+            .ToList();
         Assert.Equal(4, lines.Count);
 
         // 4 本の内訳: 上下=Height 0・左右=Width 0
@@ -244,23 +298,28 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 100, clientHeight: 20,
+            buf.Current,
+            rows,
+            clientWidth: 100,
+            clientHeight: 20,
             lineNumberMarginPx: 0,
             currentLineLogical: -1,
-            selection: null, cellHighlight: null,
+            selection: null,
+            cellHighlight: null,
             showWhitespace: true,
-            style, M);
+            style,
+            M
+        );
 
         // 空白グリフは WhitespaceGlyph 色で描画される個別 DrawText
-        var glyphs = frame.Ops
-            .Where(op => op.Kind == PaintOpKind.DrawText && op.Fore == style.WhitespaceGlyph)
+        var glyphs = frame
+            .Ops.Where(op => op.Kind == PaintOpKind.DrawText && op.Fore == style.WhitespaceGlyph)
             .ToList();
         Assert.Equal(2, glyphs.Count);
 
         // 座標: OffsetToPx で計算(halfWidthPx=1 なら index==pixel)
         var spaceGlyph = glyphs.Single(g => g.X == 1);
-        var tabGlyph   = glyphs.Single(g => g.X == 3);
+        var tabGlyph = glyphs.Single(g => g.X == 3);
         Assert.False(string.IsNullOrEmpty(spaceGlyph.Text));
         Assert.False(string.IsNullOrEmpty(tabGlyph.Text));
         Assert.NotEqual(spaceGlyph.Text, tabGlyph.Text); // スペース/タブは違うグリフ
@@ -277,16 +336,21 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 100, clientHeight: 20,
+            buf.Current,
+            rows,
+            clientWidth: 100,
+            clientHeight: 20,
             lineNumberMarginPx: 0,
             currentLineLogical: -1,
-            selection: null, cellHighlight: null,
+            selection: null,
+            cellHighlight: null,
             showWhitespace: false,
-            style, M);
+            style,
+            M
+        );
 
-        var glyphs = frame.Ops
-            .Where(op => op.Kind == PaintOpKind.DrawText && op.Fore == style.WhitespaceGlyph)
+        var glyphs = frame
+            .Ops.Where(op => op.Kind == PaintOpKind.DrawText && op.Fore == style.WhitespaceGlyph)
             .ToList();
         Assert.Empty(glyphs);
     }
@@ -300,20 +364,28 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 100, clientHeight: 50,
+            buf.Current,
+            rows,
+            clientWidth: 100,
+            clientHeight: 50,
             lineNumberMarginPx: 0,
             currentLineLogical: -1,
-            selection: null, cellHighlight: null,
+            selection: null,
+            cellHighlight: null,
             showWhitespace: false,
-            style, M);
+            style,
+            M
+        );
 
         Assert.Equal(PaintOpKind.FillRect, frame.Ops[0].Kind);
         Assert.Equal(style.Background, frame.Ops[0].Back);
 
         // 空視覚行1個ぶんの本文 DrawText("") が存在(Y=0)
-        var emptyBody = frame.Ops.Where(op =>
-            op.Kind == PaintOpKind.DrawText && op.Text == string.Empty && op.Y == 0).ToList();
+        var emptyBody = frame
+            .Ops.Where(op =>
+                op.Kind == PaintOpKind.DrawText && op.Text == string.Empty && op.Y == 0
+            )
+            .ToList();
         Assert.Single(emptyBody);
     }
 
@@ -328,18 +400,22 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 100, clientHeight: 20,
+            buf.Current,
+            rows,
+            clientWidth: 100,
+            clientHeight: 20,
             lineNumberMarginPx: 0,
             currentLineLogical: -1,
             selection: new SelectionRange(1, 4),
             cellHighlight: null,
             showWhitespace: false,
-            style, M);
+            style,
+            M
+        );
 
-        var selRects = frame.Ops.Where(op =>
-            op.Kind == PaintOpKind.FillRect
-            && op.Back == style.SelectionBack).ToList();
+        var selRects = frame
+            .Ops.Where(op => op.Kind == PaintOpKind.FillRect && op.Back == style.SelectionBack)
+            .ToList();
         Assert.Equal(2, selRects.Count);
 
         // Y の重複なし・視覚行ごとに 1 矩形
@@ -356,18 +432,27 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 100, clientHeight: 20,
+            buf.Current,
+            rows,
+            clientWidth: 100,
+            clientHeight: 20,
             lineNumberMarginPx: 0,
             currentLineLogical: -1,
-            selection: null, cellHighlight: null,
+            selection: null,
+            cellHighlight: null,
             showWhitespace: false,
-            style, M);
+            style,
+            M
+        );
 
-        Assert.DoesNotContain(frame.Ops, op =>
-            op.Kind == PaintOpKind.FillRect && op.Back == style.CurrentLineBack);
-        Assert.DoesNotContain(frame.Ops, op =>
-            op.Kind == PaintOpKind.FillRect && op.Back == style.SelectionBack);
+        Assert.DoesNotContain(
+            frame.Ops,
+            op => op.Kind == PaintOpKind.FillRect && op.Back == style.CurrentLineBack
+        );
+        Assert.DoesNotContain(
+            frame.Ops,
+            op => op.Kind == PaintOpKind.FillRect && op.Back == style.SelectionBack
+        );
     }
 
     // ---------- 追加境界: 行番号マージン=0 ----------
@@ -379,21 +464,31 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 100, clientHeight: 30,
+            buf.Current,
+            rows,
+            clientWidth: 100,
+            clientHeight: 30,
             lineNumberMarginPx: 0,
             currentLineLogical: -1,
-            selection: null, cellHighlight: null,
+            selection: null,
+            cellHighlight: null,
             showWhitespace: false,
-            style, M);
+            style,
+            M
+        );
 
         // "1"/"2" の DrawText がない
-        Assert.DoesNotContain(frame.Ops, op =>
-            op.Kind == PaintOpKind.DrawText && (op.Text == "1" || op.Text == "2"));
+        Assert.DoesNotContain(
+            frame.Ops,
+            op => op.Kind == PaintOpKind.DrawText && (op.Text == "1" || op.Text == "2")
+        );
 
         // 本文は X=0
-        var body = frame.Ops.Where(op =>
-            op.Kind == PaintOpKind.DrawText && (op.Text == "ab" || op.Text == "cd")).ToList();
+        var body = frame
+            .Ops.Where(op =>
+                op.Kind == PaintOpKind.DrawText && (op.Text == "ab" || op.Text == "cd")
+            )
+            .ToList();
         Assert.Equal(2, body.Count);
         Assert.All(body, op => Assert.Equal(0, op.X));
     }
@@ -407,14 +502,18 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 100, clientHeight: 20,
+            buf.Current,
+            rows,
+            clientWidth: 100,
+            clientHeight: 20,
             lineNumberMarginPx: 0,
             currentLineLogical: -1,
             selection: null,
             cellHighlight: null,
             showWhitespace: false,
-            style, M);
+            style,
+            M
+        );
 
         Assert.DoesNotContain(frame.Ops, op => op.Kind == PaintOpKind.DrawLine);
     }
@@ -428,23 +527,35 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 100, clientHeight: 20,
+            buf.Current,
+            rows,
+            clientWidth: 100,
+            clientHeight: 20,
             lineNumberMarginPx: 0,
             currentLineLogical: 0,
             selection: new SelectionRange(1, 3),
             cellHighlight: null,
             showWhitespace: false,
-            style, M);
+            style,
+            M
+        );
 
-        int bgIdx = IndexOf(frame.Ops, op =>
-            op.Kind == PaintOpKind.FillRect && op.Back == style.Background);
-        int curIdx = IndexOf(frame.Ops, op =>
-            op.Kind == PaintOpKind.FillRect && op.Back == style.CurrentLineBack);
-        int selIdx = IndexOf(frame.Ops, op =>
-            op.Kind == PaintOpKind.FillRect && op.Back == style.SelectionBack);
-        int bodyIdx = IndexOf(frame.Ops, op =>
-            op.Kind == PaintOpKind.DrawText && op.Text == "abcd");
+        int bgIdx = IndexOf(
+            frame.Ops,
+            op => op.Kind == PaintOpKind.FillRect && op.Back == style.Background
+        );
+        int curIdx = IndexOf(
+            frame.Ops,
+            op => op.Kind == PaintOpKind.FillRect && op.Back == style.CurrentLineBack
+        );
+        int selIdx = IndexOf(
+            frame.Ops,
+            op => op.Kind == PaintOpKind.FillRect && op.Back == style.SelectionBack
+        );
+        int bodyIdx = IndexOf(
+            frame.Ops,
+            op => op.Kind == PaintOpKind.DrawText && op.Text == "abcd"
+        );
 
         Assert.True(bgIdx >= 0);
         Assert.True(curIdx >= 0);
@@ -457,7 +568,9 @@ public class FrameBuilderTests
 
     private static int IndexOf(IReadOnlyList<PaintOp> ops, Func<PaintOp, bool> predicate)
     {
-        for (int i = 0; i < ops.Count; i++) if (predicate(ops[i])) return i;
+        for (int i = 0; i < ops.Count; i++)
+            if (predicate(ops[i]))
+                return i;
         return -1;
     }
 
@@ -485,23 +598,32 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 200, clientHeight: 100,
+            buf.Current,
+            rows,
+            clientWidth: 200,
+            clientHeight: 100,
             lineNumberMarginPx: 30,
-            currentLineLogical: 1,  // 2番目の行(0始まり)を現在行に
-            selection: null, cellHighlight: null,
+            currentLineLogical: 1, // 2番目の行(0始まり)を現在行に
+            selection: null,
+            cellHighlight: null,
             showWhitespace: false,
-            style, M);
+            style,
+            M
+        );
 
         // 現在行の行番号 "2" は Foreground 色(マージン内=X<30)
         var currentLineNumber = frame.Ops.FirstOrDefault(op =>
-            op.Kind == PaintOpKind.DrawText && op.Text == "2" && op.X < 30);
+            op.Kind == PaintOpKind.DrawText && op.Text == "2" && op.X < 30
+        );
         Assert.NotEqual(default(PaintOp), currentLineNumber);
         Assert.Equal(style.Foreground, currentLineNumber.Fore);
 
         // 他行の行番号 "1"/"3" は LineNumberFore
-        var otherLineNumbers = frame.Ops.Where(op =>
-            op.Kind == PaintOpKind.DrawText && (op.Text == "1" || op.Text == "3") && op.X < 30).ToList();
+        var otherLineNumbers = frame
+            .Ops.Where(op =>
+                op.Kind == PaintOpKind.DrawText && (op.Text == "1" || op.Text == "3") && op.X < 30
+            )
+            .ToList();
         Assert.Equal(2, otherLineNumbers.Count);
         Assert.All(otherLineNumbers, op => Assert.Equal(style.LineNumberFore, op.Fore));
     }
@@ -518,19 +640,27 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 100, clientHeight: 30,
+            buf.Current,
+            rows,
+            clientWidth: 100,
+            clientHeight: 30,
             lineNumberMarginPx: 0,
             currentLineLogical: 0,
             selection: new SelectionRange(1, 3),
             cellHighlight: null,
             showWhitespace: false,
-            style, M);
+            style,
+            M
+        );
 
-        Assert.Contains(frame.Ops, op =>
-            op.Kind == PaintOpKind.FillRect && op.Back == style.CurrentLineBack);
-        Assert.Contains(frame.Ops, op =>
-            op.Kind == PaintOpKind.FillRect && op.Back == style.SelectionBack);
+        Assert.Contains(
+            frame.Ops,
+            op => op.Kind == PaintOpKind.FillRect && op.Back == style.CurrentLineBack
+        );
+        Assert.Contains(
+            frame.Ops,
+            op => op.Kind == PaintOpKind.FillRect && op.Back == style.SelectionBack
+        );
     }
 
     // ---------- 追加: 折り返し 2 段目以降は行番号を出さない(Task 8 で仕様維持) ----------
@@ -543,17 +673,23 @@ public class FrameBuilderTests
         var style = TestStyle();
 
         var frame = FrameBuilder.Build(
-            buf.Current, rows,
-            clientWidth: 200, clientHeight: 100,
+            buf.Current,
+            rows,
+            clientWidth: 200,
+            clientHeight: 100,
             lineNumberMarginPx: 30,
             currentLineLogical: -1,
-            selection: null, cellHighlight: null,
+            selection: null,
+            cellHighlight: null,
             showWhitespace: false,
-            style, M);
+            style,
+            M
+        );
 
         // 行番号 "1" は seg0 のみ(1 個)
-        var lineNumbers = frame.Ops.Where(op =>
-            op.Kind == PaintOpKind.DrawText && op.Text == "1" && op.X < 30).ToList();
+        var lineNumbers = frame
+            .Ops.Where(op => op.Kind == PaintOpKind.DrawText && op.Text == "1" && op.X < 30)
+            .ToList();
         Assert.Single(lineNumbers);
     }
 }

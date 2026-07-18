@@ -25,7 +25,7 @@ public sealed class MonoCharMetrics : ICharMetrics
                 i++;
                 continue;
             }
-            px += (c < 0x80 || c == '\t') ? _half : _half * 2;  // ASCII/タブ=1・それ以外=2
+            px += (c < 0x80 || c == '\t') ? _half : _half * 2; // ASCII/タブ=1・それ以外=2
         }
         return px;
     }

@@ -23,11 +23,12 @@ internal sealed class AppendBuffer
     public List<Piece> Append(string text)
     {
         var pieces = new List<Piece>(2);
-        if (text.Length == 0) return pieces;
+        if (text.Length == 0)
+            return pieces;
         byte[] bytes = Encoding.UTF8.GetBytes(text);
 
         if (bytes.Length > LargeInsertBytes)
-        {   // 大挿入は専用チャンク(ブロックの断片化防止)
+        { // 大挿入は専用チャンク(ブロックの断片化防止)
             var chunk = new TextChunk(bytes);
             pieces.Add(MakePiece(chunk, bytes, 0, bytes.Length));
             return pieces;
@@ -36,9 +37,10 @@ internal sealed class AppendBuffer
         int off = 0;
         int remaining = BlockBytes - _pos;
         if (bytes.Length > remaining)
-        {   // 現ブロックへコード点境界まで詰め、残りは新ブロックへ(ピース境界=コード点境界の維持)
+        { // 現ブロックへコード点境界まで詰め、残りは新ブロックへ(ピース境界=コード点境界の維持)
             int cut = remaining;
-            while (cut > 0 && (bytes[cut] & 0xC0) == 0x80) cut--;
+            while (cut > 0 && (bytes[cut] & 0xC0) == 0x80)
+                cut--;
             if (cut > 0)
             {
                 pieces.Add(Write(bytes, 0, cut));
@@ -60,8 +62,8 @@ internal sealed class AppendBuffer
         return piece;
     }
 
-    private static Piece MakePiece(TextChunk chunk, byte[] src, int off, int len)
-        => new(chunk, off, len, StatsOf(src, off, len));
+    private static Piece MakePiece(TextChunk chunk, byte[] src, int off, int len) =>
+        new(chunk, off, len, StatsOf(src, off, len));
 
     /// <summary>ソースバイト直走査で統計を計算(チャンク側の累積走査を避ける)。</summary>
     private static PieceStats StatsOf(byte[] src, int off, int len)

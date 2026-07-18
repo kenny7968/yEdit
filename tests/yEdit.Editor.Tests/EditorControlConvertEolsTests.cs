@@ -1,8 +1,8 @@
 using System.Windows.Forms;
+using Xunit;
 using yEdit.Core.Buffers;
 using yEdit.Core.Text;
 using yEdit.Editor;
-using Xunit;
 
 namespace yEdit.Editor.Tests;
 
@@ -86,7 +86,7 @@ public class EditorControlConvertEolsTests
             using var ctrl = new EditorControl();
             // 3 行 LF、行 1 の 2 文字目にキャレット="aaa\n"+"b"+"b" の直後
             ctrl.SetSource(TextBuffer.FromString("aaa\nbbb\nccc"));
-            ctrl.SetCaretCharOffset(6);   // 'b' 'b' の間=行 1 の offset 2
+            ctrl.SetCaretCharOffset(6); // 'b' 'b' の間=行 1 の offset 2
 
             ctrl.ConvertEols(LineEnding.Crlf);
 
@@ -106,7 +106,7 @@ public class EditorControlConvertEolsTests
             using var ctrl = new EditorControl();
             // 3 行 CRLF、行 2 の先頭="aaa\r\nbbb\r\n"+"ccc" の先頭 c
             ctrl.SetSource(TextBuffer.FromString("aaa\r\nbbb\r\nccc"));
-            ctrl.SetCaretCharOffset(10);   // 行 2 の offset 0
+            ctrl.SetCaretCharOffset(10); // 行 2 の offset 0
 
             ctrl.ConvertEols(LineEnding.Lf);
 

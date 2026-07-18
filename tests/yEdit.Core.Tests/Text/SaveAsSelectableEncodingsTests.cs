@@ -1,5 +1,5 @@
-using yEdit.Core.Text;
 using Xunit;
+using yEdit.Core.Text;
 
 namespace yEdit.Core.Tests.Text;
 
@@ -56,8 +56,10 @@ public class SaveAsSelectableEncodingsTests
         int nonUtf8HasBomCount = 0;
         foreach (var o in opts)
         {
-            if (o.CodePage == 65001) utf8Count++;
-            else if (o.HasBom) nonUtf8HasBomCount++;
+            if (o.CodePage == 65001)
+                utf8Count++;
+            else if (o.HasBom)
+                nonUtf8HasBomCount++;
         }
         Assert.Equal(2, utf8Count);
         Assert.Equal(0, nonUtf8HasBomCount);

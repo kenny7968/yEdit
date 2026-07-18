@@ -32,8 +32,10 @@ public class CaretControllerContractTests
     [Fact]
     public void EditorControl_HoldsCaretController_ByField()
     {
-        var f = typeof(EditorControl).GetField("_caretCtrl",
-            BindingFlags.Instance | BindingFlags.NonPublic);
+        var f = typeof(EditorControl).GetField(
+            "_caretCtrl",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
         Assert.NotNull(f);
     }
 }

@@ -1,5 +1,5 @@
-using yEdit.Core.Layout;
 using Xunit;
+using yEdit.Core.Layout;
 
 namespace yEdit.Core.Tests.Layout;
 

@@ -21,18 +21,21 @@ internal sealed class FakeImeContext : IImeContext
     public bool CompleteCalled { get; private set; }
     public bool Disposed { get; private set; }
 
-    public string? GetCompositionString(long gcsFlags)
-        => Strings.TryGetValue(gcsFlags, out var s) ? s : null;
+    public string? GetCompositionString(long gcsFlags) =>
+        Strings.TryGetValue(gcsFlags, out var s) ? s : null;
 
-    public byte[]? GetCompositionBytes(long gcsFlags)
-        => Bytes.TryGetValue(gcsFlags, out var b) ? b : null;
+    public byte[]? GetCompositionBytes(long gcsFlags) =>
+        Bytes.TryGetValue(gcsFlags, out var b) ? b : null;
 
-    public int GetCompositionInt(long gcsFlags)
-        => Ints.TryGetValue(gcsFlags, out var i) ? i : 0;
+    public int GetCompositionInt(long gcsFlags) => Ints.TryGetValue(gcsFlags, out var i) ? i : 0;
 
     public void SetCandidateWindow(int x, int y) => CandidateWindow = (x, y);
+
     public void SetCompositionFont(Font font) => CompositionFont = font;
+
     public void CancelComposition() => CancelCalled = true;
+
     public void CompleteComposition() => CompleteCalled = true;
+
     public void Dispose() => Disposed = true;
 }

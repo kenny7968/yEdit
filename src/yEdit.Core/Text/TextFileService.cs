@@ -39,7 +39,11 @@ public static partial class TextFileService
     /// 本文を後スキャンして判定する(<see cref="DecodeBytes"/> と同じ契約=文字コード取り違え検出用)。
     /// SJIS/EUC-JP 経路の詳細フォールバック仕様は <see cref="DecodeBytes"/> のコメントを参照。
     /// </returns>
-    public static (TextBuffer Buffer, bool HadReplacement) LoadAsBuffer(string path, Encoding encoding, bool hasBom = false)
+    public static (TextBuffer Buffer, bool HadReplacement) LoadAsBuffer(
+        string path,
+        Encoding encoding,
+        bool hasBom = false
+    )
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(encoding);
@@ -58,7 +62,8 @@ public static partial class TextFileService
                 while (skipped < 3)
                 {
                     int r = stream.Read(buf, 0, 3 - skipped);
-                    if (r <= 0) break;
+                    if (r <= 0)
+                        break;
                     skipped += r;
                 }
             }
@@ -85,10 +90,16 @@ public static partial class TextFileService
             //     DecoderReplacementFallback の U+FFFD も BMP なので、char[] にはサロゲートが
             //     1 個も現れない=境界分断リスクなし。UTF-16LE/UTF-32 等 SMP を扱う encoding に
             //     この経路を流用する場合は StreamReader 内部の対分断特性を再検証すること。
-            var decoding = Encoding.GetEncoding(encoding.CodePage,
+            var decoding = Encoding.GetEncoding(
+                encoding.CodePage,
                 EncoderFallback.ReplacementFallback,
-                new DecoderReplacementFallback("�"));
-            using var reader = new StreamReader(stream, decoding, detectEncodingFromByteOrderMarks: false);
+                new DecoderReplacementFallback("�")
+            );
+            using var reader = new StreamReader(
+                stream,
+                decoding,
+                detectEncodingFromByteOrderMarks: false
+            );
             var builder = new TextBufferBuilder();
             const int CharBufLen = 8 * 1024;
             char[] charBuf = new char[CharBufLen];
@@ -100,7 +111,11 @@ public static partial class TextFileService
                 if (!hadReplacement)
                 {
                     for (int i = 0; i < n; i++)
-                        if (charBuf[i] == '�') { hadReplacement = true; break; }
+                        if (charBuf[i] == '�')
+                        {
+                            hadReplacement = true;
+                            break;
+                        }
                 }
                 int written = Encoding.UTF8.GetBytes(charBuf, 0, n, utf8Buf, 0);
                 builder.Add(new ReadOnlySpan<byte>(utf8Buf, 0, written));
@@ -140,10 +155,12 @@ public static partial class TextFileService
             while (read < prefixLen)
             {
                 int n = probe.Read(prefix, read, prefixLen - read);
-                if (n <= 0) break;
+                if (n <= 0)
+                    break;
                 read += n;
             }
-            if (read != prefixLen) Array.Resize(ref prefix, read);
+            if (read != prefixLen)
+                Array.Resize(ref prefix, read);
         }
 
         // 2) エンコーディング検出。厳格 UTF-8 判定が prefix 末尾で multibyte 分断により
@@ -157,9 +174,8 @@ public static partial class TextFileService
         else
         {
             int safeLen = Utf8SafePrefixLength(prefix);
-            byte[] safePrefix = safeLen == prefix.Length
-                ? prefix
-                : prefix.AsSpan(0, safeLen).ToArray();
+            byte[] safePrefix =
+                safeLen == prefix.Length ? prefix : prefix.AsSpan(0, safeLen).ToArray();
             det = EncodingDetector.Detect(safePrefix);
         }
 
@@ -195,20 +211,28 @@ public static partial class TextFileService
     private static int Utf8SafePrefixLength(byte[] bytes)
     {
         int len = bytes.Length;
-        if (len == 0) return 0;
+        if (len == 0)
+            return 0;
         // 末尾から継続バイト(10xxxxxx)を遡る
         int scan = len - 1;
-        while (scan >= 0 && (bytes[scan] & 0xC0) == 0x80) scan--;
-        if (scan < 0) return len;   // 全部継続バイト=malformed(strict test で失敗させる)
+        while (scan >= 0 && (bytes[scan] & 0xC0) == 0x80)
+            scan--;
+        if (scan < 0)
+            return len; // 全部継続バイト=malformed(strict test で失敗させる)
         byte lead = bytes[scan];
         int expected;
-        if ((lead & 0x80) == 0) expected = 1;              // 0xxxxxxx
-        else if ((lead & 0xE0) == 0xC0) expected = 2;      // 110xxxxx
-        else if ((lead & 0xF0) == 0xE0) expected = 3;      // 1110xxxx
-        else if ((lead & 0xF8) == 0xF0) expected = 4;      // 11110xxx
-        else return len;                                    // 不正 leader
+        if ((lead & 0x80) == 0)
+            expected = 1; // 0xxxxxxx
+        else if ((lead & 0xE0) == 0xC0)
+            expected = 2; // 110xxxxx
+        else if ((lead & 0xF0) == 0xE0)
+            expected = 3; // 1110xxxx
+        else if ((lead & 0xF8) == 0xF0)
+            expected = 4; // 11110xxx
+        else
+            return len; // 不正 leader
         int have = len - scan;
-        return have >= expected ? len : scan;               // 不完全なら leader 直前で切る
+        return have >= expected ? len : scan; // 不完全なら leader 直前で切る
     }
 
     /// <summary>
@@ -231,8 +255,11 @@ public static partial class TextFileService
         //   Encoding.GetEncoding(cp, ...) に静的 DecoderFallback.ReplacementFallback を渡すと
         //   置換が '?'(U+003F) になる（DecoderReplacementFallback の既定文字は '?'＝実測確認済）。
         //   取り違え検出を確実にするため、明示的に U+FFFD のフォールバックを指定する。
-        var decoder = Encoding.GetEncoding(det.CodePage,
-            EncoderFallback.ReplacementFallback, new DecoderReplacementFallback("�"));
+        var decoder = Encoding.GetEncoding(
+            det.CodePage,
+            EncoderFallback.ReplacementFallback,
+            new DecoderReplacementFallback("�")
+        );
 
         // BOM を除いた本文部分をデコード。
         // 注意: EncodingCatalog.Get(65001) は BOM 無し UTF8Encoding を返し GetPreamble() が空になる。
@@ -259,8 +286,11 @@ public static partial class TextFileService
     private static bool HasBomFor(byte[] bytes, int codePage)
     {
         var pre = Encoding.GetEncoding(codePage).GetPreamble();
-        if (pre.Length == 0 || bytes.Length < pre.Length) return false;
-        for (int i = 0; i < pre.Length; i++) if (bytes[i] != pre[i]) return false;
+        if (pre.Length == 0 || bytes.Length < pre.Length)
+            return false;
+        for (int i = 0; i < pre.Length; i++)
+            if (bytes[i] != pre[i])
+                return false;
         return true;
     }
 
@@ -283,9 +313,10 @@ public static partial class TextFileService
         // BOM 制御: UTF-8 のみ hasBom に応じて preamble 有無を切替。それ以外（UTF-16 等）は
         // 渡された Encoding をそのまま使い、preamble は hasBom 指定時に GetPreamble() で手前に付ける
         // （body には含めないため二重付与しない）。
-        Encoding enc = encoding.CodePage == 65001
-            ? new UTF8Encoding(encoderShouldEmitUTF8Identifier: hasBom)
-            : encoding;
+        Encoding enc =
+            encoding.CodePage == 65001
+                ? new UTF8Encoding(encoderShouldEmitUTF8Identifier: hasBom)
+                : encoding;
         byte[] preamble = hasBom ? enc.GetPreamble() : Array.Empty<byte>();
         byte[] body = enc.GetBytes(text);
 
@@ -338,50 +369,78 @@ public static partial class TextFileService
 
         try
         {
-            IO.AtomicFile.Write(path, stream =>
-            {
-                if (encoding.CodePage == 65001)
+            IO.AtomicFile.Write(
+                path,
+                stream =>
                 {
-                    if (hasBom)
-                        stream.Write(s_utf8Bom, 0, 3);
-                    snap.WriteTo(stream);
-                }
-                else
-                {
-                    // Minor-1: DecoderFallback は書込経路では発火しないが、
-                    // Encoding.GetEncoding(int, EncoderFallback, DecoderFallback) は 3 引数版のみで
-                    // DecoderFallback を省略できない=シグネチャ要件で残置(実質デッドコード)。
-                    Encoding enc = Encoding.GetEncoding(encoding.CodePage,
-                        EncoderFallback.ReplacementFallback, DecoderFallback.ReplacementFallback);
-                    if (hasBom)
+                    if (encoding.CodePage == 65001)
                     {
-                        byte[] preamble = enc.GetPreamble();
-                        if (preamble.Length > 0) stream.Write(preamble, 0, preamble.Length);
+                        if (hasBom)
+                            stream.Write(s_utf8Bom, 0, 3);
+                        snap.WriteTo(stream);
                     }
-                    using var reader = snap.CreateReader();
-                    var encoder = enc.GetEncoder();
-                    const int CharBufLen = 8 * 1024;
-                    char[] charBuf = new char[CharBufLen];
-                    byte[] byteBuf = new byte[enc.GetMaxByteCount(CharBufLen)];
-                    int charRead;
-                    while ((charRead = reader.Read(charBuf, 0, CharBufLen)) > 0)
+                    else
                     {
-                        int offset = 0;
-                        while (offset < charRead)
+                        // Minor-1: DecoderFallback は書込経路では発火しないが、
+                        // Encoding.GetEncoding(int, EncoderFallback, DecoderFallback) は 3 引数版のみで
+                        // DecoderFallback を省略できない=シグネチャ要件で残置(実質デッドコード)。
+                        Encoding enc = Encoding.GetEncoding(
+                            encoding.CodePage,
+                            EncoderFallback.ReplacementFallback,
+                            DecoderFallback.ReplacementFallback
+                        );
+                        if (hasBom)
                         {
-                            encoder.Convert(charBuf, offset, charRead - offset,
-                                byteBuf, 0, byteBuf.Length, flush: false,
-                                out int charsUsed, out int bytesUsed, out _);
-                            if (bytesUsed > 0) stream.Write(byteBuf, 0, bytesUsed);
-                            offset += charsUsed;
+                            byte[] preamble = enc.GetPreamble();
+                            if (preamble.Length > 0)
+                                stream.Write(preamble, 0, preamble.Length);
                         }
+                        using var reader = snap.CreateReader();
+                        var encoder = enc.GetEncoder();
+                        const int CharBufLen = 8 * 1024;
+                        char[] charBuf = new char[CharBufLen];
+                        byte[] byteBuf = new byte[enc.GetMaxByteCount(CharBufLen)];
+                        int charRead;
+                        while ((charRead = reader.Read(charBuf, 0, CharBufLen)) > 0)
+                        {
+                            int offset = 0;
+                            while (offset < charRead)
+                            {
+                                encoder.Convert(
+                                    charBuf,
+                                    offset,
+                                    charRead - offset,
+                                    byteBuf,
+                                    0,
+                                    byteBuf.Length,
+                                    flush: false,
+                                    out int charsUsed,
+                                    out int bytesUsed,
+                                    out _
+                                );
+                                if (bytesUsed > 0)
+                                    stream.Write(byteBuf, 0, bytesUsed);
+                                offset += charsUsed;
+                            }
+                        }
+                        // 最終 flush(サロゲート途中終わりは FFFD 化される=既存挙動と等価)
+                        encoder.Convert(
+                            Array.Empty<char>(),
+                            0,
+                            0,
+                            byteBuf,
+                            0,
+                            byteBuf.Length,
+                            flush: true,
+                            out _,
+                            out int flushBytes,
+                            out _
+                        );
+                        if (flushBytes > 0)
+                            stream.Write(byteBuf, 0, flushBytes);
                     }
-                    // 最終 flush(サロゲート途中終わりは FFFD 化される=既存挙動と等価)
-                    encoder.Convert(Array.Empty<char>(), 0, 0, byteBuf, 0, byteBuf.Length,
-                        flush: true, out _, out int flushBytes, out _);
-                    if (flushBytes > 0) stream.Write(byteBuf, 0, flushBytes);
                 }
-            });
+            );
         }
         catch (IOException ex) when (IO.AtomicFile.IsShareOrLockViolation(ex))
         {

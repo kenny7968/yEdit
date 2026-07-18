@@ -14,10 +14,10 @@ public class PieceStatsTests
 
     // §1 検算表: 連結時の改行モノイド
     [Theory]
-    [InlineData("a\r", "\nb", 1)]       // 1+1−1: CR+LF が融合して CRLF=1
-    [InlineData("\r", "\r\n", 2)]       // \r\r\n → CR + CRLF = 2
-    [InlineData("\n", "\n", 2)]         // \n\n → 2
-    [InlineData("x", "\r", 1)]          // 単純結合
+    [InlineData("a\r", "\nb", 1)] // 1+1−1: CR+LF が融合して CRLF=1
+    [InlineData("\r", "\r\n", 2)] // \r\r\n → CR + CRLF = 2
+    [InlineData("\n", "\n", 2)] // \n\n → 2
+    [InlineData("x", "\r", 1)] // 単純結合
     public void Combine_matches_full_scan(string a, string b, int expectedBreaks)
     {
         var combined = PieceStats.Combine(StatsOf(a), StatsOf(b));
@@ -41,16 +41,21 @@ public class PieceStatsTests
         var rnd = new Random(42);
         var bounds = new List<int>();
         for (int i = 0; i <= s.Length; i++)
-            if (i == s.Length || !char.IsLowSurrogate(s[i])) bounds.Add(i);
+            if (i == s.Length || !char.IsLowSurrogate(s[i]))
+                bounds.Add(i);
         for (int t = 0; t < 200; t++)
         {
-            int i = bounds[rnd.Next(bounds.Count)], j = bounds[rnd.Next(bounds.Count)];
-            if (i > j) (i, j) = (j, i);
-            var a = StatsOf(s[..i]); var b = StatsOf(s[i..j]); var c = StatsOf(s[j..]);
+            int i = bounds[rnd.Next(bounds.Count)],
+                j = bounds[rnd.Next(bounds.Count)];
+            if (i > j)
+                (i, j) = (j, i);
+            var a = StatsOf(s[..i]);
+            var b = StatsOf(s[i..j]);
+            var c = StatsOf(s[j..]);
             var left = PieceStats.Combine(PieceStats.Combine(a, b), c);
             var right = PieceStats.Combine(a, PieceStats.Combine(b, c));
             Assert.Equal(left, right);
-            Assert.Equal(StatsOf(s), left);   // 常に全体統計と一致
+            Assert.Equal(StatsOf(s), left); // 常に全体統計と一致
         }
     }
 
@@ -63,7 +68,7 @@ public class PieceStatsTests
         Assert.Equal(chunk.StatsOfRange(0, bytes.Length), piece.Stats);
         Assert.Equal(piece.Stats.CharLen, piece.CharLen);
         // 部分ピース
-        var sub = Piece.Of(chunk, 1, 2);   // "\r\n"
+        var sub = Piece.Of(chunk, 1, 2); // "\r\n"
         Assert.Equal(1, sub.Stats.Breaks);
         Assert.Equal(2, sub.CharLen);
     }

@@ -5,6 +5,4 @@
 namespace yEdit.Editor;
 
 /// <summary>Task 3c: InputRouter が keymap handler に渡す入力コンテキスト (value-record)。</summary>
-internal readonly record struct InputContext(
-    EditorControl Host,
-    CaretController Caret);
+internal readonly record struct InputContext(EditorControl Host, CaretController Caret);

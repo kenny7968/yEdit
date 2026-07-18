@@ -11,13 +11,16 @@ public static class AtomicFile
 {
     // Win32 共有/ロック違反（AV・同期ソフト等が一時的に掴んでいる）。
     private const int HResultSharingViolation = unchecked((int)0x80070020); // ERROR_SHARING_VIOLATION
-    private const int HResultLockViolation = unchecked((int)0x80070021);    // ERROR_LOCK_VIOLATION
+    private const int HResultLockViolation = unchecked((int)0x80070021); // ERROR_LOCK_VIOLATION
 
     /// <summary>payload を path へ原子的に書き込む。失敗時は tmp を掃除して例外を伝播する。</summary>
     public static void Write(string path, byte[] payload)
     {
         string dir = Path.GetDirectoryName(Path.GetFullPath(path))!;
-        string tmp = Path.Combine(dir, Path.GetFileName(path) + "." + Path.GetRandomFileName() + ".tmp");
+        string tmp = Path.Combine(
+            dir,
+            Path.GetFileName(path) + "." + Path.GetRandomFileName() + ".tmp"
+        );
 
         // ① tmp へステージング書き込み。ここで失敗（ディスクフル・権限・パス長等）したら
         //    原本に一切触れず、tmp 残骸の掃除だけ試みて例外を伝播する。
@@ -35,8 +38,10 @@ public static class AtomicFile
         //    失敗しても原本は不変のまま tmp を消して伝播する。
         try
         {
-            if (File.Exists(path)) File.Replace(tmp, path, destinationBackupFileName: null);
-            else File.Move(tmp, path);
+            if (File.Exists(path))
+                File.Replace(tmp, path, destinationBackupFileName: null);
+            else
+                File.Move(tmp, path);
         }
         catch
         {
@@ -55,11 +60,16 @@ public static class AtomicFile
     {
         ArgumentNullException.ThrowIfNull(writer);
         string dir = Path.GetDirectoryName(Path.GetFullPath(path))!;
-        string tmp = Path.Combine(dir, Path.GetFileName(path) + "." + Path.GetRandomFileName() + ".tmp");
+        string tmp = Path.Combine(
+            dir,
+            Path.GetFileName(path) + "." + Path.GetRandomFileName() + ".tmp"
+        );
 
         try
         {
-            using (var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (
+                var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None)
+            )
                 writer(fs);
         }
         catch
@@ -70,8 +80,10 @@ public static class AtomicFile
 
         try
         {
-            if (File.Exists(path)) File.Replace(tmp, path, destinationBackupFileName: null);
-            else File.Move(tmp, path);
+            if (File.Exists(path))
+                File.Replace(tmp, path, destinationBackupFileName: null);
+            else
+                File.Move(tmp, path);
         }
         catch
         {
@@ -84,11 +96,18 @@ public static class AtomicFile
     /// ex が Win32 の共有違反/ロック競合か。in-place フォールバックを許してよい唯一の条件
     /// （これ以外＝ディスクフル等でフォールバックすると原本を破壊し得る）の判定に使う。
     /// </summary>
-    public static bool IsShareOrLockViolation(IOException ex)
-        => ex.HResult is HResultSharingViolation or HResultLockViolation;
+    public static bool IsShareOrLockViolation(IOException ex) =>
+        ex.HResult is HResultSharingViolation or HResultLockViolation;
 
     private static void TryDelete(string p)
     {
-        try { if (File.Exists(p)) File.Delete(p); } catch { /* 残骸は実害小 */ }
+        try
+        {
+            if (File.Exists(p))
+                File.Delete(p);
+        }
+        catch
+        { /* 残骸は実害小 */
+        }
     }
 }

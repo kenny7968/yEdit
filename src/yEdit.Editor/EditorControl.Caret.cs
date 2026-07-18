@@ -15,8 +15,8 @@ public sealed partial class EditorControl
     // Caret 位置操作 + 選択範囲 API + view-into scroll
 
     /// <summary>P6 Task 2: 長さベースの選択設定エイリアス(App 層互換)。</summary>
-    public void SelectCharRange(int start, int length)
-        => SetSelectionCharRange(start, start + Math.Max(0, length));
+    public void SelectCharRange(int start, int length) =>
+        SetSelectionCharRange(start, start + Math.Max(0, length));
 
     /// <summary>
     /// P6 Task 2: <see cref="SetCaretCharOffset"/> のエイリアス(App 層互換)。
@@ -27,7 +27,8 @@ public sealed partial class EditorControl
     /// <summary>P6 Task 3: 指定 0-based 行の先頭にキャレット移動(App 層互換=`Lines[i].Goto()` 相当)。</summary>
     public void GoToLine(int line)
     {
-        if (_buffer is null) return;
+        if (_buffer is null)
+            return;
         var snap = _buffer.Current;
         int clamped = Math.Clamp(line, 0, snap.LineCount - 1);
         SetCaretCharOffset(snap.GetLineStart(clamped));
@@ -45,7 +46,8 @@ public sealed partial class EditorControl
     /// <c>ScintillaHost.CurrentLine</c> と同名=App 層互換 API・設計書 §2-8)。
     /// </summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public int CurrentLine => _buffer is null ? 0 : _buffer.Current.GetLineIndexOfChar(_caretCtrl.Caret);
+    public int CurrentLine =>
+        _buffer is null ? 0 : _buffer.Current.GetLineIndexOfChar(_caretCtrl.Caret);
 
     /// <summary>
     /// 指定オフセットの論理行内オフセット(0 始まり)。SetSource 前は 0・範囲外は
@@ -59,7 +61,8 @@ public sealed partial class EditorControl
     /// </remarks>
     public int GetColumn(int offset)
     {
-        if (_buffer is null) return 0;
+        if (_buffer is null)
+            return 0;
         int snapped = SnapAndClamp(offset);
         var snap = _buffer.Current;
         int line = snap.GetLineIndexOfChar(snapped);
@@ -81,11 +84,14 @@ public sealed partial class EditorControl
     /// </summary>
     public void SetCaretCharOffset(int offset)
     {
-        if (IsComposing) CancelCompositionAndDefault();
-        if (_buffer is null) return;
+        if (IsComposing)
+            CancelCompositionAndDefault();
+        if (_buffer is null)
+            return;
         int snapped = SnapAndClamp(offset);
-        if (_caretCtrl.Caret == snapped && _caretCtrl.Anchor == snapped) return;
-        _caretCtrl.SetTo(snapped, _buffer.Current);   // 単純キャレット移動は選択解除
+        if (_caretCtrl.Caret == snapped && _caretCtrl.Anchor == snapped)
+            return;
+        _caretCtrl.SetTo(snapped, _buffer.Current); // 単純キャレット移動は選択解除
         PositionCaret();
         Invalidate();
         // P5 Task 8: 純粋な選択/キャレット移動での UIA イベント発火
@@ -115,11 +121,14 @@ public sealed partial class EditorControl
     /// </remarks>
     public void SetSelectionCharRange(int start, int end)
     {
-        if (IsComposing) CancelCompositionAndDefault();
-        if (_buffer is null) return;
+        if (IsComposing)
+            CancelCompositionAndDefault();
+        if (_buffer is null)
+            return;
         int s = SnapAndClamp(Math.Min(start, end));
         int e = SnapAndClamp(Math.Max(start, end));
-        if (_caretCtrl.Anchor == s && _caretCtrl.Caret == e) return;
+        if (_caretCtrl.Anchor == s && _caretCtrl.Caret == e)
+            return;
         _caretCtrl.SetSelection(s, e, _buffer.Current);
         PositionCaret();
         Invalidate();
@@ -138,10 +147,13 @@ public sealed partial class EditorControl
     /// </summary>
     public void MoveCaretWithSelection(int newCaret)
     {
-        if (IsComposing) CancelCompositionAndDefault();
-        if (_buffer is null) return;
+        if (IsComposing)
+            CancelCompositionAndDefault();
+        if (_buffer is null)
+            return;
         int snapped = SnapAndClamp(newCaret);
-        if (_caretCtrl.Caret == snapped) return;
+        if (_caretCtrl.Caret == snapped)
+            return;
         _caretCtrl.MoveTo(snapped, extend: true, _buffer.Current);
         PositionCaret();
         Invalidate();
@@ -160,11 +172,14 @@ public sealed partial class EditorControl
     /// </summary>
     public void SetSelectionAnchored(int anchor, int caret)
     {
-        if (IsComposing) CancelCompositionAndDefault();
-        if (_buffer is null) return;
+        if (IsComposing)
+            CancelCompositionAndDefault();
+        if (_buffer is null)
+            return;
         int a = SnapAndClamp(anchor);
         int c = SnapAndClamp(caret);
-        if (_caretCtrl.Anchor == a && _caretCtrl.Caret == c) return;
+        if (_caretCtrl.Anchor == a && _caretCtrl.Caret == c)
+            return;
         _caretCtrl.SetSelection(a, c, _buffer.Current);
         PositionCaret();
         Invalidate();
@@ -183,7 +198,8 @@ public sealed partial class EditorControl
     /// </summary>
     private int SnapAndClamp(int offset)
     {
-        if (_buffer is null) return 0;
+        if (_buffer is null)
+            return 0;
         return _caretCtrl.SnapAndClamp(offset, _buffer.Current);
     }
 
@@ -195,10 +211,12 @@ public sealed partial class EditorControl
     /// </summary>
     public Point PointFromCharOffset(int offset)
     {
-        if (_buffer is null) return Point.Empty;
+        if (_buffer is null)
+            return Point.Empty;
         int snapped = SnapAndClamp(offset);
         var (x, y, visible) = ComputeCaretPoint(snapped);
-        if (!visible) return Point.Empty;
+        if (!visible)
+            return Point.Empty;
         return new Point(x - _scrollX, y);
     }
 
@@ -227,7 +245,8 @@ public sealed partial class EditorControl
     /// </remarks>
     public void BringCaretIntoView()
     {
-        if (_buffer is null) return;
+        if (_buffer is null)
+            return;
         var snap = _buffer.Current;
 
         int logicalLine = snap.GetLineIndexOfChar(_caretCtrl.Caret);
@@ -290,7 +309,8 @@ public sealed partial class EditorControl
     /// </remarks>
     public void EnsureVisibleCharRange(int start, int length)
     {
-        if (_buffer is null) return;
+        if (_buffer is null)
+            return;
         // 範囲末尾のみ可視化する仕様(start 側は SnapAndClamp 不要=BringCaretIntoView は
         // end のみに反応する)。start + length は int 加算オーバーフロー対策で long 経由。
         long endLong = (long)start + Math.Max(0, length);

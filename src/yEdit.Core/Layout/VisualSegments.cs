@@ -10,12 +10,15 @@ public static class VisualSegments
     /// 空 segs は非対応=<see cref="LineLayout.Wrap"/> は空入力でも [(0,0)] を返す契約なので
     /// 呼び出し側で空 segs を渡さないことを保証する。</remarks>
     public static (int Index, WrapSegment Segment) FindContaining(
-        IReadOnlyList<WrapSegment> segs, int offsetInLine)
+        IReadOnlyList<WrapSegment> segs,
+        int offsetInLine
+    )
     {
         for (int i = 0; i < segs.Count; i++)
         {
             int segEnd = segs[i].OffsetInLine + segs[i].Length;
-            if (offsetInLine < segEnd || i == segs.Count - 1) return (i, segs[i]);
+            if (offsetInLine < segEnd || i == segs.Count - 1)
+                return (i, segs[i]);
         }
         throw new System.ArgumentException("segs must not be empty", nameof(segs));
     }

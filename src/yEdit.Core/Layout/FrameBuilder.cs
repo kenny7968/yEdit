@@ -49,14 +49,16 @@ internal static class FrameBuilder
     public static Frame Build(
         TextSnapshot snapshot,
         IReadOnlyList<VisualRow> rows,
-        int clientWidth, int clientHeight,
+        int clientWidth,
+        int clientHeight,
         int lineNumberMarginPx,
         int currentLineLogical,
         SelectionRange? selection,
         SelectionRange? cellHighlight,
         bool showWhitespace,
         ViewportStyle style,
-        ICharMetrics metrics)
+        ICharMetrics metrics
+    )
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(rows);
@@ -69,7 +71,16 @@ internal static class FrameBuilder
         int bodyX = lineNumberMarginPx;
 
         // 1) 背景全域
-        ops.Add(new PaintOp(PaintOpKind.FillRect, 0, 0, clientWidth, clientHeight, Back: style.Background));
+        ops.Add(
+            new PaintOp(
+                PaintOpKind.FillRect,
+                0,
+                0,
+                clientWidth,
+                clientHeight,
+                Back: style.Background
+            )
+        );
 
         // 2) 現在行強調(該当する視覚行=折り返し ON なら複数あり得る)
         if (currentLineLogical >= 0)
@@ -78,9 +89,16 @@ internal static class FrameBuilder
             {
                 var row = rows[i];
                 if (row.LogicalLine == currentLineLogical)
-                    ops.Add(new PaintOp(
-                        PaintOpKind.FillRect, 0, row.YPx, clientWidth, lineHeight,
-                        Back: style.CurrentLineBack));
+                    ops.Add(
+                        new PaintOp(
+                            PaintOpKind.FillRect,
+                            0,
+                            row.YPx,
+                            clientWidth,
+                            lineHeight,
+                            Back: style.CurrentLineBack
+                        )
+                    );
             }
         }
 
@@ -89,10 +107,24 @@ internal static class FrameBuilder
         {
             for (int i = 0; i < rows.Count; i++)
             {
-                if (TryComputeRowRangeRect(snapshot, rows[i], sel, bodyX, lineHeight, metrics,
-                    out var x, out var y, out var w, out var h))
+                if (
+                    TryComputeRowRangeRect(
+                        snapshot,
+                        rows[i],
+                        sel,
+                        bodyX,
+                        lineHeight,
+                        metrics,
+                        out var x,
+                        out var y,
+                        out var w,
+                        out var h
+                    )
+                )
                 {
-                    ops.Add(new PaintOp(PaintOpKind.FillRect, x, y, w, h, Back: style.SelectionBack));
+                    ops.Add(
+                        new PaintOp(PaintOpKind.FillRect, x, y, w, h, Back: style.SelectionBack)
+                    );
                 }
             }
         }
@@ -103,8 +135,20 @@ internal static class FrameBuilder
             var hlBack = new PaintColor(style.HighlightOutline.Rgb, HighlightBackAlpha);
             for (int i = 0; i < rows.Count; i++)
             {
-                if (TryComputeRowRangeRect(snapshot, rows[i], hl, bodyX, lineHeight, metrics,
-                    out var x, out var y, out var w, out var h))
+                if (
+                    TryComputeRowRangeRect(
+                        snapshot,
+                        rows[i],
+                        hl,
+                        bodyX,
+                        lineHeight,
+                        metrics,
+                        out var x,
+                        out var y,
+                        out var w,
+                        out var h
+                    )
+                )
                 {
                     ops.Add(new PaintOp(PaintOpKind.FillRect, x, y, w, h, Back: hlBack));
                 }
@@ -115,13 +159,22 @@ internal static class FrameBuilder
         for (int i = 0; i < rows.Count; i++)
         {
             var row = rows[i];
-            string text = row.SegmentLength == 0
-                ? string.Empty
-                : snapshot.GetText(row.SegmentStartChar, row.SegmentLength);
+            string text =
+                row.SegmentLength == 0
+                    ? string.Empty
+                    : snapshot.GetText(row.SegmentStartChar, row.SegmentLength);
             int width = text.Length == 0 ? 0 : metrics.MeasureRun(text);
-            ops.Add(new PaintOp(
-                PaintOpKind.DrawText, bodyX, row.YPx, width, lineHeight,
-                Text: text, Fore: style.Foreground));
+            ops.Add(
+                new PaintOp(
+                    PaintOpKind.DrawText,
+                    bodyX,
+                    row.YPx,
+                    width,
+                    lineHeight,
+                    Text: text,
+                    Fore: style.Foreground
+                )
+            );
         }
 
         // 6) 空白可視化(スペース/タブごとに個別 DrawText=検証しやすい)
@@ -130,9 +183,18 @@ internal static class FrameBuilder
             for (int i = 0; i < rows.Count; i++)
             {
                 var row = rows[i];
-                if (row.SegmentLength == 0) continue;
+                if (row.SegmentLength == 0)
+                    continue;
                 string text = snapshot.GetText(row.SegmentStartChar, row.SegmentLength);
-                EmitWhitespaceGlyphs(text, bodyX, row.YPx, lineHeight, style.WhitespaceGlyph, metrics, ops);
+                EmitWhitespaceGlyphs(
+                    text,
+                    bodyX,
+                    row.YPx,
+                    lineHeight,
+                    style.WhitespaceGlyph,
+                    metrics,
+                    ops
+                );
             }
         }
 
@@ -143,17 +205,28 @@ internal static class FrameBuilder
             for (int i = 0; i < rows.Count; i++)
             {
                 var row = rows[i];
-                if (row.SegmentIndex != 0) continue;
+                if (row.SegmentIndex != 0)
+                    continue;
                 string numText = (row.LogicalLine + 1).ToString();
                 int textWidth = metrics.MeasureRun(numText);
                 int x = lineNumberMarginPx - textWidth - LineNumberPadding;
-                if (x < 0) x = 0;   // マージン幅が狭すぎる場合の安全網(左端貼り付き)
-                PaintColor lnFore = (currentLineLogical >= 0 && row.LogicalLine == currentLineLogical)
-                    ? style.Foreground
-                    : style.LineNumberFore;
-                ops.Add(new PaintOp(
-                    PaintOpKind.DrawText, x, row.YPx, textWidth, lineHeight,
-                    Text: numText, Fore: lnFore));
+                if (x < 0)
+                    x = 0; // マージン幅が狭すぎる場合の安全網(左端貼り付き)
+                PaintColor lnFore =
+                    (currentLineLogical >= 0 && row.LogicalLine == currentLineLogical)
+                        ? style.Foreground
+                        : style.LineNumberFore;
+                ops.Add(
+                    new PaintOp(
+                        PaintOpKind.DrawText,
+                        x,
+                        row.YPx,
+                        textWidth,
+                        lineHeight,
+                        Text: numText,
+                        Fore: lnFore
+                    )
+                );
             }
         }
 
@@ -162,16 +235,37 @@ internal static class FrameBuilder
         {
             for (int i = 0; i < rows.Count; i++)
             {
-                if (!TryComputeRowRangeRect(snapshot, rows[i], hl2, bodyX, lineHeight, metrics,
-                    out var x, out var y, out var w, out var h)) continue;
+                if (
+                    !TryComputeRowRangeRect(
+                        snapshot,
+                        rows[i],
+                        hl2,
+                        bodyX,
+                        lineHeight,
+                        metrics,
+                        out var x,
+                        out var y,
+                        out var w,
+                        out var h
+                    )
+                )
+                    continue;
                 // 上辺: (x,y) → (x+w, y)
-                ops.Add(new PaintOp(PaintOpKind.DrawLine, x, y, w, 0, Fore: style.HighlightOutline));
+                ops.Add(
+                    new PaintOp(PaintOpKind.DrawLine, x, y, w, 0, Fore: style.HighlightOutline)
+                );
                 // 下辺: (x, y+h) → (x+w, y+h)
-                ops.Add(new PaintOp(PaintOpKind.DrawLine, x, y + h, w, 0, Fore: style.HighlightOutline));
+                ops.Add(
+                    new PaintOp(PaintOpKind.DrawLine, x, y + h, w, 0, Fore: style.HighlightOutline)
+                );
                 // 左辺: (x,y) → (x, y+h)
-                ops.Add(new PaintOp(PaintOpKind.DrawLine, x, y, 0, h, Fore: style.HighlightOutline));
+                ops.Add(
+                    new PaintOp(PaintOpKind.DrawLine, x, y, 0, h, Fore: style.HighlightOutline)
+                );
                 // 右辺: (x+w, y) → (x+w, y+h)
-                ops.Add(new PaintOp(PaintOpKind.DrawLine, x + w, y, 0, h, Fore: style.HighlightOutline));
+                ops.Add(
+                    new PaintOp(PaintOpKind.DrawLine, x + w, y, 0, h, Fore: style.HighlightOutline)
+                );
             }
         }
 
@@ -183,9 +277,17 @@ internal static class FrameBuilder
     /// 交差が空なら false(呼び出し側はスキップ)。
     /// </summary>
     private static bool TryComputeRowRangeRect(
-        TextSnapshot snapshot, VisualRow row, SelectionRange range,
-        int bodyX, int lineHeight, ICharMetrics metrics,
-        out int x, out int y, out int w, out int h)
+        TextSnapshot snapshot,
+        VisualRow row,
+        SelectionRange range,
+        int bodyX,
+        int lineHeight,
+        ICharMetrics metrics,
+        out int x,
+        out int y,
+        out int w,
+        out int h
+    )
     {
         int rowStart = row.SegmentStartChar;
         int rowEnd = rowStart + row.SegmentLength;
@@ -193,7 +295,10 @@ internal static class FrameBuilder
         int interEnd = Math.Min(range.End, rowEnd);
         if (interStart >= interEnd)
         {
-            x = 0; y = 0; w = 0; h = 0;
+            x = 0;
+            y = 0;
+            w = 0;
+            h = 0;
             return false;
         }
 
@@ -213,8 +318,14 @@ internal static class FrameBuilder
     /// サロゲートペアは 2 コード単位=1 code-point 扱いで前進。
     /// </summary>
     private static void EmitWhitespaceGlyphs(
-        string text, int bodyX, int yPx, int lineHeight,
-        PaintColor glyphFore, ICharMetrics metrics, List<PaintOp> ops)
+        string text,
+        int bodyX,
+        int yPx,
+        int lineHeight,
+        PaintColor glyphFore,
+        ICharMetrics metrics,
+        List<PaintOp> ops
+    )
     {
         var span = text.AsSpan();
         int i = 0;
@@ -226,9 +337,17 @@ internal static class FrameBuilder
                 string glyph = c == ' ' ? SpaceGlyph : TabGlyph;
                 int px = PixelMapper.OffsetToPx(span, i, metrics);
                 int glyphWidth = metrics.MeasureRun(glyph);
-                ops.Add(new PaintOp(
-                    PaintOpKind.DrawText, bodyX + px, yPx, glyphWidth, lineHeight,
-                    Text: glyph, Fore: glyphFore));
+                ops.Add(
+                    new PaintOp(
+                        PaintOpKind.DrawText,
+                        bodyX + px,
+                        yPx,
+                        glyphWidth,
+                        lineHeight,
+                        Text: glyph,
+                        Fore: glyphFore
+                    )
+                );
             }
 
             // サロゲートペアなら 2 進める(空白判定を安全にスキップ)

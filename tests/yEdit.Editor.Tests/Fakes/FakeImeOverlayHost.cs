@@ -16,6 +16,7 @@ internal sealed class FakeImeOverlayHost : IImeOverlayHost
     public bool HasFocus { get; set; } = true;
     public int ScrollX { get; set; }
     public int LineHeightPx { get; set; } = 20;
+
     // IMP-2 fixup: Metrics プロパティは interface から削除 (使用 0 件)。
     public Func<int, (int X, int Y, bool Visible)>? CaretPointResolver { get; set; }
     public Font Font { get; set; } = SystemFonts.DefaultFont;
@@ -25,9 +26,11 @@ internal sealed class FakeImeOverlayHost : IImeOverlayHost
     public Color SelectionBackColor { get; set; } = Color.LightBlue;
 
     public void DeleteSelectionForImeStart() => DeleteSelectionCallCount++;
+
     public void PositionCaret() => PositionCaretCallCount++;
+
     public void Invalidate() => InvalidateCallCount++;
 
-    public (int X, int Y, bool Visible) ComputeCaretPoint(int offset)
-        => CaretPointResolver?.Invoke(offset) ?? (0, 0, true);
+    public (int X, int Y, bool Visible) ComputeCaretPoint(int offset) =>
+        CaretPointResolver?.Invoke(offset) ?? (0, 0, true);
 }

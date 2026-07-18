@@ -10,6 +10,6 @@ namespace yEdit.App;
 /// </summary>
 public static class EditorAppearance
 {
-    public static void Apply(EditorControl ed, AppSettings settings)
-        => ed.ApplyAppearance(settings);
+    public static void Apply(EditorControl ed, AppSettings settings) =>
+        ed.ApplyAppearance(settings);
 }

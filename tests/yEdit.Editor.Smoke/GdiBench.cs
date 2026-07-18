@@ -19,7 +19,8 @@ internal static class GdiBench
         int mb = 256;
         for (int i = 0; i + 1 < args.Length; i++)
         {
-            if (args[i] == "--mb" && int.TryParse(args[i + 1], out int m)) mb = m;
+            if (args[i] == "--mb" && int.TryParse(args[i + 1], out int m))
+                mb = m;
         }
         long targetBytes = (long)mb * 1024L * 1024L;
 
@@ -28,11 +29,18 @@ internal static class GdiBench
         var buffer = BuildBuffer(targetBytes);
         swBuild.Stop();
         var snap = buffer.Current;
-        Console.WriteLine($"構築 {swBuild.Elapsed.TotalSeconds:F1}s / {snap.CharLength:N0} 文字 / {snap.LineCount:N0} 行");
+        Console.WriteLine(
+            $"構築 {swBuild.Elapsed.TotalSeconds:F1}s / {snap.CharLength:N0} 文字 / {snap.LineCount:N0} 行"
+        );
 
         // WinForms アプリコンテキスト初期化(offscreen だが Show でハンドル生成 → Invalidate/Update が同期 paint)。
         ApplicationConfiguration.Initialize();
-        using var form = new Form { Text = "yEdit.Editor.Smoke --bench", Width = 900, Height = 700 };
+        using var form = new Form
+        {
+            Text = "yEdit.Editor.Smoke --bench",
+            Width = 900,
+            Height = 700,
+        };
         using var editor = new EditorControl { Dock = DockStyle.Fill };
         form.Controls.Add(editor);
         // ハンドル生成のため Show が必須(offscreen だと Invalidate/Update が no-op)。
@@ -55,16 +63,19 @@ internal static class GdiBench
             editor.TopLine = rnd.Next(0, snap.LineCount);
             var sw = Stopwatch.StartNew();
             editor.Invalidate();
-            editor.Update();   // 同期 paint
+            editor.Update(); // 同期 paint
             sw.Stop();
             double ms = sw.Elapsed.TotalMilliseconds;
             totalMs += ms;
-            if (ms > maxMs) maxMs = ms;
+            if (ms > maxMs)
+                maxMs = ms;
         }
         swAll.Stop();
 
         double avgMs = totalMs / Iterations;
-        Console.WriteLine($"GDI 平均フレーム時間: {avgMs:F2} ms (max {maxMs:F2} ms・{Iterations} frames / 合計 {swAll.Elapsed.TotalSeconds:F1}s)");
+        Console.WriteLine(
+            $"GDI 平均フレーム時間: {avgMs:F2} ms (max {maxMs:F2} ms・{Iterations} frames / 合計 {swAll.Elapsed.TotalSeconds:F1}s)"
+        );
         Console.WriteLine($"目標: <16ms  判定: {(avgMs < 16 ? "PASS" : "FAIL")}");
 
         form.Close();
@@ -85,7 +96,11 @@ internal static class GdiBench
         {
             var b = new byte[1 << 20];
             int w = 0;
-            while (w + template.Length <= b.Length) { template.CopyTo(b, w); w += template.Length; }
+            while (w + template.Length <= b.Length)
+            {
+                template.CopyTo(b, w);
+                w += template.Length;
+            }
             block = b[..w];
         }
         var builder = new TextBufferBuilder();

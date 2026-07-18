@@ -58,12 +58,12 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     // 設計原則: _bufferSnapshot を更新するすべての経路で _lastLineSegs も破棄する
     // (correctness は ReferenceEquals(c.Snap) 判定で守られるが、旧 TextSnapshot の Root
     //  PieceTree が強参照で pin されて大容量ファイル差替後の GC を阻害するため)。
-    private (TextSnapshot Snap, int Line, int Wrap,
-             IReadOnlyList<WrapSegment> Segs)? _lastLineSegs;
+    private (TextSnapshot Snap, int Line, int Wrap, IReadOnlyList<WrapSegment> Segs)? _lastLineSegs;
 
     // P5 Task 10: client→screen オフセットキャッシュ (座標 API 用)。
     // OnPaint / OnBoundsChanged で更新した client 原点のスクリーン座標。
-    private int _clientToScreenX, _clientToScreenY;
+    private int _clientToScreenX,
+        _clientToScreenY;
 
     // P5 Task 14 (I-2): UIA プロバイダは RPC スレッドから Handle を取得する。Control.Handle は
     // Handle 未生成時に CreateHandle を誘発し得るため、OnHandleCreated で捕捉した値をキャッシュ。
@@ -78,7 +78,9 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     private bool _testHook_LastGetObjectServed;
 
     // P5 Task 8: UIA イベント発火カウンタ (Editor.Tests から観測)。
-    private int _uiaTextChangedCount, _uiaSelectionChangedCount, _uiaFocusChangedCount;
+    private int _uiaTextChangedCount,
+        _uiaSelectionChangedCount,
+        _uiaFocusChangedCount;
 
     // === ctor ===
 
@@ -117,9 +119,11 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     /// </summary>
     public void OnBoundsChanged()
     {
-        if (!_host.IsHandleCreated) return;
+        if (!_host.IsHandleCreated)
+            return;
         var r = _host.RectangleToScreen(_host.ClientRectangle);
-        lock (_boundsSync) _bounds = new System.Windows.Rect(r.Left, r.Top, r.Width, r.Height);
+        lock (_boundsSync)
+            _bounds = new System.Windows.Rect(r.Left, r.Top, r.Width, r.Height);
         // P5 Task 10: client→screen オフセットも同時に更新
         var origin = _host.PointToScreen(new System.Drawing.Point(0, 0));
         _clientToScreenX = origin.X;
@@ -147,7 +151,7 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     /// </summary>
     public void OnHandleCreated()
     {
-        _hwnd = _host.Handle;   // P5 Task 14 (I-2): RPC スレッドが安全に読める hwnd キャッシュ
+        _hwnd = _host.Handle; // P5 Task 14 (I-2): RPC スレッドが安全に読める hwnd キャッシュ
         OnBoundsChanged();
     }
 
@@ -172,7 +176,12 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     public IntPtr HandleWmGetObject(nint controlHandle, IntPtr wParam, IntPtr lParam)
     {
         _provider ??= new TextControlProviderV2(this);
-        var result = AutomationInteropProvider.ReturnRawElementProvider(controlHandle, wParam, lParam, _provider);
+        var result = AutomationInteropProvider.ReturnRawElementProvider(
+            controlHandle,
+            wParam,
+            lParam,
+            _provider
+        );
         _testHook_LastGetObjectServed = true;
         return result;
     }
@@ -184,8 +193,7 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     }
 
     /// <summary>UIA TextChangedEvent 発火 (元 RaiseUia(TextChangedEvent))。</summary>
-    public void RaiseTextChanged() =>
-        RaiseUia(TextPatternIdentifiers.TextChangedEvent);
+    public void RaiseTextChanged() => RaiseUia(TextPatternIdentifiers.TextChangedEvent);
 
     /// <summary>UIA TextSelectionChangedEvent 発火 (元 RaiseUia(TextSelectionChangedEvent))。</summary>
     public void RaiseSelectionChanged() =>
@@ -199,18 +207,29 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     /// <remarks>元 EditorControl.Uia.cs の RaiseUia を bit-perfect 移設。</remarks>
     private void RaiseUia(AutomationEvent ev)
     {
-        if (_provider is null) return;
-        if (!EditorControl.TestHook_ForceUiaListen &&
-            !AutomationInteropProvider.ClientsAreListening) return;
+        if (_provider is null)
+            return;
+        if (
+            !EditorControl.TestHook_ForceUiaListen && !AutomationInteropProvider.ClientsAreListening
+        )
+            return;
         try
         {
             AutomationInteropProvider.RaiseAutomationEvent(
-                ev, _provider, new AutomationEventArgs(ev));
-            if (ev == TextPatternIdentifiers.TextChangedEvent) _uiaTextChangedCount++;
-            else if (ev == TextPatternIdentifiers.TextSelectionChangedEvent) _uiaSelectionChangedCount++;
-            else if (ev == AutomationElementIdentifiers.AutomationFocusChangedEvent) _uiaFocusChangedCount++;
+                ev,
+                _provider,
+                new AutomationEventArgs(ev)
+            );
+            if (ev == TextPatternIdentifiers.TextChangedEvent)
+                _uiaTextChangedCount++;
+            else if (ev == TextPatternIdentifiers.TextSelectionChangedEvent)
+                _uiaSelectionChangedCount++;
+            else if (ev == AutomationElementIdentifiers.AutomationFocusChangedEvent)
+                _uiaFocusChangedCount++;
         }
-        catch { /* UIA サーバ側の失敗は本体に影響させない */ }
+        catch
+        { /* UIA サーバ側の失敗は本体に影響させない */
+        }
     }
 
     /// <summary>event counters の一括リセット (Test hook 経由)。</summary>
@@ -220,8 +239,8 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     }
 
     /// <summary>UIA event counters の read (Test hook 経由)。</summary>
-    public (int TextChanged, int SelChanged, int FocusChanged) UiaEventCounts
-        => (_uiaTextChangedCount, _uiaSelectionChangedCount, _uiaFocusChangedCount);
+    public (int TextChanged, int SelChanged, int FocusChanged) UiaEventCounts =>
+        (_uiaTextChangedCount, _uiaSelectionChangedCount, _uiaFocusChangedCount);
 
     /// <summary>_testHook_LastGetObjectServed の read (Test hook 経由)。</summary>
     public bool TestHook_LastGetObjectServed => _testHook_LastGetObjectServed;
@@ -233,7 +252,8 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     string IUiaTextHost.GetTextRange(int start, int length)
     {
         var snap = _bufferSnapshot;
-        if (snap is null) return "";
+        if (snap is null)
+            return "";
         int s = Math.Clamp(start, 0, snap.CharLength);
         int l = Math.Clamp(length, 0, snap.CharLength - s);
         return snap.GetText(s, l);
@@ -255,7 +275,8 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     void IUiaTextHost.SetSelection(int start, int end)
     {
         // P5 Task 14 (I-3): 破棄後 / Handle 未生成での BeginInvoke による InvalidOperationException を防ぐ
-        if (_host.IsDisposed || !_host.IsHandleCreated) return;
+        if (_host.IsDisposed || !_host.IsHandleCreated)
+            return;
         if (_host.InvokeRequired)
         {
             _host.BeginInvoke(new Action(() => ((IUiaTextHost)this).SetSelection(start, end)));
@@ -267,11 +288,17 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     int IUiaTextHost.NextChar(int offset)
     {
         var snap = _bufferSnapshot;
-        if (snap is null) return 0;
+        if (snap is null)
+            return 0;
         int o = Math.Clamp(offset, 0, snap.CharLength);
-        if (o >= snap.CharLength) return snap.CharLength;
+        if (o >= snap.CharLength)
+            return snap.CharLength;
         char c = snap.GetChar(o);
-        if (char.IsHighSurrogate(c) && o + 1 < snap.CharLength && char.IsLowSurrogate(snap.GetChar(o + 1)))
+        if (
+            char.IsHighSurrogate(c)
+            && o + 1 < snap.CharLength
+            && char.IsLowSurrogate(snap.GetChar(o + 1))
+        )
             return o + 2;
         return o + 1;
     }
@@ -279,10 +306,16 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     int IUiaTextHost.PrevChar(int offset)
     {
         var snap = _bufferSnapshot;
-        if (snap is null) return 0;
+        if (snap is null)
+            return 0;
         int o = Math.Clamp(offset, 0, snap.CharLength);
-        if (o <= 0) return 0;
-        if (char.IsLowSurrogate(snap.GetChar(o - 1)) && o - 2 >= 0 && char.IsHighSurrogate(snap.GetChar(o - 2)))
+        if (o <= 0)
+            return 0;
+        if (
+            char.IsLowSurrogate(snap.GetChar(o - 1))
+            && o - 2 >= 0
+            && char.IsHighSurrogate(snap.GetChar(o - 2))
+        )
             return o - 2;
         return o - 1;
     }
@@ -290,7 +323,8 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     int IUiaTextHost.LineStartOf(int offset)
     {
         var snap = _bufferSnapshot;
-        if (snap is null) return 0;
+        if (snap is null)
+            return 0;
         int o = Math.Clamp(offset, 0, snap.CharLength);
         int line = snap.GetLineIndexOfChar(o);
         int logicalStart = snap.GetLineStart(line);
@@ -303,7 +337,8 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     int IUiaTextHost.LineEnd(int offset)
     {
         var snap = _bufferSnapshot;
-        if (snap is null) return 0;
+        if (snap is null)
+            return 0;
         int o = Math.Clamp(offset, 0, snap.CharLength);
         int line = snap.GetLineIndexOfChar(o);
         int logicalStart = snap.GetLineStart(line);
@@ -315,21 +350,25 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
         {
             int visualEndInLine = vs.OffsetInLine + vs.Length;
             if (logicalStart + visualEndInLine < logicalEnd)
-                return logicalStart + visualEndInLine;   // 継続 seg=改行手前で終了
+                return logicalStart + visualEndInLine; // 継続 seg=改行手前で終了
         }
         // 論理行最終視覚行(または wrap OFF)=改行を含めて次論理行先頭 or TextLength
-        if (line + 1 < snap.LineCount) return snap.GetLineStart(line + 1);
+        if (line + 1 < snap.LineCount)
+            return snap.GetLineStart(line + 1);
         return snap.CharLength;
     }
 
     int IUiaTextHost.LineEndNoBreakOf(int offset)
     {
         var snap = _bufferSnapshot;
-        if (snap is null) return 0;
+        if (snap is null)
+            return 0;
         int e = ((IUiaTextHost)this).LineEnd(offset);
         // CRLF 混在対応: LF → CR の順で剥がす(継続セグメントの場合 e は改行前=剥がすものが無いので no-op)
-        if (e > 0 && snap.GetChar(e - 1) == '\n') e--;
-        if (e > 0 && snap.GetChar(e - 1) == '\r') e--;
+        if (e > 0 && snap.GetChar(e - 1) == '\n')
+            e--;
+        if (e > 0 && snap.GetChar(e - 1) == '\r')
+            e--;
         return e;
     }
 
@@ -348,28 +387,49 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     private WrapSegment? TryFindVisualSegment(TextSnapshot snap, int line, int offsetInLine)
     {
         int wrap = _host.WrapColumns;
-        if (wrap <= 0) return null;
-        if (!_host.IsHandleCreated) return null;   // UI スレッドが束縛されていない=論理行フォールバック
+        if (wrap <= 0)
+            return null;
+        if (!_host.IsHandleCreated)
+            return null; // UI スレッドが束縛されていない=論理行フォールバック
         if (_host.InvokeRequired)
         {
             try
             {
-                return (WrapSegment?)_host.Invoke(new Func<WrapSegment?>(
-                    () => TryFindVisualSegmentCore(snap, line, offsetInLine, wrap)));
+                return (WrapSegment?)
+                    _host.Invoke(
+                        new Func<WrapSegment?>(() =>
+                            TryFindVisualSegmentCore(snap, line, offsetInLine, wrap)
+                        )
+                    );
             }
-            catch (ObjectDisposedException) { return null; }
-            catch (InvalidOperationException) { return null; }   // Handle 破棄との race
+            catch (ObjectDisposedException)
+            {
+                return null;
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            } // Handle 破棄との race
         }
         return TryFindVisualSegmentCore(snap, line, offsetInLine, wrap);
     }
 
     /// <summary>UI スレッド上での視覚セグメント検索本体(<see cref="TryFindVisualSegment"/> から Invoke マーシャリング後)。</summary>
-    private WrapSegment? TryFindVisualSegmentCore(TextSnapshot snap, int line, int offsetInLine, int wrap)
+    private WrapSegment? TryFindVisualSegmentCore(
+        TextSnapshot snap,
+        int line,
+        int offsetInLine,
+        int wrap
+    )
     {
         IReadOnlyList<WrapSegment> segs;
 
-        if (_lastLineSegs is { } c &&
-            ReferenceEquals(c.Snap, snap) && c.Line == line && c.Wrap == wrap)
+        if (
+            _lastLineSegs is { } c
+            && ReferenceEquals(c.Snap, snap)
+            && c.Line == line
+            && c.Wrap == wrap
+        )
         {
             segs = c.Segs;
             TestHook_LastLineSegsHitCount++;
@@ -379,7 +439,8 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
             var metrics = _host.Metrics;
             int logicalStart = snap.GetLineStart(line);
             int logicalEnd = snap.GetLineEnd(line, includeBreak: false);
-            if (logicalStart == logicalEnd) return null;
+            if (logicalStart == logicalEnd)
+                return null;
             string lineText = snap.GetText(logicalStart, logicalEnd - logicalStart);
             int maxWidthPx = wrap * metrics.MeasureRun("0".AsSpan());
             segs = LineLayout.Wrap(lineText.AsSpan(), maxWidthPx, metrics);
@@ -393,7 +454,8 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     int IUiaTextHost.WordStart(int offset)
     {
         var snap = _bufferSnapshot;
-        if (snap is null) return 0;
+        if (snap is null)
+            return 0;
         int o = Math.Clamp(offset, 0, snap.CharLength);
         return WordBoundary_WordStart(snap, o);
     }
@@ -401,7 +463,8 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     int IUiaTextHost.WordEnd(int offset)
     {
         var snap = _bufferSnapshot;
-        if (snap is null) return 0;
+        if (snap is null)
+            return 0;
         int o = Math.Clamp(offset, 0, snap.CharLength);
         return WordBoundary_WordEnd(snap, o);
     }
@@ -409,7 +472,8 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     int IUiaTextHost.NextWordStart(int offset)
     {
         var snap = _bufferSnapshot;
-        if (snap is null) return 0;
+        if (snap is null)
+            return 0;
         int o = Math.Clamp(offset, 0, snap.CharLength);
         return yEdit.Core.Editing.WordBoundary.NextWordStart(snap, o);
     }
@@ -417,7 +481,8 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     int IUiaTextHost.PrevWordStart(int offset)
     {
         var snap = _bufferSnapshot;
-        if (snap is null) return 0;
+        if (snap is null)
+            return 0;
         int o = Math.Clamp(offset, 0, snap.CharLength);
         return yEdit.Core.Editing.WordBoundary.PrevWordStart(snap, o);
     }
@@ -427,15 +492,21 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     // (計画書 §5-5: v1 の TextNavigation.WordStart と同じ流儀=空白区切りだけ)。
     private static int WordBoundary_WordStart(TextSnapshot snap, int pos)
     {
-        if (pos <= 0) return 0;
+        if (pos <= 0)
+            return 0;
         int p = pos;
         while (p > 0)
         {
             int prev = p - 1;
-            if (prev > 0 && char.IsLowSurrogate(snap.GetChar(prev)) && char.IsHighSurrogate(snap.GetChar(prev - 1)))
+            if (
+                prev > 0
+                && char.IsLowSurrogate(snap.GetChar(prev))
+                && char.IsHighSurrogate(snap.GetChar(prev - 1))
+            )
                 prev--;
             char pc = snap.GetChar(prev);
-            if (char.IsWhiteSpace(pc) || pc == '\r' || pc == '\n') break;
+            if (char.IsWhiteSpace(pc) || pc == '\r' || pc == '\n')
+                break;
             p = prev;
         }
         return p;
@@ -447,8 +518,13 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
         while (p < snap.CharLength)
         {
             char c = snap.GetChar(p);
-            if (char.IsWhiteSpace(c) || c == '\r' || c == '\n') break;
-            if (char.IsHighSurrogate(c) && p + 1 < snap.CharLength && char.IsLowSurrogate(snap.GetChar(p + 1)))
+            if (char.IsWhiteSpace(c) || c == '\r' || c == '\n')
+                break;
+            if (
+                char.IsHighSurrogate(c)
+                && p + 1 < snap.CharLength
+                && char.IsLowSurrogate(snap.GetChar(p + 1))
+            )
                 p += 2;
             else
                 p++;
@@ -458,7 +534,11 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
 
     System.Windows.Rect IUiaTextHost.BoundingRectangle
     {
-        get { lock (_boundsSync) return _bounds; }
+        get
+        {
+            lock (_boundsSync)
+                return _bounds;
+        }
     }
 
     // P5 Task 10: 座標 API 本実装
@@ -470,8 +550,10 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     {
         if (_host.InvokeRequired)
         {
-            if (!_host.IsHandleCreated) return Array.Empty<double>();
-            return (double[])_host.Invoke(new Func<double[]>(() => ComputeBoundingRectangles(start, end)));
+            if (!_host.IsHandleCreated)
+                return Array.Empty<double>();
+            return (double[])
+                _host.Invoke(new Func<double[]>(() => ComputeBoundingRectangles(start, end)));
         }
         return ComputeBoundingRectangles(start, end);
     }
@@ -479,12 +561,15 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     private double[] ComputeBoundingRectangles(int start, int end)
     {
         var snap = _bufferSnapshot;
-        if (snap is null) return Array.Empty<double>();
+        if (snap is null)
+            return Array.Empty<double>();
         int s = Math.Clamp(start, 0, snap.CharLength);
         int en = Math.Clamp(end, 0, snap.CharLength);
-        if (s >= en) return Array.Empty<double>();
+        if (s >= en)
+            return Array.Empty<double>();
 
-        int csx = _clientToScreenX, csy = _clientToScreenY;
+        int csx = _clientToScreenX,
+            csy = _clientToScreenY;
         int lineHeight = _host.Metrics.LineHeightPx;
         var rects = new List<double>(16);
 
@@ -507,10 +592,10 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
                 rects.Add(lineHeight);
             }
 
-            int nextLineStart = (line + 1 < snap.LineCount)
-                ? snap.GetLineStart(line + 1)
-                : snap.CharLength;
-            if (nextLineStart <= pos) break;
+            int nextLineStart =
+                (line + 1 < snap.LineCount) ? snap.GetLineStart(line + 1) : snap.CharLength;
+            if (nextLineStart <= pos)
+                break;
             pos = nextLineStart;
         }
         return rects.ToArray();
@@ -524,7 +609,8 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     {
         if (_host.InvokeRequired)
         {
-            if (!_host.IsHandleCreated) return 0;
+            if (!_host.IsHandleCreated)
+                return 0;
             return (int)_host.Invoke(new Func<int>(() => ComputeOffsetFromScreenPoint(x, y)));
         }
         return ComputeOffsetFromScreenPoint(x, y);
@@ -533,14 +619,17 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     private int ComputeOffsetFromScreenPoint(double x, double y)
     {
         var snap = _bufferSnapshot;
-        if (snap is null) return 0;
+        if (snap is null)
+            return 0;
         // スクリーン→クライアント変換(client 原点は _clientToScreenX/Y)。範囲外は
         // OffsetFromClientPoint 側で「Y<0=先頭視覚行の X」「exhausted=文書末尾」に丸める。
         int clientX = (int)(x - _clientToScreenX);
         int clientY = (int)(y - _clientToScreenY);
         // 負座標はゼロ扱い(文書先頭 0 に落ちる=clamp)。上限は OffsetFromClientPoint が自然に処理。
-        if (clientX < 0) clientX = 0;
-        if (clientY < 0) clientY = 0;
+        if (clientX < 0)
+            clientX = 0;
+        if (clientY < 0)
+            clientY = 0;
         int pos = _host.OffsetFromClientPoint(clientX, clientY);
         return Math.Clamp(pos, 0, snap.CharLength);
     }
@@ -561,7 +650,8 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     void IUiaTextHost.SetFocus()
     {
         // P5 Task 14 (I-3): 破棄後 / Handle 未生成での BeginInvoke による InvalidOperationException を防ぐ
-        if (_host.IsDisposed || !_host.IsHandleCreated) return;
+        if (_host.IsDisposed || !_host.IsHandleCreated)
+            return;
         if (_host.InvokeRequired)
         {
             _host.BeginInvoke(new Action(() => _host.Focus()));
@@ -575,6 +665,7 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
     // Editor.Tests から観測するためのヒットカウンタ(internal・テスト以外の呼び出しは想定しない)。
     internal long TestHook_LastLineSegsHitCount { get; private set; }
     internal long TestHook_LastLineSegsMissCount { get; private set; }
+
     internal void TestHook_ResetLastLineSegsCounters()
     {
         TestHook_LastLineSegsHitCount = 0;

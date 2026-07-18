@@ -1,6 +1,6 @@
+using Xunit;
 using yEdit.Core.Buffers;
 using yEdit.Core.Search;
-using Xunit;
 
 namespace yEdit.Core.Tests.Search;
 
@@ -18,9 +18,13 @@ namespace yEdit.Core.Tests.Search;
 public class SnapshotSearcherRegexAnchorTests
 {
     private static SnapshotSearcher MakeLarge(
-        string pattern, bool matchCase = false, bool wholeWord = false, bool useRegex = false,
-        int threshold = 4, int window = 8)
-        => new(new SearchOptions(pattern, matchCase, wholeWord, useRegex), threshold, window);
+        string pattern,
+        bool matchCase = false,
+        bool wholeWord = false,
+        bool useRegex = false,
+        int threshold = 4,
+        int window = 8
+    ) => new(new SearchOptions(pattern, matchCase, wholeWord, useRegex), threshold, window);
 
     private static TextSnapshot Snap(string text) => TextBuffer.FromString(text).Current;
 

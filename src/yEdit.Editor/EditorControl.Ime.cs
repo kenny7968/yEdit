@@ -45,21 +45,24 @@ public sealed partial class EditorControl : IImeOverlayHost
     }
 
     void IImeOverlayHost.PositionCaret() => PositionCaret();
+
     void IImeOverlayHost.Invalidate() => Invalidate();
 
     bool IImeOverlayHost.HasBuffer => _buffer is not null;
     bool IImeOverlayHost.HasFocus => _hasFocus;
     int IImeOverlayHost.ScrollX => _scrollX;
     int IImeOverlayHost.LineHeightPx => _metrics.LineHeightPx;
+
     // IMP-2 fixup: Metrics プロパティは interface から削除 (使用 0 件)。
 
-    (int X, int Y, bool Visible) IImeOverlayHost.ComputeCaretPoint(int offset)
-        => ComputeCaretPoint(offset);
+    (int X, int Y, bool Visible) IImeOverlayHost.ComputeCaretPoint(int offset) =>
+        ComputeCaretPoint(offset);
 
     Font IImeOverlayHost.Font => _font;
     Font IImeOverlayHost.UnderlineFont => _underlineFontCache;
     Font IImeOverlayHost.TargetFont => _targetFontCache;
     Color IImeOverlayHost.ForeColor => ForeColor;
+
     // 旧 DrawImeOverlay で使う target 節背景色。EditorControl.Paint.cs の ToColor(_style.SelectionBack) と等価。
     Color IImeOverlayHost.SelectionBackColor => ToColor(_style.SelectionBack);
 
@@ -69,17 +72,20 @@ public sealed partial class EditorControl : IImeOverlayHost
 
     // P4 Task 5〜8: EditorControlImeTests から呼ぶ IME 未確定状態検査 (__Test* 規約)。
     internal int __TestImeStart() => _imeCtrl.State.Start;
+
     internal bool __TestIsComposing() => _imeCtrl.IsActive;
+
     internal string __TestImeText() => _imeCtrl.State.Text;
 
     // P4 Task 14: smoke タイトルバー表示用の状態ポーリング (__Smoke* 規約)。
     internal bool __SmokeIsComposing() => _imeCtrl.IsActive;
+
     internal string __SmokeImeText() => _imeCtrl.State.Text;
 
     // Task 6: 実 IME を介さずに ApplyComposition の状態遷移だけを検証するための受け口。
     // Task 3a で ImeController に移設した ApplyComposition/ApplyResult を internal __TestApply* 経由で叩く。
-    internal void __TestApplyComposition(string text, int cursorPos, byte[] attrs, int[] clauses)
-        => _imeCtrl.__TestApplyComposition(text, cursorPos, attrs, clauses);
+    internal void __TestApplyComposition(string text, int cursorPos, byte[] attrs, int[] clauses) =>
+        _imeCtrl.__TestApplyComposition(text, cursorPos, attrs, clauses);
 
     // Task 7: 実 IME を介さずに ApplyResult (GCS_RESULTSTR 確定通知) の適用だけを検証する受け口。
     internal void __TestApplyResult(string text) => _imeCtrl.__TestApplyResult(text);

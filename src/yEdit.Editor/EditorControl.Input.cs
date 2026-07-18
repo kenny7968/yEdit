@@ -58,11 +58,13 @@ public sealed partial class EditorControl
     protected override void OnKeyPress(KeyPressEventArgs e)
     {
         base.OnKeyPress(e);
-        if (_buffer is null || ReadOnly) return;
+        if (_buffer is null || ReadOnly)
+            return;
         char ch = e.KeyChar;
 
         // 制御文字(0x00〜0x1F, 0x7F)は無視。編集用途は OnKeyDown 経路で処理する(§0-9 温存)。
-        if (ch < 0x20 || ch == 0x7F) return;
+        if (ch < 0x20 || ch == 0x7F)
+            return;
 
         InsertConfirmedText(ch.ToString());
         e.Handled = true;
@@ -83,12 +85,14 @@ public sealed partial class EditorControl
     protected override void OnMouseWheel(MouseEventArgs e)
     {
         base.OnMouseWheel(e);
-        if (_buffer is null) return;
+        if (_buffer is null)
+            return;
         _wheelAccum += e.Delta;
         int wheelLines = SystemInformation.MouseWheelScrollLines;
         // SystemInformation.MouseWheelScrollLines は「1 ページスクロール」設定時 -1 を返す仕様。
         // <=0 の全ケースを 3 行(WinForms 標準の既定値)にフォールバックすることで簡潔化する。
-        if (wheelLines <= 0) wheelLines = 3;
+        if (wheelLines <= 0)
+            wheelLines = 3;
         while (_wheelAccum >= 120)
         {
             TopLine = _topLine - wheelLines;
@@ -102,7 +106,8 @@ public sealed partial class EditorControl
         // WM_MOUSEWHEEL は親コンテナへ再ディスパッチされる仕様のため、Handled=true で
         // 明示的にバブリングを止める(HandledMouseEventArgs は WinForms が MouseWheel 経路で
         // 実際に渡す派生型・is パターンで安全に判定)。
-        if (e is HandledMouseEventArgs hme) hme.Handled = true;
+        if (e is HandledMouseEventArgs hme)
+            hme.Handled = true;
     }
 
     /// <summary>
@@ -115,7 +120,8 @@ public sealed partial class EditorControl
     /// </remarks>
     protected override void OnMouseDown(MouseEventArgs e)
     {
-        if (IsComposing) CancelCompositionAndDefault();
+        if (IsComposing)
+            CancelCompositionAndDefault();
         base.OnMouseDown(e);
         _input.RouteMouse(MouseEventKind.Down, e);
     }
@@ -162,9 +168,15 @@ public sealed partial class EditorControl
         Keys code = keyData & Keys.KeyCode;
         return code switch
         {
-            Keys.Left or Keys.Right or Keys.Up or Keys.Down
-                or Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown
-                or Keys.Tab => true,
+            Keys.Left
+            or Keys.Right
+            or Keys.Up
+            or Keys.Down
+            or Keys.Home
+            or Keys.End
+            or Keys.PageUp
+            or Keys.PageDown
+            or Keys.Tab => true,
             _ => base.IsInputKey(keyData),
         };
     }
@@ -186,13 +198,15 @@ public sealed partial class EditorControl
     /// </remarks>
     internal int OffsetFromClientPoint(int clientX, int clientY)
     {
-        if (_buffer is null) return 0;
+        if (_buffer is null)
+            return 0;
         var snap = _buffer.Current;
         int lineHeight = _metrics.LineHeightPx;
         int lnWidth = _showLineNumbers ? MeasureLineNumberWidth(snap.LineCount) : 0;
 
         int visualRowFromTop = clientY / Math.Max(1, lineHeight);
-        if (visualRowFromTop < 0) visualRowFromTop = 0;
+        if (visualRowFromTop < 0)
+            visualRowFromTop = 0;
 
         int maxWidthPx = _wrapColumns > 0 ? _wrapColumns * _metrics.MeasureRun("0") : 0;
 
@@ -211,7 +225,11 @@ public sealed partial class EditorControl
             }
             else
             {
-                if (line + 1 >= snap.LineCount) { exhausted = true; break; }
+                if (line + 1 >= snap.LineCount)
+                {
+                    exhausted = true;
+                    break;
+                }
                 line++;
                 segIdx = 0;
                 segCount = SegmentCountAtLine(snap, line, maxWidthPx);
@@ -220,12 +238,14 @@ public sealed partial class EditorControl
         }
 
         // 最終視覚行より下 → 文書末尾にクランプ
-        if (exhausted) return snap.CharLength;
+        if (exhausted)
+            return snap.CharLength;
 
         // 対象視覚セグメントを取り出し、X → local offset へ
         int lineStart = snap.GetLineStart(line);
         int lineEnd = snap.GetLineEnd(line, includeBreak: false);
-        string lineText = lineEnd == lineStart ? string.Empty : snap.GetText(lineStart, lineEnd - lineStart);
+        string lineText =
+            lineEnd == lineStart ? string.Empty : snap.GetText(lineStart, lineEnd - lineStart);
         var segs = LineLayout.Wrap(lineText, maxWidthPx, _metrics);
         // WalkVisualRows と同様に防御的にクランプ(通常は segIdx < segs.Count が保たれる)
         int useSeg = Math.Min(segIdx, segs.Count - 1);
@@ -234,7 +254,8 @@ public sealed partial class EditorControl
         // X からセグメント内オフセットを求める。行番号マージンを引き、_scrollX(折り返し OFF 時の
         // 水平シフト)を加算して「セグメント先頭を x=0 とする局所座標」に戻す。
         int xInBody = clientX - lnWidth + _scrollX;
-        if (xInBody < 0) xInBody = 0;
+        if (xInBody < 0)
+            xInBody = 0;
         var segSpan = lineText.AsSpan(seg.OffsetInLine, seg.Length);
         int localOffset = PixelMapper.PxToOffset(segSpan, xInBody, _metrics);
 
@@ -266,8 +287,10 @@ public sealed partial class EditorControl
     /// </remarks>
     private void InsertConfirmedText(string text)
     {
-        if (_buffer is null || ReadOnly) return;
-        if (string.IsNullOrEmpty(text)) return;
+        if (_buffer is null || ReadOnly)
+            return;
+        if (string.IsNullOrEmpty(text))
+            return;
 
         var (s, en) = GetSelectionCharRange();
         if (s != en)
@@ -285,8 +308,14 @@ public sealed partial class EditorControl
                 char nc = snap.GetChar(caret);
                 if (nc != '\r' && nc != '\n')
                 {
-                    overwriteLen = (char.IsHighSurrogate(nc) && caret + 1 < snap.CharLength
-                                    && char.IsLowSurrogate(snap.GetChar(caret + 1))) ? 2 : 1;
+                    overwriteLen =
+                        (
+                            char.IsHighSurrogate(nc)
+                            && caret + 1 < snap.CharLength
+                            && char.IsLowSurrogate(snap.GetChar(caret + 1))
+                        )
+                            ? 2
+                            : 1;
                 }
             }
             _buffer.Replace(caret, overwriteLen, text);

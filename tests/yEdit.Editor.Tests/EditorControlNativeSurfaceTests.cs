@@ -2,19 +2,29 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
+using Xunit;
 using yEdit.Core.Buffers;
 using yEdit.Editor;
-using Xunit;
 
 namespace yEdit.Editor.Tests;
 
 public class EditorControlNativeSurfaceTests
 {
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageW")]
-    private static extern System.IntPtr SendMessageGetText(System.IntPtr hWnd, uint msg, System.IntPtr wParam, StringBuilder lParam);
+    private static extern System.IntPtr SendMessageGetText(
+        System.IntPtr hWnd,
+        uint msg,
+        System.IntPtr wParam,
+        StringBuilder lParam
+    );
 
     [DllImport("user32.dll", EntryPoint = "SendMessageW")]
-    private static extern System.IntPtr SendMessageInt(System.IntPtr hWnd, uint msg, System.IntPtr wParam, System.IntPtr lParam);
+    private static extern System.IntPtr SendMessageInt(
+        System.IntPtr hWnd,
+        uint msg,
+        System.IntPtr wParam,
+        System.IntPtr lParam
+    );
 
     private const uint WM_GETTEXT = 0x000D;
     private const uint WM_GETTEXTLENGTH = 0x000E;
@@ -34,7 +44,10 @@ public class EditorControlNativeSurfaceTests
                 SendMessageGetText(ctrl.Handle, WM_GETTEXT, new System.IntPtr(1024), sb);
                 Assert.Equal("", sb.ToString());
             }
-            finally { form.Close(); }
+            finally
+            {
+                form.Close();
+            }
         });
     }
 
@@ -49,10 +62,18 @@ public class EditorControlNativeSurfaceTests
             form.Controls.Add(ctrl);
             try
             {
-                var r = SendMessageInt(ctrl.Handle, WM_GETTEXTLENGTH, System.IntPtr.Zero, System.IntPtr.Zero);
+                var r = SendMessageInt(
+                    ctrl.Handle,
+                    WM_GETTEXTLENGTH,
+                    System.IntPtr.Zero,
+                    System.IntPtr.Zero
+                );
                 Assert.Equal(System.IntPtr.Zero, r);
             }
-            finally { form.Close(); }
+            finally
+            {
+                form.Close();
+            }
         });
     }
 }

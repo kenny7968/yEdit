@@ -16,7 +16,7 @@ public class MonoCharMetricsTests
     public void Cjk_counts_full_per_char() => Assert.Equal(4, M.MeasureRun("あ亜"));
 
     [Fact]
-    public void Surrogate_pair_counts_full() => Assert.Equal(2, M.MeasureRun("😀"));  // 2*1
+    public void Surrogate_pair_counts_full() => Assert.Equal(2, M.MeasureRun("😀")); // 2*1
 
     [Fact]
     public void Mixed() => Assert.Equal(1 + 2 + 2 + 1, M.MeasureRun("aあ😀b"));

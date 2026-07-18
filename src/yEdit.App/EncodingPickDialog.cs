@@ -17,7 +17,8 @@ public sealed class EncodingPickDialog : Form
     };
 
     // 選択肢の定義は Core（EncodingCatalog）へ集約。表示順もそのまま使う。
-    private static readonly IReadOnlyList<EncodingCatalog.EncodingOption> Choices = EncodingCatalog.SelectableEncodings;
+    private static readonly IReadOnlyList<EncodingCatalog.EncodingOption> Choices =
+        EncodingCatalog.SelectableEncodings;
 
     /// <summary>
     /// 現在の選択コードページ。ShowDialog 戻り後に呼び出し側が読む（Click 発火順に非依存）。
@@ -35,7 +36,14 @@ public sealed class EncodingPickDialog : Form
         ShowInTaskbar = false;
         ClientSize = new Size(320, 110);
 
-        var label = new Label { Text = "文字コード(&E):", AutoSize = true, Left = 12, Top = 16, TabIndex = 0 };
+        var label = new Label
+        {
+            Text = "文字コード(&E):",
+            AutoSize = true,
+            Left = 12,
+            Top = 16,
+            TabIndex = 0,
+        };
 
         _combo.Left = 12;
         _combo.Top = 38;
@@ -44,12 +52,29 @@ public sealed class EncodingPickDialog : Form
         for (int i = 0; i < Choices.Count; i++)
         {
             _combo.Items.Add(Choices[i].DisplayName);
-            if (Choices[i].CodePage == currentCodePage) selected = i;
+            if (Choices[i].CodePage == currentCodePage)
+                selected = i;
         }
         _combo.SelectedIndex = selected;
 
-        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Left = 150, Top = 72, Width = 75, TabIndex = 2 };
-        var cancel = new Button { Text = "キャンセル", DialogResult = DialogResult.Cancel, Left = 232, Top = 72, Width = 75, TabIndex = 3 };
+        var ok = new Button
+        {
+            Text = "OK",
+            DialogResult = DialogResult.OK,
+            Left = 150,
+            Top = 72,
+            Width = 75,
+            TabIndex = 2,
+        };
+        var cancel = new Button
+        {
+            Text = "キャンセル",
+            DialogResult = DialogResult.Cancel,
+            Left = 232,
+            Top = 72,
+            Width = 75,
+            TabIndex = 3,
+        };
 
         Controls.AddRange(new Control[] { label, _combo, ok, cancel });
         AcceptButton = ok;

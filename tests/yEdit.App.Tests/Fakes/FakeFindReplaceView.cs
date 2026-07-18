@@ -18,7 +18,7 @@ public sealed class FakeFindReplaceView : IFindReplaceView
     public bool Visible { get; set; }
     public bool IsDisposed { get; set; }
 
-    public List<bool> ModeLog { get; } = new();     // SetMode(replaceMode) の履歴
+    public List<bool> ModeLog { get; } = new(); // SetMode(replaceMode) の履歴
     public List<string> StatusLog { get; } = new(); // SetStatus の履歴
     public int ShowAndFocusCount;
 
@@ -26,6 +26,12 @@ public sealed class FakeFindReplaceView : IFindReplaceView
     public string? Status => StatusLog.Count == 0 ? null : StatusLog[^1];
 
     public void SetMode(bool replaceMode) => ModeLog.Add(replaceMode);
+
     public void SetStatus(string text) => StatusLog.Add(text);
-    public void ShowAndFocus(IWin32Window owner) { ShowAndFocusCount++; Visible = true; }
+
+    public void ShowAndFocus(IWin32Window owner)
+    {
+        ShowAndFocusCount++;
+        Visible = true;
+    }
 }

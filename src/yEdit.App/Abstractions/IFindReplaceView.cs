@@ -13,7 +13,8 @@ public sealed record FindReplaceCallbacks(
     Action ReplaceOne,
     Action ReplaceAll,
     Action UpdateCount,
-    Action<bool> InSelectionToggled);
+    Action<bool> InSelectionToggled
+);
 
 /// <summary>
 /// FindReplaceDialog の Controller 向け表面(Phase 2 設計書 §2.2)。
@@ -33,6 +34,7 @@ public interface IFindReplaceView
     bool IsDisposed { get; }
     void SetMode(bool replaceMode);
     void SetStatus(string text);
+
     /// <summary>従来の Open 手順を 1 メソッドに集約: 非表示なら Show(owner)し、常に Activate→検索語フォーカス。</summary>
     void ShowAndFocus(IWin32Window owner);
 }

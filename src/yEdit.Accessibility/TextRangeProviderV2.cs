@@ -21,17 +21,22 @@ internal sealed class TextRangeProviderV2 : ITextRangeProvider
         int len = owner.Host.TextLength;
         start = System.Math.Clamp(start, 0, len);
         end = System.Math.Clamp(end, 0, len);
-        if (start > end) (start, end) = (end, start);
+        if (start > end)
+            (start, end) = (end, start);
         _start = start;
         _end = end;
     }
 
     public ITextRangeProvider Clone() => new TextRangeProviderV2(_owner, _start, _end);
 
-    public bool Compare(ITextRangeProvider range)
-        => range is TextRangeProviderV2 o && o._start == _start && o._end == _end;
+    public bool Compare(ITextRangeProvider range) =>
+        range is TextRangeProviderV2 o && o._start == _start && o._end == _end;
 
-    public int CompareEndpoints(TextPatternRangeEndpoint endpoint, ITextRangeProvider targetRange, TextPatternRangeEndpoint targetEndpoint)
+    public int CompareEndpoints(
+        TextPatternRangeEndpoint endpoint,
+        ITextRangeProvider targetRange,
+        TextPatternRangeEndpoint targetEndpoint
+    )
     {
         var o = (TextRangeProviderV2)targetRange;
         int a = endpoint == TextPatternRangeEndpoint.Start ? _start : _end;
@@ -54,7 +59,8 @@ internal sealed class TextRangeProviderV2 : ITextRangeProvider
             case TextUnit.Format:
                 _start = host.WordStart(pos);
                 _end = host.WordEnd(_start);
-                if (_end == _start) _end = host.NextChar(_start);
+                if (_end == _start)
+                    _end = host.NextChar(_start);
                 break;
             case TextUnit.Line:
             case TextUnit.Paragraph:
@@ -75,11 +81,15 @@ internal sealed class TextRangeProviderV2 : ITextRangeProvider
         var host = _owner.Host;
         int s = System.Math.Clamp(_start, 0, host.TextLength);
         int e = System.Math.Clamp(_end, 0, host.TextLength);
-        if (string.IsNullOrEmpty(text) || s >= e) return null!;
+        if (string.IsNullOrEmpty(text) || s >= e)
+            return null!;
         string hay = host.GetTextRange(s, e - s);
-        var cmp = ignoreCase ? System.StringComparison.OrdinalIgnoreCase : System.StringComparison.Ordinal;
+        var cmp = ignoreCase
+            ? System.StringComparison.OrdinalIgnoreCase
+            : System.StringComparison.Ordinal;
         int idx = backward ? hay.LastIndexOf(text, cmp) : hay.IndexOf(text, cmp);
-        if (idx < 0) return null!;
+        if (idx < 0)
+            return null!;
         return new TextRangeProviderV2(_owner, s + idx, s + idx + text.Length);
     }
 
@@ -95,8 +105,10 @@ internal sealed class TextRangeProviderV2 : ITextRangeProvider
         int s = System.Math.Clamp(_start, 0, host.TextLength);
         int e = System.Math.Clamp(_end, 0, host.TextLength);
         int count = e - s;
-        if (count < 0) count = 0;
-        if (maxLength >= 0 && count > maxLength) count = maxLength;
+        if (count < 0)
+            count = 0;
+        if (maxLength >= 0 && count > maxLength)
+            count = maxLength;
         return host.GetTextRange(s, count);
     }
 
@@ -108,9 +120,23 @@ internal sealed class TextRangeProviderV2 : ITextRangeProvider
         int pos = _start;
         int moved = 0;
         if (count > 0)
-            for (int i = 0; i < count; i++) { int n = StepForward(host, pos, unit); if (n == pos) break; pos = n; moved++; }
+            for (int i = 0; i < count; i++)
+            {
+                int n = StepForward(host, pos, unit);
+                if (n == pos)
+                    break;
+                pos = n;
+                moved++;
+            }
         else if (count < 0)
-            for (int i = 0; i < -count; i++) { int p = StepBackward(host, pos, unit); if (p == pos) break; pos = p; moved++; }
+            for (int i = 0; i < -count; i++)
+            {
+                int p = StepBackward(host, pos, unit);
+                if (p == pos)
+                    break;
+                pos = p;
+                moved++;
+            }
         _start = _end = pos;
 
         // v1 実装の Move スパン保持を踏襲(PC-Talker の文字歩き=Expand(Char)→Move(Char,1)→GetText で
@@ -127,72 +153,104 @@ internal sealed class TextRangeProviderV2 : ITextRangeProvider
         int pos = endpoint == TextPatternRangeEndpoint.Start ? _start : _end;
         int moved = 0;
         if (count > 0)
-            for (int i = 0; i < count; i++) { int n = StepForward(host, pos, unit); if (n == pos) break; pos = n; moved++; }
+            for (int i = 0; i < count; i++)
+            {
+                int n = StepForward(host, pos, unit);
+                if (n == pos)
+                    break;
+                pos = n;
+                moved++;
+            }
         else if (count < 0)
-            for (int i = 0; i < -count; i++) { int p = StepBackward(host, pos, unit); if (p == pos) break; pos = p; moved++; }
+            for (int i = 0; i < -count; i++)
+            {
+                int p = StepBackward(host, pos, unit);
+                if (p == pos)
+                    break;
+                pos = p;
+                moved++;
+            }
 
         if (endpoint == TextPatternRangeEndpoint.Start)
         {
             _start = pos;
-            if (_end < _start) _end = _start;
+            if (_end < _start)
+                _end = _start;
         }
         else
         {
             _end = pos;
-            if (_start > _end) _start = _end;
+            if (_start > _end)
+                _start = _end;
         }
         return count < 0 ? -moved : moved;
     }
 
-    public void MoveEndpointByRange(TextPatternRangeEndpoint endpoint, ITextRangeProvider targetRange, TextPatternRangeEndpoint targetEndpoint)
+    public void MoveEndpointByRange(
+        TextPatternRangeEndpoint endpoint,
+        ITextRangeProvider targetRange,
+        TextPatternRangeEndpoint targetEndpoint
+    )
     {
         var o = (TextRangeProviderV2)targetRange;
         int target = targetEndpoint == TextPatternRangeEndpoint.Start ? o._start : o._end;
         if (endpoint == TextPatternRangeEndpoint.Start)
         {
             _start = target;
-            if (_end < _start) _end = _start;
+            if (_end < _start)
+                _end = _start;
         }
         else
         {
             _end = target;
-            if (_start > _end) _start = _end;
+            if (_start > _end)
+                _start = _end;
         }
     }
 
     public void Select() => _owner.Host.SetSelection(_start, _end);
 
-    public void AddToSelection() { /* SupportedTextSelection.Single のため無効 */ }
+    public void AddToSelection() { /* SupportedTextSelection.Single のため無効 */
+    }
 
-    public void RemoveFromSelection() { /* SupportedTextSelection.Single のため無効 */ }
+    public void RemoveFromSelection() { /* SupportedTextSelection.Single のため無効 */
+    }
 
-    public void ScrollIntoView(bool alignToTop) { /* PC-Talker はテキスト歩きで読めるため省略(v1 挙動踏襲) */ }
+    public void ScrollIntoView(
+        bool alignToTop
+    ) { /* PC-Talker はテキスト歩きで読めるため省略(v1 挙動踏襲) */
+    }
 
-    public IRawElementProviderSimple[] GetChildren() => System.Array.Empty<IRawElementProviderSimple>();
+    public IRawElementProviderSimple[] GetChildren() =>
+        System.Array.Empty<IRawElementProviderSimple>();
 
     // ---------- 単位ステップ(host v2 メンバ経由) ----------
 
-    private static int StepForward(IUiaTextHost host, int pos, TextUnit unit) => unit switch
-    {
-        TextUnit.Character => host.NextChar(pos),
-        TextUnit.Word or TextUnit.Format => host.NextWordStart(pos),
-        TextUnit.Line or TextUnit.Paragraph => host.LineEnd(pos),
-        _ => host.TextLength,
-    };
+    private static int StepForward(IUiaTextHost host, int pos, TextUnit unit) =>
+        unit switch
+        {
+            TextUnit.Character => host.NextChar(pos),
+            TextUnit.Word or TextUnit.Format => host.NextWordStart(pos),
+            TextUnit.Line or TextUnit.Paragraph => host.LineEnd(pos),
+            _ => host.TextLength,
+        };
 
-    private static int StepBackward(IUiaTextHost host, int pos, TextUnit unit) => unit switch
-    {
-        TextUnit.Character => host.PrevChar(pos),
-        TextUnit.Word or TextUnit.Format => host.PrevWordStart(pos),
-        TextUnit.Line or TextUnit.Paragraph => LineBackward(host, pos),
-        _ => 0,
-    };
+    private static int StepBackward(IUiaTextHost host, int pos, TextUnit unit) =>
+        unit switch
+        {
+            TextUnit.Character => host.PrevChar(pos),
+            TextUnit.Word or TextUnit.Format => host.PrevWordStart(pos),
+            TextUnit.Line or TextUnit.Paragraph => LineBackward(host, pos),
+            _ => 0,
+        };
 
     private static int LineBackward(IUiaTextHost host, int pos)
     {
         int ls = host.LineStartOf(pos);
-        if (ls < pos) return ls;       // 行頭でなければ行頭へ
-        if (ls == 0) return 0;
+        if (ls < pos)
+            return ls; // 行頭でなければ行頭へ
+        if (ls == 0)
+            return 0;
         return host.LineStartOf(ls - 1); // 行頭なら前行の行頭へ
     }
 }

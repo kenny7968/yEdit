@@ -13,12 +13,10 @@ public sealed class SettingsDialog : Form
 {
     private readonly AppSettings _baseline;
     private readonly IReadOnlyList<ISettingsTab> _tabs;
+
     // AccessibleName は付けない: タブ切替のたびに TabControl 名が読まれて冗長になるため。
     // タブヘッダ（TabPage.Text）＝カテゴリ名で識別は十分。
-    private readonly TabControl _tabControl = new()
-    {
-        Dock = DockStyle.Fill,
-    };
+    private readonly TabControl _tabControl = new() { Dock = DockStyle.Fill };
 
     public SettingsDialog(AppSettings s)
     {
@@ -35,12 +33,16 @@ public sealed class SettingsDialog : Form
         Text = "設定";
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterParent;
-        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false;
-        AutoSize = true; AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        MinimizeBox = false;
+        MaximizeBox = false;
+        ShowInTaskbar = false;
+        AutoSize = true;
+        AutoSizeMode = AutoSizeMode.GrowAndShrink;
 
         BuildLayout();
-        foreach (var t in _tabs) t.LoadFrom(_baseline);   // BuildPage の後に必ず呼ぶ
-        ActiveControl = _tabControl;                       // 先頭タブ「基本」の位置に居る
+        foreach (var t in _tabs)
+            t.LoadFrom(_baseline); // BuildPage の後に必ず呼ぶ
+        ActiveControl = _tabControl; // 先頭タブ「基本」の位置に居る
     }
 
     /// <summary>
@@ -52,7 +54,8 @@ public sealed class SettingsDialog : Form
         get
         {
             var r = _baseline.Clone();
-            foreach (var t in _tabs) t.SaveTo(r);
+            foreach (var t in _tabs)
+                t.SaveTo(r);
             return r;
         }
     }
@@ -68,12 +71,24 @@ public sealed class SettingsDialog : Form
             _tabControl.TabPages.Add(page);
         }
 
-        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true };
-        var cancel = new Button { Text = "キャンセル", DialogResult = DialogResult.Cancel, AutoSize = true };
+        var ok = new Button
+        {
+            Text = "OK",
+            DialogResult = DialogResult.OK,
+            AutoSize = true,
+        };
+        var cancel = new Button
+        {
+            Text = "キャンセル",
+            DialogResult = DialogResult.Cancel,
+            AutoSize = true,
+        };
         var buttons = new FlowLayoutPanel
         {
-            Dock = DockStyle.Bottom, AutoSize = true,
-            FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8),
+            Dock = DockStyle.Bottom,
+            AutoSize = true,
+            FlowDirection = FlowDirection.RightToLeft,
+            Padding = new Padding(8),
         };
         buttons.Controls.AddRange(new Control[] { ok, cancel });
 

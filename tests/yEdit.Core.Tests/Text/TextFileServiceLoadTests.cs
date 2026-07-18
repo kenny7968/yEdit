@@ -1,6 +1,6 @@
 using System.Text;
-using yEdit.Core.Text;
 using Xunit;
+using yEdit.Core.Text;
 
 namespace yEdit.Core.Tests.Text;
 
@@ -21,7 +21,10 @@ public class TextFileServiceLoadTests
             Assert.Equal(LineEnding.Crlf, doc.LineEnding);
             Assert.False(doc.HadReplacementChar);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -39,7 +42,10 @@ public class TextFileServiceLoadTests
             Assert.True(doc.HasBom);
             Assert.False(doc.HadReplacementChar);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -53,7 +59,10 @@ public class TextFileServiceLoadTests
             Assert.Equal(Jp, doc.Text);
             Assert.Equal(932, doc.Encoding.CodePage);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -67,6 +76,9 @@ public class TextFileServiceLoadTests
             var doc = TextFileService.Load(path, forcedCodePage: 65001);
             Assert.True(doc.HadReplacementChar);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }

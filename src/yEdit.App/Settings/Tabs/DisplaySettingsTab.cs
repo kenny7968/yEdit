@@ -13,25 +13,56 @@ public sealed class DisplaySettingsTab : ISettingsTab
 
     private readonly Label _fontLabel = new() { AutoSize = true };
     private readonly Button _fontButton = new() { Text = "変更(&F)...", AutoSize = true };
-    private readonly ComboBox _theme = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240, AccessibleName = "配色テーマ" };
-    private readonly CheckBox _showLineNumbers = new() { Text = "行番号を表示する(&N)", AutoSize = true };
-    private readonly CheckBox _highlightCurrentLine = new() { Text = "現在行を強調表示する(&H)", AutoSize = true };
+    private readonly ComboBox _theme = new()
+    {
+        DropDownStyle = ComboBoxStyle.DropDownList,
+        Width = 240,
+        AccessibleName = "配色テーマ",
+    };
+    private readonly CheckBox _showLineNumbers = new()
+    {
+        Text = "行番号を表示する(&N)",
+        AutoSize = true,
+    };
+    private readonly CheckBox _highlightCurrentLine = new()
+    {
+        Text = "現在行を強調表示する(&H)",
+        AutoSize = true,
+    };
     private readonly NumericUpDown _caretWidth = new()
     {
-        Minimum = 1, Maximum = 5, Width = 100, AccessibleName = "キャレットの太さ",
+        Minimum = 1,
+        Maximum = 5,
+        Width = 100,
+        AccessibleName = "キャレットの太さ",
     };
-    private readonly CheckBox _showWhitespace = new() { Text = "空白・改行文字を表示する(&B)", AutoSize = true };
+    private readonly CheckBox _showWhitespace = new()
+    {
+        Text = "空白・改行文字を表示する(&B)",
+        AutoSize = true,
+    };
 
     public Control BuildPage()
     {
-        foreach (var t in AppearanceThemes.All) _theme.Items.Add(t.DisplayName);
+        foreach (var t in AppearanceThemes.All)
+            _theme.Items.Add(t.DisplayName);
         _fontButton.Click += (_, _) => PickFont();
 
         var root = SettingsTabLayoutHelper.NewRoot();
 
         // フォント行: ラベル ＋ [現在表示 + 変更ボタン]。アクセスキー &F はボタン側に一本化。
-        var fontLabelCol = new Label { Text = "フォント:", AutoSize = true, TabIndex = 0 };
-        var fontPanel = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, TabIndex = 1 };
+        var fontLabelCol = new Label
+        {
+            Text = "フォント:",
+            AutoSize = true,
+            TabIndex = 0,
+        };
+        var fontPanel = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            TabIndex = 1,
+        };
         fontPanel.Controls.Add(_fontLabel);
         fontPanel.Controls.Add(_fontButton);
         root.Controls.Add(fontLabelCol, 0, 0);
@@ -48,8 +79,19 @@ public sealed class DisplaySettingsTab : ISettingsTab
         root.SetColumnSpan(_highlightCurrentLine, 2);
 
         // キャレットの太さ: ラベル ＋ NumericUpDown（px・弱視の視認性対策）。
-        var caretPanel = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, TabIndex = 6 };
-        var caretLbl = new Label { Text = "キャレットの太さ(&W):", AutoSize = true, TabIndex = 6, Anchor = AnchorStyles.Left };
+        var caretPanel = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            TabIndex = 6,
+        };
+        var caretLbl = new Label
+        {
+            Text = "キャレットの太さ(&W):",
+            AutoSize = true,
+            TabIndex = 6,
+            Anchor = AnchorStyles.Left,
+        };
         _caretWidth.TabIndex = 7;
         caretPanel.Controls.Add(caretLbl);
         caretPanel.Controls.Add(_caretWidth);
@@ -70,7 +112,11 @@ public sealed class DisplaySettingsTab : ISettingsTab
         _theme.SelectedIndex = IndexOfTheme(s.Theme);
         _showLineNumbers.Checked = s.ShowLineNumbers;
         _highlightCurrentLine.Checked = s.HighlightCurrentLine;
-        _caretWidth.Value = Math.Clamp(s.CaretWidth, (int)_caretWidth.Minimum, (int)_caretWidth.Maximum);
+        _caretWidth.Value = Math.Clamp(
+            s.CaretWidth,
+            (int)_caretWidth.Minimum,
+            (int)_caretWidth.Maximum
+        );
         _showWhitespace.Checked = s.ShowWhitespace;
     }
 
@@ -88,7 +134,8 @@ public sealed class DisplaySettingsTab : ISettingsTab
     private static int IndexOfTheme(string id)
     {
         for (int i = 0; i < AppearanceThemes.All.Count; i++)
-            if (AppearanceThemes.All[i].Id == id) return i;
+            if (AppearanceThemes.All[i].Id == id)
+                return i;
         return 0;
     }
 
@@ -103,8 +150,14 @@ public sealed class DisplaySettingsTab : ISettingsTab
     private void PickFont()
     {
         // タブは Form ではないため、親ダイアログは FindForm() で取得する（フォーカスが親に戻る挙動を保つ）。
-        using var dlg = new FontDialog { Font = SafeFont(), ShowEffects = false, FontMustExist = true };
-        if (dlg.ShowDialog(_fontButton.FindForm()) != DialogResult.OK) return;
+        using var dlg = new FontDialog
+        {
+            Font = SafeFont(),
+            ShowEffects = false,
+            FontMustExist = true,
+        };
+        if (dlg.ShowDialog(_fontButton.FindForm()) != DialogResult.OK)
+            return;
         _fontName = dlg.Font.Name;
         _fontSize = dlg.Font.Size;
         UpdateFontLabel();
@@ -112,7 +165,13 @@ public sealed class DisplaySettingsTab : ISettingsTab
 
     private Font SafeFont()
     {
-        try { return new Font(_fontName, _fontSize <= 0 ? 12f : _fontSize); }
-        catch { return new Font(FontFamily.GenericMonospace, 12f); }
+        try
+        {
+            return new Font(_fontName, _fontSize <= 0 ? 12f : _fontSize);
+        }
+        catch
+        {
+            return new Font(FontFamily.GenericMonospace, 12f);
+        }
     }
 }

@@ -11,7 +11,8 @@ namespace yEdit.Editor;
 public sealed class GdiCharMetrics : ICharMetrics
 {
     private static readonly Size MaxSize = new(int.MaxValue, int.MaxValue);
-    private const TextFormatFlags MeasureFlags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix;
+    private const TextFormatFlags MeasureFlags =
+        TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix;
 
     private readonly Font _font;
     private readonly int[] _asciiWidths;
@@ -24,8 +25,9 @@ public sealed class GdiCharMetrics : ICharMetrics
         _asciiWidths = new int[128];
         for (int c = 0; c < 128; c++)
         {
-            _asciiWidths[c] = TextRenderer.MeasureText(
-                ((char)c).ToString(), font, MaxSize, MeasureFlags).Width;
+            _asciiWidths[c] = TextRenderer
+                .MeasureText(((char)c).ToString(), font, MaxSize, MeasureFlags)
+                .Width;
         }
         _asciiWidths['\t'] = _asciiWidths[' '];
     }
@@ -39,7 +41,9 @@ public sealed class GdiCharMetrics : ICharMetrics
         {
             char c = text[i];
             if (c >= 128)
-                return TextRenderer.MeasureText(text.ToString(), _font, MaxSize, MeasureFlags).Width;
+                return TextRenderer
+                    .MeasureText(text.ToString(), _font, MaxSize, MeasureFlags)
+                    .Width;
             px += _asciiWidths[c];
         }
         return px;

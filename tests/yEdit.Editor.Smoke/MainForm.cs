@@ -54,11 +54,25 @@ public sealed class MainForm : Form
         // ---- メニュー ----
         var menu = new MenuStrip();
         var fileMenu = new ToolStripMenuItem("ファイル(&F)");
-        var openUtf8 = new ToolStripMenuItem("開く UTF-8(&U)...", null, (_, _) => OpenFile(Encoding.UTF8, "UTF-8"));
-        var openSjis = new ToolStripMenuItem("開く Shift_JIS(&S)...", null, (_, _) => OpenFile(Encoding.GetEncoding(932), "SJIS"));
-        var openEuc = new ToolStripMenuItem("開く EUC-JP(&E)...", null, (_, _) => OpenFile(Encoding.GetEncoding(51932), "EUC-JP"));
+        var openUtf8 = new ToolStripMenuItem(
+            "開く UTF-8(&U)...",
+            null,
+            (_, _) => OpenFile(Encoding.UTF8, "UTF-8")
+        );
+        var openSjis = new ToolStripMenuItem(
+            "開く Shift_JIS(&S)...",
+            null,
+            (_, _) => OpenFile(Encoding.GetEncoding(932), "SJIS")
+        );
+        var openEuc = new ToolStripMenuItem(
+            "開く EUC-JP(&E)...",
+            null,
+            (_, _) => OpenFile(Encoding.GetEncoding(51932), "EUC-JP")
+        );
         var quit = new ToolStripMenuItem("終了(&X)", null, (_, _) => Close());
-        fileMenu.DropDownItems.AddRange(new ToolStripItem[] { openUtf8, openSjis, openEuc, new ToolStripSeparator(), quit });
+        fileMenu.DropDownItems.AddRange(
+            new ToolStripItem[] { openUtf8, openSjis, openEuc, new ToolStripSeparator(), quit }
+        );
         menu.Items.Add(fileMenu);
 
         // ---- 編集メニュー(P3 で編集操作が有効化されたため追加) ----
@@ -66,20 +80,51 @@ public sealed class MainForm : Form
         // メニューから閲覧しつつ実行できると eye check がラク。ハンドラは EditorControl の
         // 対応メソッド(Undo/Redo/Cut/Copy/Paste/SelectAll)をそのまま呼ぶだけ。
         var editMenu = new ToolStripMenuItem("編集(&E)");
-        var undo = new ToolStripMenuItem("元に戻す(&U)", null, (_, _) => _editor.Undo()) { ShortcutKeys = Keys.Control | Keys.Z };
-        var redo = new ToolStripMenuItem("やり直し(&R)", null, (_, _) => _editor.Redo()) { ShortcutKeys = Keys.Control | Keys.Y };
-        var cut = new ToolStripMenuItem("切り取り(&T)", null, (_, _) => _editor.Cut()) { ShortcutKeys = Keys.Control | Keys.X };
-        var copy = new ToolStripMenuItem("コピー(&C)", null, (_, _) => _editor.Copy()) { ShortcutKeys = Keys.Control | Keys.C };
-        var paste = new ToolStripMenuItem("貼り付け(&P)", null, (_, _) => _editor.Paste()) { ShortcutKeys = Keys.Control | Keys.V };
-        var selectAll = new ToolStripMenuItem("すべて選択(&A)", null, (_, _) => _editor.SelectAll()) { ShortcutKeys = Keys.Control | Keys.A };
+        var undo = new ToolStripMenuItem("元に戻す(&U)", null, (_, _) => _editor.Undo())
+        {
+            ShortcutKeys = Keys.Control | Keys.Z,
+        };
+        var redo = new ToolStripMenuItem("やり直し(&R)", null, (_, _) => _editor.Redo())
+        {
+            ShortcutKeys = Keys.Control | Keys.Y,
+        };
+        var cut = new ToolStripMenuItem("切り取り(&T)", null, (_, _) => _editor.Cut())
+        {
+            ShortcutKeys = Keys.Control | Keys.X,
+        };
+        var copy = new ToolStripMenuItem("コピー(&C)", null, (_, _) => _editor.Copy())
+        {
+            ShortcutKeys = Keys.Control | Keys.C,
+        };
+        var paste = new ToolStripMenuItem("貼り付け(&P)", null, (_, _) => _editor.Paste())
+        {
+            ShortcutKeys = Keys.Control | Keys.V,
+        };
+        var selectAll = new ToolStripMenuItem("すべて選択(&A)", null, (_, _) => _editor.SelectAll())
+        {
+            ShortcutKeys = Keys.Control | Keys.A,
+        };
         _overtype = new ToolStripMenuItem("上書きモード(&O)") { CheckOnClick = true };
-        _overtype.Click += (_, _) => { _currentOvertype = _overtype.Checked; _editor.Overtype = _currentOvertype; };
-        editMenu.DropDownItems.AddRange(new ToolStripItem[] {
-            undo, redo, new ToolStripSeparator(),
-            cut, copy, paste, new ToolStripSeparator(),
-            selectAll, new ToolStripSeparator(),
-            _overtype
-        });
+        _overtype.Click += (_, _) =>
+        {
+            _currentOvertype = _overtype.Checked;
+            _editor.Overtype = _currentOvertype;
+        };
+        editMenu.DropDownItems.AddRange(
+            new ToolStripItem[]
+            {
+                undo,
+                redo,
+                new ToolStripSeparator(),
+                cut,
+                copy,
+                paste,
+                new ToolStripSeparator(),
+                selectAll,
+                new ToolStripSeparator(),
+                _overtype,
+            }
+        );
         menu.Items.Add(editMenu);
 
         var viewMenu = new ToolStripMenuItem("表示(&V)");
@@ -93,13 +138,40 @@ public sealed class MainForm : Form
         _wrapOff.Click += (_, _) => SetWrap(0);
         _wrap40.Click += (_, _) => SetWrap(40);
         _wrap80.Click += (_, _) => SetWrap(80);
-        _showLn.Click += (_, _) => { _currentShowLn = _showLn.Checked; _editor.ShowLineNumbers = _currentShowLn; };
-        _showWs.Click += (_, _) => { _currentShowWs = _showWs.Checked; _editor.ShowWhitespace = _currentShowWs; };
-        _hlLine.Click += (_, _) => { _currentHlLine = _hlLine.Checked; _editor.HighlightCurrentLine = _currentHlLine; };
-        _readOnly.Click += (_, _) => { _currentReadOnly = _readOnly.Checked; _editor.ReadOnly = _currentReadOnly; };
-        viewMenu.DropDownItems.AddRange(new ToolStripItem[] {
-            _wrapOff, _wrap40, _wrap80, new ToolStripSeparator(), _showLn, _showWs, _hlLine, new ToolStripSeparator(), _readOnly
-        });
+        _showLn.Click += (_, _) =>
+        {
+            _currentShowLn = _showLn.Checked;
+            _editor.ShowLineNumbers = _currentShowLn;
+        };
+        _showWs.Click += (_, _) =>
+        {
+            _currentShowWs = _showWs.Checked;
+            _editor.ShowWhitespace = _currentShowWs;
+        };
+        _hlLine.Click += (_, _) =>
+        {
+            _currentHlLine = _hlLine.Checked;
+            _editor.HighlightCurrentLine = _currentHlLine;
+        };
+        _readOnly.Click += (_, _) =>
+        {
+            _currentReadOnly = _readOnly.Checked;
+            _editor.ReadOnly = _currentReadOnly;
+        };
+        viewMenu.DropDownItems.AddRange(
+            new ToolStripItem[]
+            {
+                _wrapOff,
+                _wrap40,
+                _wrap80,
+                new ToolStripSeparator(),
+                _showLn,
+                _showWs,
+                _hlLine,
+                new ToolStripSeparator(),
+                _readOnly,
+            }
+        );
         menu.Items.Add(viewMenu);
 
         MainMenuStrip = menu;
@@ -108,8 +180,17 @@ public sealed class MainForm : Form
         // _statusFile = ファイル名 / 行数 / エンコーディング / 行高(開き直し時に更新)
         // _statusCaret = 現在行 / Modified フラグ / Overtype / EolMode(200ms タイマーで更新)
         _status = new StatusStrip();
-        _statusFile = new ToolStripStatusLabel("(未読込)") { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
-        _statusCaret = new ToolStripStatusLabel("") { Spring = false, TextAlign = ContentAlignment.MiddleRight, AutoSize = true };
+        _statusFile = new ToolStripStatusLabel("(未読込)")
+        {
+            Spring = true,
+            TextAlign = ContentAlignment.MiddleLeft,
+        };
+        _statusCaret = new ToolStripStatusLabel("")
+        {
+            Spring = false,
+            TextAlign = ContentAlignment.MiddleRight,
+            AutoSize = true,
+        };
         _status.Items.Add(_statusFile);
         _status.Items.Add(_statusCaret);
 
@@ -126,7 +207,11 @@ public sealed class MainForm : Form
         _statusTimer = new System.Windows.Forms.Timer { Interval = 200 };
         // P4 Task 14: IME 状態(未確定文字列)もタイトルバーに反映する。UpdateCaretStatus と
         // 同じ Tick に相乗り(200ms ラグは目視の eye check 用途で十分許容範囲)。
-        _statusTimer.Tick += (_, _) => { UpdateCaretStatus(); UpdateTitle(); };
+        _statusTimer.Tick += (_, _) =>
+        {
+            UpdateCaretStatus();
+            UpdateTitle();
+        };
         _statusTimer.Start();
 
         if (initialPath is not null && File.Exists(initialPath))
@@ -141,11 +226,12 @@ public sealed class MainForm : Form
     /// 目視できる状態から eye check を始めるため)。既存の <see cref="MainForm(string?)"/> を
     /// this(null) で走らせて menu/status/timer を組み立てた後、SetSource だけこちらで行う。
     /// </summary>
-    public MainForm(TextBuffer buf, string label) : this((string?)null)
+    public MainForm(TextBuffer buf, string label)
+        : this((string?)null)
     {
         _editor.SetSource(buf);
         _currentPath = label;
-        _encodingLabel = "(in-memory)";   // Task 14 レビュー M-3: in-memory サンプルは encoding 非該当
+        _encodingLabel = "(in-memory)"; // Task 14 レビュー M-3: in-memory サンプルは encoding 非該当
         UpdateFileStatus(buf.Current.LineCount);
         UpdateCaretStatus();
     }
@@ -155,7 +241,9 @@ public sealed class MainForm : Form
     // 起動側(Program.cs)が MainForm 生成後に true にする。
     // (WFO1000 回避 = デザイナ非対応の宣言)
     [System.ComponentModel.Browsable(false)]
-    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    [System.ComponentModel.DesignerSerializationVisibility(
+        System.ComponentModel.DesignerSerializationVisibility.Hidden
+    )]
     public bool MarkUiaTitle { get; set; }
 
     protected override void OnShown(EventArgs e)
@@ -176,8 +264,12 @@ public sealed class MainForm : Form
 
     private void OpenFile(Encoding encoding, string label)
     {
-        using var dlg = new OpenFileDialog { Filter = "テキスト (*.txt;*.md;*.csv;*.log)|*.txt;*.md;*.csv;*.log|すべて (*.*)|*.*" };
-        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        using var dlg = new OpenFileDialog
+        {
+            Filter = "テキスト (*.txt;*.md;*.csv;*.log)|*.txt;*.md;*.csv;*.log|すべて (*.*)|*.*",
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK)
+            return;
         OpenFilePath(dlg.FileName, encoding, label);
     }
 
@@ -221,13 +313,20 @@ public sealed class MainForm : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, ex.Message, "読み込みエラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(
+                this,
+                ex.Message,
+                "読み込みエラー",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error
+            );
         }
     }
 
     private void UpdateFileStatus(int lineCount)
     {
-        _statusFile.Text = $"{_currentPath ?? "(無題)"}  |  行数: {lineCount:N0}  |  Encoding: {_encodingLabel}  |  行高: {_editor.LineHeightPx}px";
+        _statusFile.Text =
+            $"{_currentPath ?? "(無題)"}  |  行数: {lineCount:N0}  |  Encoding: {_encodingLabel}  |  行高: {_editor.LineHeightPx}px";
     }
 
     /// <summary>

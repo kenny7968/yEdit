@@ -1,6 +1,6 @@
 using System.Text;
-using yEdit.Core.IO;
 using Xunit;
+using yEdit.Core.IO;
 
 namespace yEdit.Core.Tests.IO;
 
@@ -12,14 +12,21 @@ public class AtomicFileStreamWriteTests
         string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
         try
         {
-            AtomicFile.Write(path, stream =>
-            {
-                var bytes = Encoding.UTF8.GetBytes("hello");
-                stream.Write(bytes, 0, bytes.Length);
-            });
+            AtomicFile.Write(
+                path,
+                stream =>
+                {
+                    var bytes = Encoding.UTF8.GetBytes("hello");
+                    stream.Write(bytes, 0, bytes.Length);
+                }
+            );
             Assert.Equal("hello", File.ReadAllText(path, Encoding.UTF8));
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -29,14 +36,21 @@ public class AtomicFileStreamWriteTests
         try
         {
             File.WriteAllText(path, "old");
-            AtomicFile.Write(path, stream =>
-            {
-                var bytes = Encoding.UTF8.GetBytes("new");
-                stream.Write(bytes, 0, bytes.Length);
-            });
+            AtomicFile.Write(
+                path,
+                stream =>
+                {
+                    var bytes = Encoding.UTF8.GetBytes("new");
+                    stream.Write(bytes, 0, bytes.Length);
+                }
+            );
             Assert.Equal("new", File.ReadAllText(path, Encoding.UTF8));
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -47,14 +61,20 @@ public class AtomicFileStreamWriteTests
         {
             File.WriteAllText(path, "original");
             Assert.Throws<InvalidOperationException>(() =>
-                AtomicFile.Write(path, _ => throw new InvalidOperationException("boom")));
+                AtomicFile.Write(path, _ => throw new InvalidOperationException("boom"))
+            );
             Assert.Equal("original", File.ReadAllText(path, Encoding.UTF8));
             // tmp が残っていない(同ディレクトリに *.tmp が無い)
             string dir = Path.GetDirectoryName(Path.GetFullPath(path))!;
-            string leftover = Directory.GetFiles(dir, Path.GetFileName(path) + ".*.tmp").FirstOrDefault() ?? "";
+            string leftover =
+                Directory.GetFiles(dir, Path.GetFileName(path) + ".*.tmp").FirstOrDefault() ?? "";
             Assert.True(string.IsNullOrEmpty(leftover), $"leftover tmp: {leftover}");
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -64,14 +84,21 @@ public class AtomicFileStreamWriteTests
         try
         {
             Assert.False(File.Exists(path));
-            AtomicFile.Write(path, stream =>
-            {
-                var bytes = Encoding.UTF8.GetBytes("fresh");
-                stream.Write(bytes, 0, bytes.Length);
-            });
+            AtomicFile.Write(
+                path,
+                stream =>
+                {
+                    var bytes = Encoding.UTF8.GetBytes("fresh");
+                    stream.Write(bytes, 0, bytes.Length);
+                }
+            );
             Assert.Equal("fresh", File.ReadAllText(path, Encoding.UTF8));
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -87,7 +114,8 @@ public class AtomicFileStreamWriteTests
             using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
             {
                 var ex = Assert.Throws<IOException>(() =>
-                    AtomicFile.Write(path, s => s.WriteByte(0x39)));
+                    AtomicFile.Write(path, s => s.WriteByte(0x39))
+                );
                 Assert.True(AtomicFile.IsShareOrLockViolation(ex));
             }
             // 原本は不変・tmp 残骸なし。
@@ -96,6 +124,10 @@ public class AtomicFileStreamWriteTests
             var leftover = Directory.GetFiles(dir, Path.GetFileName(path) + ".*.tmp");
             Assert.Empty(leftover);
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 }

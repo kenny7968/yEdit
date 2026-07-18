@@ -1,8 +1,8 @@
 using System.Windows.Forms;
+using Xunit;
 using yEdit.Accessibility;
 using yEdit.Core.Buffers;
 using yEdit.Editor;
-using Xunit;
 
 namespace yEdit.Editor.Tests;
 
@@ -16,10 +16,13 @@ public class EditorControlOffsetFromPointTests
             using var ctrl = new EditorControl();
             ctrl.SetSource(TextBuffer.FromString("hello world"));
             ctrl.Size = new System.Drawing.Size(400, 100);
-            using var form = HostForm.CreateVisible(); form.Controls.Add(ctrl);
+            using var form = HostForm.CreateVisible();
+            form.Controls.Add(ctrl);
             try
             {
-                ctrl.Invalidate(); ctrl.Update(); Application.DoEvents();
+                ctrl.Invalidate();
+                ctrl.Update();
+                Application.DoEvents();
                 var screen = ctrl.PointToScreen(new System.Drawing.Point(2, 2));
                 IUiaTextHost host = ctrl;
                 // PxToOffset は「入れば含める」規則(px が 1 文字の内側なら次の境界を返す)。
@@ -27,7 +30,10 @@ public class EditorControlOffsetFromPointTests
                 int result = host.OffsetFromScreenPoint(screen.X, screen.Y);
                 Assert.InRange(result, 0, 1);
             }
-            finally { form.Close(); }
+            finally
+            {
+                form.Close();
+            }
         });
     }
 
@@ -43,19 +49,26 @@ public class EditorControlOffsetFromPointTests
             using var ctrl = new EditorControl();
             ctrl.SetSource(TextBuffer.FromString("hello world"));
             ctrl.Size = new System.Drawing.Size(400, 100);
-            using var form = new Form(); form.Controls.Add(ctrl); form.Show();
+            using var form = new Form();
+            form.Controls.Add(ctrl);
+            form.Show();
             try
             {
-                ctrl.Invalidate(); ctrl.Update(); Application.DoEvents();
+                ctrl.Invalidate();
+                ctrl.Update();
+                Application.DoEvents();
                 // "hello" の 3 番目の文字位置を client 座標で取得(EditorControl の既存 API)
                 var mid = ctrl.PointFromCharOffset(3);
                 // 少し右にずらして「その桁を含める」側の HitTest 挙動を狙う
                 var screen = ctrl.PointToScreen(new System.Drawing.Point(mid.X + 2, mid.Y + 2));
                 IUiaTextHost host = ctrl;
                 int result = host.OffsetFromScreenPoint(screen.X, screen.Y);
-                Assert.InRange(result, 2, 4);   // 3 前後にヒット
+                Assert.InRange(result, 2, 4); // 3 前後にヒット
             }
-            finally { form.Close(); }
+            finally
+            {
+                form.Close();
+            }
         });
     }
 
@@ -66,14 +79,18 @@ public class EditorControlOffsetFromPointTests
         {
             using var ctrl = new EditorControl();
             ctrl.SetSource(TextBuffer.FromString("hello"));
-            using var form = HostForm.CreateVisible(); form.Controls.Add(ctrl);
+            using var form = HostForm.CreateVisible();
+            form.Controls.Add(ctrl);
             try
             {
                 IUiaTextHost host = ctrl;
                 // 範囲外の (-9999, -9999) → 0 (または clamp した先頭)
                 Assert.Equal(0, host.OffsetFromScreenPoint(-9999, -9999));
             }
-            finally { form.Close(); }
+            finally
+            {
+                form.Close();
+            }
         });
     }
 }

@@ -19,22 +19,29 @@ public class RaiseUiaSelectionEventsTests
     }
 
     [Fact]
-    public void RaiseUiaSelectionEvents_DefaultIsTrue() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("abc");
-        using (f) using (c) { Assert.True(c.RaiseUiaSelectionEvents); }
-    });
+    public void RaiseUiaSelectionEvents_DefaultIsTrue() =>
+        Sta.Run(() =>
+        {
+            var (f, c) = MakeControl("abc");
+            using (f)
+            using (c)
+            {
+                Assert.True(c.RaiseUiaSelectionEvents);
+            }
+        });
 
     [Fact]
-    public void RaiseUiaSelectionEvents_CanBeSet() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("abc");
-        using (f) using (c)
+    public void RaiseUiaSelectionEvents_CanBeSet() =>
+        Sta.Run(() =>
         {
-            c.RaiseUiaSelectionEvents = false;
-            Assert.False(c.RaiseUiaSelectionEvents);
-            c.RaiseUiaSelectionEvents = true;
-            Assert.True(c.RaiseUiaSelectionEvents);
-        }
-    });
+            var (f, c) = MakeControl("abc");
+            using (f)
+            using (c)
+            {
+                c.RaiseUiaSelectionEvents = false;
+                Assert.False(c.RaiseUiaSelectionEvents);
+                c.RaiseUiaSelectionEvents = true;
+                Assert.True(c.RaiseUiaSelectionEvents);
+            }
+        });
 }

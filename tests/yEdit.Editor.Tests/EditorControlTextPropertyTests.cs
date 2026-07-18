@@ -1,7 +1,7 @@
 using System.Windows.Forms;
+using Xunit;
 using yEdit.Core.Buffers;
 using yEdit.Editor;
-using Xunit;
 
 namespace yEdit.Editor.Tests;
 
@@ -28,8 +28,8 @@ public class EditorControlTextPropertyTests
             ctrl.SetCaretCharOffset(4);
             ctrl.Text = "brand new content";
             Assert.Equal("brand new content", ctrl.Text);
-            Assert.Equal(0, ctrl.CaretCharOffset);   // 差し替えでキャレット先頭
-            Assert.False(ctrl.Modified);              // 差し替え直後は unmodified
+            Assert.Equal(0, ctrl.CaretCharOffset); // 差し替えでキャレット先頭
+            Assert.False(ctrl.Modified); // 差し替え直後は unmodified
         });
     }
 

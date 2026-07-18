@@ -1,3 +1,4 @@
+using System.Globalization;
 using yEdit.Core.Buffers;
 
 namespace yEdit.Core.Layout;
@@ -207,7 +208,7 @@ internal static class FrameBuilder
                 var row = rows[i];
                 if (row.SegmentIndex != 0)
                     continue;
-                string numText = (row.LogicalLine + 1).ToString();
+                string numText = (row.LogicalLine + 1).ToString(CultureInfo.InvariantCulture);
                 int textWidth = metrics.MeasureRun(numText);
                 int x = lineNumberMarginPx - textWidth - LineNumberPadding;
                 if (x < 0)

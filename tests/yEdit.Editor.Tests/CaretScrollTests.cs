@@ -94,7 +94,7 @@ public class CaretScrollTests
             {
                 c.TopLine = 0;
                 int initial = c.TopLine;
-                c.SetCaretCharOffset(text.IndexOf("line2")); // 3行目
+                c.SetCaretCharOffset(text.IndexOf("line2", System.StringComparison.Ordinal)); // 3行目
                 c.BringCaretIntoView();
                 Assert.Equal(initial, c.TopLine);
             }

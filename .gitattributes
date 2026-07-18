@@ -1,0 +1,25 @@
+# yEdit は Windows デスクトップアプリケーション → CRLF を既定にする。
+# 例外は POSIX sh で解釈されるファイルと husky.Net が管理するファイルのみ LF 強制。
+# 大量整形の renormalize commit は .git-blame-ignore-revs に登録済み。
+
+* text=auto eol=crlf
+
+# --- LF 強制 ---
+# POSIX sh script(Git for Windows の sh が解釈)
+.husky/pre-commit text eol=lf
+# husky.Net が再生成する可能性があるため LF 維持で churn 抑止
+.husky/task-runner.json text eol=lf
+# 将来の shell script 全般
+*.sh text eol=lf
+
+# --- バイナリ宣言(現状 git 管理ゼロだが将来の予防) ---
+*.png binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.dll binary
+*.exe binary
+*.pdb binary
+*.zip binary
+*.snk binary

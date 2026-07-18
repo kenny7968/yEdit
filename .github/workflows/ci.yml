@@ -14,16 +14,16 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 9.0.x
 
       # NuGet 復元キャッシュ。csproj / Directory.Build.props / .config/dotnet-tools.json のいずれかが変わったら
       # 新規キーで再取得、それ以外の push では restore-keys 経由でヒット。純粋なパフォーマンス改善で機能影響ゼロ。
       - name: NuGet cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Build.props', '.config/dotnet-tools.json') }}

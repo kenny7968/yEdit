@@ -263,7 +263,7 @@ public class GrepServiceTests
     {
         using var t = new TempDir();
         t.WriteUtf8("a.txt", "TARGET\n");
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         cts.Cancel();
         var outcome = GrepService.Search(
             Req(t.Root, "TARGET"),
@@ -281,7 +281,7 @@ public class GrepServiceTests
         for (int i = 0; i < 130; i++)
             t.WriteUtf8($"f{i:D3}.txt", "TARGET\n"); // 名前昇順で安定
 
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         // 進捗は 64 ファイル毎に通知。最初の通知（64 件走査時点）でキャンセル。
         var prog = new SyncProgress(p =>
         {

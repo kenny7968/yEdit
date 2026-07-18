@@ -150,7 +150,7 @@ public sealed class SaveAsDialog : Form
             FlowDirection = FlowDirection.RightToLeft,
             Dock = DockStyle.Fill,
         };
-        buttons.Controls.AddRange(new Control[] { cancel, ok });
+        buttons.Controls.AddRange(cancel, ok);
         root.Controls.Add(buttons, 0, 3);
         root.SetColumnSpan(buttons, 3);
 

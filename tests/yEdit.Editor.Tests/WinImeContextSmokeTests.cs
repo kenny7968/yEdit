@@ -21,6 +21,7 @@ public class WinImeContextSmokeTests
     {
         var ctx = new WinImeContext(IntPtr.Zero);
         ctx.Dispose();
-        ctx.Dispose(); // 2 回目でも例外なし (旧 finally 内 ImmReleaseContext と対称)
+        // 2 回目 Dispose でも例外なし (旧 finally 内 ImmReleaseContext と対称)
+        Assert.Null(Record.Exception(() => ctx.Dispose()));
     }
 }

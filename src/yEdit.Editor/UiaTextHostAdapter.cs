@@ -395,12 +395,11 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
         {
             try
             {
-                return (WrapSegment?)
-                    _host.Invoke(
-                        new Func<WrapSegment?>(() =>
-                            TryFindVisualSegmentCore(snap, line, offsetInLine, wrap)
-                        )
-                    );
+                return _host.Invoke(
+                    new Func<WrapSegment?>(() =>
+                        TryFindVisualSegmentCore(snap, line, offsetInLine, wrap)
+                    )
+                );
             }
             catch (ObjectDisposedException)
             {
@@ -552,8 +551,7 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
         {
             if (!_host.IsHandleCreated)
                 return Array.Empty<double>();
-            return (double[])
-                _host.Invoke(new Func<double[]>(() => ComputeBoundingRectangles(start, end)));
+            return _host.Invoke(new Func<double[]>(() => ComputeBoundingRectangles(start, end)));
         }
         return ComputeBoundingRectangles(start, end);
     }
@@ -611,7 +609,7 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
         {
             if (!_host.IsHandleCreated)
                 return 0;
-            return (int)_host.Invoke(new Func<int>(() => ComputeOffsetFromScreenPoint(x, y)));
+            return _host.Invoke(new Func<int>(() => ComputeOffsetFromScreenPoint(x, y)));
         }
         return ComputeOffsetFromScreenPoint(x, y);
     }

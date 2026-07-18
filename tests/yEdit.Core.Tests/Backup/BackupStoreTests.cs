@@ -21,7 +21,9 @@ public class BackupStoreTests
             {
                 Directory.Delete(Root, recursive: true);
             }
-            catch { }
+            catch
+            { /* テスト後の best-effort クリーンアップ・ロック競合等は OS 側の temp GC に委ねて無視 */
+            }
         }
     }
 
@@ -117,7 +119,8 @@ public class BackupStoreTests
     public void Delete_on_missing_is_harmless()
     {
         using var t = new TempDir();
-        BackupStore.Delete(t.Root, "does-not-exist"); // 例外を投げない
-        BackupStore.DeleteAll(t.Root); // 空でも無害
+        // 契約=存在しない ID / 空ディレクトリでも例外を投げないこと
+        Assert.Null(Record.Exception(() => BackupStore.Delete(t.Root, "does-not-exist")));
+        Assert.Null(Record.Exception(() => BackupStore.DeleteAll(t.Root)));
     }
 }

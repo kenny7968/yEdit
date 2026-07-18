@@ -17,10 +17,14 @@ namespace yEdit.Editor.Smoke;
 public sealed class MainForm : Form
 {
     private EditorControl _editor;
+#pragma warning disable S1450 // reason: IDisposable field は Form.Controls 経由の連鎖 Dispose を担保する(local 化は安全ではない)
     private readonly StatusStrip _status;
+#pragma warning restore S1450
     private readonly ToolStripStatusLabel _statusFile;
     private readonly ToolStripStatusLabel _statusCaret;
+#pragma warning disable S1450 // reason: WinForms.Timer(=Component、Controls 対象外)は Tick で form 状態を継続参照するため field 保持。smoke tool のライフサイクル=プロセス終了までフォーム生存で Dispose 不要
     private readonly System.Windows.Forms.Timer _statusTimer;
+#pragma warning restore S1450
     private readonly ToolStripMenuItem _wrapOff;
     private readonly ToolStripMenuItem _wrap40;
     private readonly ToolStripMenuItem _wrap80;
@@ -71,7 +75,11 @@ public sealed class MainForm : Form
         );
         var quit = new ToolStripMenuItem("終了(&X)", null, (_, _) => Close());
         fileMenu.DropDownItems.AddRange(
-            new ToolStripItem[] { openUtf8, openSjis, openEuc, new ToolStripSeparator(), quit }
+            openUtf8,
+            openSjis,
+            openEuc,
+            new ToolStripSeparator(),
+            quit
         );
         menu.Items.Add(fileMenu);
 
@@ -111,19 +119,16 @@ public sealed class MainForm : Form
             _editor.Overtype = _currentOvertype;
         };
         editMenu.DropDownItems.AddRange(
-            new ToolStripItem[]
-            {
-                undo,
-                redo,
-                new ToolStripSeparator(),
-                cut,
-                copy,
-                paste,
-                new ToolStripSeparator(),
-                selectAll,
-                new ToolStripSeparator(),
-                _overtype,
-            }
+            undo,
+            redo,
+            new ToolStripSeparator(),
+            cut,
+            copy,
+            paste,
+            new ToolStripSeparator(),
+            selectAll,
+            new ToolStripSeparator(),
+            _overtype
         );
         menu.Items.Add(editMenu);
 
@@ -159,18 +164,15 @@ public sealed class MainForm : Form
             _editor.ReadOnly = _currentReadOnly;
         };
         viewMenu.DropDownItems.AddRange(
-            new ToolStripItem[]
-            {
-                _wrapOff,
-                _wrap40,
-                _wrap80,
-                new ToolStripSeparator(),
-                _showLn,
-                _showWs,
-                _hlLine,
-                new ToolStripSeparator(),
-                _readOnly,
-            }
+            _wrapOff,
+            _wrap40,
+            _wrap80,
+            new ToolStripSeparator(),
+            _showLn,
+            _showWs,
+            _hlLine,
+            new ToolStripSeparator(),
+            _readOnly
         );
         menu.Items.Add(viewMenu);
 

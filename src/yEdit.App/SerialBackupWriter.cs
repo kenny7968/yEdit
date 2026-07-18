@@ -81,7 +81,9 @@ public sealed class SerialBackupWriter : IBackupWriter
         {
             _queue.Add(job);
         }
-        catch (InvalidOperationException) { }
+        catch (InvalidOperationException)
+        { /* AddingCompleted 済み or 破棄済み。UI スレッド前提の狭 race・無視 */
+        }
     }
 
     private void Run()
@@ -129,7 +131,9 @@ public sealed class SerialBackupWriter : IBackupWriter
             {
                 _queue.Dispose();
             }
-            catch { }
+            catch
+            { /* 二重 Dispose 競合等は無視(プロセス終了で回収され実害なし) */
+            }
         }
     }
 }

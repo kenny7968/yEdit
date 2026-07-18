@@ -108,7 +108,7 @@ public sealed class RestoreDialog : Form
             Action = RestoreAction.Later;
             DialogResult = DialogResult.Cancel;
         };
-        buttons.Controls.AddRange(new Control[] { restore, discard, later });
+        buttons.Controls.AddRange(restore, discard, later);
 
         root.Controls.Add(info, 0, 0);
         root.Controls.Add(_list, 0, 1);

@@ -182,7 +182,7 @@ public class MouseInputTests
         Sta.Run(() =>
         {
             // MouseDown を経ずに直接 MouseMove を投げても選択やキャレット移動は起きない
-            // (_mouseDragging=false の間は no-op)
+            // (MouseDragging=false の間は no-op)
             var (f, c) = MakeControl("hello world");
             using (f)
             using (c)

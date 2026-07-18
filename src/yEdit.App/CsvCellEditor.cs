@@ -39,7 +39,7 @@ internal sealed class CsvCellEditor : IDisposable
         _onCancel = onCancel;
         _closing = false;
 
-        var host = (Control?)ed.Parent ?? ed; // 親(TabPage 等)に重ねる
+        var host = ed.Parent ?? ed; // 親(TabPage 等)に重ねる
         var clientPt = ed.PointFromCharOffset(field.Start); // EditorControl クライアント座標
         var local = host.PointToClient(ed.PointToScreen(clientPt));
 

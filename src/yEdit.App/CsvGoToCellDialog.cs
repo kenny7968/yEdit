@@ -84,7 +84,7 @@ public sealed class CsvGoToCellDialog : Form
             FlowDirection = FlowDirection.RightToLeft,
             Dock = DockStyle.Fill,
         };
-        buttons.Controls.AddRange(new Control[] { ok, cancel });
+        buttons.Controls.AddRange(ok, cancel);
         root.Controls.Add(buttons, 0, 1);
         root.SetColumnSpan(buttons, 2);
 

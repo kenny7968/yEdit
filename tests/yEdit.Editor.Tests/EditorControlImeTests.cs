@@ -36,7 +36,7 @@ public class EditorControlImeTests
             using var c = new EditorControl();
             using var f = new Form { Visible = false };
             f.Controls.Add(c);
-            var _ = f.Handle;
+            _ = f.Handle; // Handle プロパティ読み取り=下地の win32 ハンドル生成が目的の副作用
 
             var m = new Message
             {

@@ -37,7 +37,9 @@ public static class EncodingCatalog
     }
 
     /// <summary>UI で扱う文字コードの選択肢（表示名・コードページ）。表示順を兼ねる。</summary>
+#pragma warning disable S3218 // reason: 内側 record struct の DisplayName property は外側 EncodingCatalog.DisplayName(int) と同名だが、外側は既存 public API=改名不可
     public readonly record struct EncodingOption(int CodePage, string DisplayName);
+#pragma warning restore S3218
 
     /// <summary>
     /// 選択・表示で使える文字コード一覧（表示順）。BOM 有無は含まない基本名。
@@ -53,11 +55,13 @@ public static class EncodingCatalog
 
     /// <summary>SaveAs 用の選択肢。UTF-8 のみ BOM 有無で 2 エントリに展開し、
     /// 他の CodePage はそのまま(BOM 概念が意味を持たないため HasBom=false 固定)。</summary>
+#pragma warning disable S3218 // reason: 内側 record struct の DisplayName property は外側 EncodingCatalog.DisplayName(int) と同名だが、外側は既存 public API=改名不可
     public readonly record struct SaveAsEncodingOption(
         int CodePage,
         bool HasBom,
         string DisplayName
     );
+#pragma warning restore S3218
 
     /// <summary>SaveAs で使う文字コード選択肢(表示順)。
     /// 既存の <see cref="SelectableEncodings"/> は開き直し/設定/ステータス表示で使う BOM 無視の一覧。

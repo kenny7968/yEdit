@@ -8,10 +8,10 @@ namespace yEdit.Accessibility;
 /// 自作 EditorControl のルート UIA プロバイダ(v2)。
 /// WM_GETOBJECT から返し、TextPattern を公開する(fragment root として hwnd に同居)。
 /// </summary>
-public sealed class TextControlProviderV2
-    : IRawElementProviderSimple,
-        IRawElementProviderFragment,
-        IRawElementProviderFragmentRoot
+// PR4 C-6 (S1939): IRawElementProviderFragmentRoot は IRawElementProviderFragment を、
+// IRawElementProviderFragment は IRawElementProviderSimple を継承済み。両者の明示は冗長。
+// UIA 上の振る舞い(3 interface 全実装)は不変=is/as と HostProviderFromHandle 等の受け側契約も維持。
+public sealed class TextControlProviderV2 : IRawElementProviderFragmentRoot
 {
     private readonly IUiaTextHost _host;
     private readonly TextProviderImplV2 _textProvider;
@@ -63,7 +63,9 @@ public sealed class TextControlProviderV2
 
     public IRawElementProviderFragmentRoot FragmentRoot => this;
 
+#pragma warning disable S1168 // reason: UIA provider API 慣用句(null = no embedded roots)。Array.Empty<> は UIA host の挙動差リスク
     public IRawElementProviderSimple[] GetEmbeddedFragmentRoots() => null;
+#pragma warning restore S1168
 
     public int[] GetRuntimeId() => new int[] { AutomationInteropProvider.AppendRuntimeId, 1 };
 

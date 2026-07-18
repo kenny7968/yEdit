@@ -160,7 +160,7 @@ public class BackupCoordinatorTests
         Sta.Run(() =>
         {
             using var host = new Host();
-            var doc = host.NewDoc("hello");
+            _ = host.NewDoc("hello");
 
             host.Backup.Reconcile();
 
@@ -258,7 +258,7 @@ public class BackupCoordinatorTests
         Sta.Run(() =>
         {
             using var host = new Host();
-            var doc = host.NewDoc("hello");
+            _ = host.NewDoc("hello");
             host.Backup.Reconcile(); // Write 1 回目(成功)
             var id = host.Writer.Writes[0].Id;
 
@@ -274,7 +274,7 @@ public class BackupCoordinatorTests
         Sta.Run(() =>
         {
             using var host = new Host();
-            var doc = host.NewDoc("hello");
+            _ = host.NewDoc("hello");
             host.Backup.Reconcile();
             var id = host.Writer.Writes[0].Id;
             host.Writer.OnWriteFailed?.Invoke(id);
@@ -561,8 +561,8 @@ public class BackupCoordinatorTests
         Sta.Run(() =>
         {
             using var host = new Host();
-            var doc1 = host.NewDoc("one");
-            var doc2 = host.NewDoc("two");
+            _ = host.NewDoc("one");
+            _ = host.NewDoc("two");
             host.Backup.Reconcile(); // 両方 Write=HasBackup=true
 
             host.Backup.Shutdown();
@@ -625,8 +625,8 @@ public class BackupCoordinatorTests
         Sta.Run(() =>
         {
             using var host = new Host();
-            var a = host.NewDoc("A");
-            var b = host.NewDoc("B");
+            _ = host.NewDoc("A");
+            _ = host.NewDoc("B");
 
             host.Backup.Reconcile();
 

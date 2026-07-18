@@ -39,7 +39,10 @@ public sealed partial class MainForm : Form
     private readonly UiaAnnouncer _announcer;
     private ToolStripMenuItem _recentMenu = null!; // BuildMenu で生成
     private readonly string _settingsPath;
-    private AppSettings _settings = new();
+
+    // PR4 C-6 (S3604): public/internal 全 ctor が chain 経由で internal MainForm(settings, _)
+    // に到達=`_settings = settings;` が必ず走るため、field 初期化子は冗長。
+    private AppSettings _settings;
 
     // Alt 等でメニューがアクティブな間は CSV の素キー横取りを止め、矢印/文字キーをメニュー操作へ通す。
     // メニューモードに入っても本文(EditorControl)はフォーカスを保持するため ContainsFocus では判別できず、
@@ -481,7 +484,7 @@ public sealed partial class MainForm : Form
                 )
         );
 
-        menu.Items.AddRange(new ToolStripItem[] { file, edit, search, read, mode, options, help });
+        menu.Items.AddRange(file, edit, search, read, mode, options, help);
         return menu;
     }
 
@@ -504,7 +507,7 @@ public sealed partial class MainForm : Form
         var strip = new StatusStrip();
         _posLabel.Spring = true;
         _posLabel.TextAlign = ContentAlignment.MiddleLeft;
-        strip.Items.AddRange(new ToolStripItem[] { _posLabel, _encLabel, _eolLabel });
+        strip.Items.AddRange(_posLabel, _encLabel, _eolLabel);
         return strip;
     }
 

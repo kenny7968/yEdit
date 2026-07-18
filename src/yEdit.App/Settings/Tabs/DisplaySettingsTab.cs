@@ -174,4 +174,18 @@ public sealed class DisplaySettingsTab : ISettingsTab
             return new Font(FontFamily.GenericMonospace, 12f);
         }
     }
+
+    // CA1001 対応(Sub 3.4-B): BuildPage() 経由で Form の Controls ツリーに接続された
+    // 場合は Form.Dispose 経由で二重に呼ばれるが、Control.Dispose は冪等なので安全。
+    // BuildPage 未呼び出しで破棄された場合(異常系/テスト)のリーク防止が本 Dispose の主目的。
+    public void Dispose()
+    {
+        _fontLabel.Dispose();
+        _fontButton.Dispose();
+        _theme.Dispose();
+        _showLineNumbers.Dispose();
+        _highlightCurrentLine.Dispose();
+        _caretWidth.Dispose();
+        _showWhitespace.Dispose();
+    }
 }

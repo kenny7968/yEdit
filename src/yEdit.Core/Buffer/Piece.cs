@@ -12,7 +12,9 @@ internal readonly record struct PieceStats(
     bool LastIsCr
 )
 {
-    public static readonly PieceStats Empty = default;
+    // CA1805: `= default` は record struct のゼロ初期化と同値のため省略。
+    // `PieceStats.Empty` を明示的にゼロ値として公開する意図は変わらない。
+    public static readonly PieceStats Empty;
 
     /// <summary>
     /// 改行モノイド結合。a の末尾CR(単独として計上済み)と b の先頭LF(単独として計上済み)が

@@ -338,7 +338,10 @@ public class GrepControllerTests
             host.Grep.RunAsync().GetAwaiter().GetResult();
 
             // Summary: Hits=0 かつ Cancelled → "中断しました(0 件)"(現行 GrepController.Summary の文言=全角括弧)
-            Assert.Contains(host.View.Notifications, s => s.StartsWith("中断しました"));
+            Assert.Contains(
+                host.View.Notifications,
+                s => s.StartsWith("中断しました", System.StringComparison.Ordinal)
+            );
         });
 
     [Fact]
@@ -359,7 +362,9 @@ public class GrepControllerTests
 
             Assert.Contains(
                 host.View.Notifications,
-                s => s.StartsWith("検索エラー: ") && s.Contains("boom")
+                s =>
+                    s.StartsWith("検索エラー: ", System.StringComparison.Ordinal)
+                    && s.Contains("boom", System.StringComparison.Ordinal)
             );
             Assert.Equal(new[] { true, false }, host.View.RunningLog); // catch でも finally は必ず走る
         });
@@ -721,7 +726,10 @@ public class GrepControllerTests
             task.GetAwaiter().GetResult();
 
             // catch 内 guard の !d.IsDisposed により、Disposed 済み view には RaiseNotification しない
-            Assert.DoesNotContain(host.View.Notifications, n => n.StartsWith("検索エラー:"));
+            Assert.DoesNotContain(
+                host.View.Notifications,
+                n => n.StartsWith("検索エラー:", System.StringComparison.Ordinal)
+            );
         });
 
     [Fact]

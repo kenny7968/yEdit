@@ -18,3 +18,53 @@ end_of_line = crlf
 [*.cs]
 # フォーマット系ルールは CSharpier に完全委譲(二重整形防止)
 dotnet_diagnostic.IDE0055.severity = none
+
+# --- Roslynator 恒久 disable(理由付き) ---
+# WinForms UI スレッド前提のためライブラリ側 ConfigureAwait 強制は不要
+dotnet_diagnostic.RCS1090.severity = none
+# バイナリ演算子の改行位置は CSharpier に完全委譲
+dotnet_diagnostic.RCS1029.severity = none
+
+# --- CA(ビルトイン)恒久 disable(理由付き) ---
+# CA1707(アンダースコア命名) を disable する主因:
+#   - テストメソッド命名 xUnit 慣例 `Method_Scenario_Expected` (最多発)
+#   - P/Invoke 定数 Win32 API 名 (WM_* / UiaRootObjectId など・ミラー命名)
+#   - プライベートフィールド `_field` プレフィックス
+#     (既定 scope=public では未検出だが将来 api_surface 拡張時のため明記)
+# narrowing 不採用:
+#   naming rule は IDE analyzer 側のみ効き CA analyzer には無効(技術的に不可能)
+#   `[SuppressMessage]` 個別付与も 800+ 件で非現実的
+dotnet_diagnostic.CA1707.severity = none
+
+# CA1716(仮想メンバー/インターフェースの引数・メンバー名を予約語と重ねない) を disable する主因:
+#   - 検出対象は「他言語(主に VB.NET)から override/implement しづらくなる」ケース
+#     (例: 引数名 end / メソッド名 Error は VB.NET 予約語と競合)
+#   - yEdit は C# 単独プロジェクトで VB.NET 相互運用の予定なし=実害ゼロ
+#   - 既存の意味論的に自然な命名(IUiaTextHost.SetSelection の end / IUserPrompt.Error)を
+#     `endInclusive` / `ShowError` 等へ改名すると内部呼び出しの読みやすさが損なわれる
+dotnet_diagnostic.CA1716.severity = none
+
+# CA1711(型名に Enum / Delegate / Attribute / Flag などの suffix を付けない) を disable する主因:
+#   - yEdit.Core.Editing.ImeAttribute は IMM32 GCS_COMPATTR (Composition Attribute) の
+#     属性バイト定数群を保持する static class=IME 属性ドメイン用語としての "Attribute" が正
+#   - 誤解(System.Attribute 派生と誤読される)を招く命名でも rename(例: ImeAttr / ImeCharAttribute)
+#     は既存 public API 破壊で見合わない
+#   - 将来 CA1711 対象の追加型が出た場合の判断は case-by-case でこの disable の再検討を含める
+dotnet_diagnostic.CA1711.severity = none
+
+# 追加 disable が必要になれば以下に追記(理由コメント必須)
+
+# --- テストコード限定 disable(理由付き) ---
+# tests 配下のみに適用。プロダクションコードには CA ルール本則を維持する。
+[tests/**/*.cs]
+# CA1051(公開インスタンスフィールド禁止) を tests 限定で disable する主因:
+#   - Fake クラス(tests/*/Fakes/*.cs) が観測用に public field を露出する慣例
+#     (例: FakeBackupWriter.DisposeCount / DeleteAllCount 等)
+#   - property 化するとテスト側で `fake.Count++` が書けなくなり ceremony が増える
+#   - 破壊的変更ではない(テスト内部の可視性契約であって外部 API ではない)
+dotnet_diagnostic.CA1051.severity = none
+# CA1861(定数配列引数を static readonly へ) を tests 限定で disable する主因:
+#   - `Assert.Equal(new[] { ... }, actual)` のような inline test data が xUnit 慣例
+#   - 各 test method 用に static readonly field を extract すると可読性が犠牲になる
+#   - test は 1 回のみ実行される=allocation 削減のパフォーマンス便益が実質ゼロ
+dotnet_diagnostic.CA1861.severity = none

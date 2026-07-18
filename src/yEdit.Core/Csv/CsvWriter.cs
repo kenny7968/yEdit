@@ -8,10 +8,10 @@ public static class CsvWriter
     public static string EscapeField(string value)
     {
         bool needsQuote =
-            value.IndexOf(',') >= 0
-            || value.IndexOf('"') >= 0
-            || value.IndexOf('\r') >= 0
-            || value.IndexOf('\n') >= 0;
+            value.Contains(',', System.StringComparison.Ordinal)
+            || value.Contains('"', System.StringComparison.Ordinal)
+            || value.Contains('\r', System.StringComparison.Ordinal)
+            || value.Contains('\n', System.StringComparison.Ordinal);
         return needsQuote ? "\"" + value.Replace("\"", "\"\"") + "\"" : value;
     }
 }

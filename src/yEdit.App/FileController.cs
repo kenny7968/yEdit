@@ -66,7 +66,7 @@ public sealed class FileController
         ApplyEol(doc);
         doc.Editor.EmptyUndoBuffer();
         doc.Editor.SetSavePoint();
-        _docs.UpdateLabel(doc);
+        DocumentManager.UpdateLabel(doc);
         _metaChanged();
     }
 
@@ -169,7 +169,7 @@ public sealed class FileController
             doc.Editor.EmptyUndoBuffer();
             doc.Editor.SetSavePoint();
 
-            _docs.UpdateLabel(doc);
+            DocumentManager.UpdateLabel(doc);
             _metaChanged();
 
             if (loaded.HadReplacementChar)
@@ -273,7 +273,7 @@ public sealed class FileController
             return false;
         }
         doc.State.Path = picked.Path;
-        _docs.UpdateLabel(doc);
+        DocumentManager.UpdateLabel(doc);
         _metaChanged();
         RegisterRecent(picked.Path); // 保存先も最近のファイルへ
         return true;
@@ -348,7 +348,7 @@ public sealed class FileController
                 doc.State.HasBom
             );
             doc.Editor.SetSavePoint();
-            _docs.UpdateLabel(doc);
+            DocumentManager.UpdateLabel(doc);
             _metaChanged();
             return true;
         }
@@ -424,7 +424,7 @@ public sealed class FileController
         // 生成時に保存点を持つため「SetSavePoint を打たない」だけではクリーン扱いになり、タブ「*」なし・
         // 終了時の保存確認スキップ・次の Reconcile でバックアップ削除=復元内容のサイレント喪失につながる。
         doc.Editor.ClearSavePoint();
-        _docs.UpdateLabel(doc);
+        DocumentManager.UpdateLabel(doc);
         _metaChanged();
         return doc;
     }

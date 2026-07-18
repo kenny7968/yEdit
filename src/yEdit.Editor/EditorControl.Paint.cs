@@ -3,6 +3,7 @@
 // Phase 3 Task 3a で DrawImeOverlay を ImeController.Draw() に移設 (IImeOverlayHost seam 経由・
 // 元の bit-perfect 描画コードは ImeController.cs 側に存在)。本ファイルは OnPaint / RenderFrame /
 // style/color helpers を担う。
+using System.Globalization;
 using yEdit.Core.Layout;
 using yEdit.Core.Settings;
 using SelectionRange = yEdit.Core.Layout.SelectionRange;
@@ -121,7 +122,7 @@ public sealed partial class EditorControl
     // Task 8 で本実装。現状はダミー: 桁数(下限 3) × '9' 幅 + 4px 余白
     private int MeasureLineNumberWidth(int lineCount)
     {
-        int digits = Math.Max(3, lineCount.ToString().Length);
+        int digits = Math.Max(3, lineCount.ToString(CultureInfo.InvariantCulture).Length);
         return _metrics.MeasureRun(new string('9', digits)) + 4;
     }
 

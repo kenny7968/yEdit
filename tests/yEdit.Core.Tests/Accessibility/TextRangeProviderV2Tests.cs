@@ -107,7 +107,7 @@ public class TextRangeProviderV2Tests
         public void SetFocus() { }
     }
 
-    private TextProviderImplV2 MakeProvider(string text)
+    private static TextProviderImplV2 MakeProvider(string text)
     {
         var host = new InMemoryHost(text);
         var root = new TextControlProviderV2(host);

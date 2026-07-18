@@ -8,7 +8,7 @@ namespace yEdit.App;
 /// アクティブ由来のイベントのみ上位（MainForm）へ転送し、どのタブでも変更状態は
 /// そのタブのラベルへ反映する。
 /// </summary>
-public sealed class DocumentManager
+public sealed class DocumentManager : IDisposable
 {
     private readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
     private readonly List<Document> _docs = new();
@@ -154,7 +154,7 @@ public sealed class DocumentManager
         FocusActiveEditor();
     }
 
-    public void UpdateLabel(Document doc) => doc.Page.Text = doc.TabLabel;
+    public static void UpdateLabel(Document doc) => doc.Page.Text = doc.TabLabel;
 
     // 選択変更そのものはフォーカスを動かさない（フォーカス先は呼び出し側が決める：
     // 新規/開く/閉じる→エディタ、Ctrl+Tab/番号での切替→エディタ(タブ名は KeyBasedSwitch で発声)）。
@@ -185,5 +185,15 @@ public sealed class DocumentManager
         UpdateLabel(doc);
         if (ReferenceEquals(doc, Active))
             ActiveDirtyChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    // CA1001 対応(Sub 3.4-B): 通常は MainForm.Controls に _tabs(=TabHost) が接続され
+    // Form.Dispose 経由で _tabs → TabPages → EditorControl まで一括解放される。
+    // ただし DocumentManager が MainForm へ接続される前に破棄される異常系(コンストラクタ例外/
+    // テスト)では _tabs と配下 Document(Editor+Page)がリークする。_tabs.Dispose は冪等で
+    // TabPages/Controls 配下も再帰的に破棄するため、二重呼び出しでも安全。
+    public void Dispose()
+    {
+        _tabs.Dispose();
     }
 }

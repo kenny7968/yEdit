@@ -15,7 +15,10 @@ public class FuzzTests
     private const int MaxDocLength = 300_000; // これを超えたらDelete優先(ファズ時間の抑制)
     private const int ModelUndoCap = 256; // モデル側の全文スタックのメモリ抑制
 
-    public static TheoryData<int> Seeds => [1, 2, 3, 42, 20260705];
+    // collection-expression `=> [1, 2, 3, 42, 20260705]` は CA1825 が誤検出するため
+    // (analyzer が TheoryData<int> の CollectionBuilder パスを見誤り「長さ 0 の配列」と判断する)
+    // 明示 initializer で回避する。挙動は完全同一(TheoryData<int>.Add を各要素で呼ぶ)。
+    public static TheoryData<int> Seeds => new() { 1, 2, 3, 42, 20260705 };
 
     private static readonly string[] Pool =
     [

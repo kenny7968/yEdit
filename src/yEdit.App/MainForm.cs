@@ -32,7 +32,11 @@ public sealed partial class MainForm : Form
         TextAlign = ContentAlignment.MiddleLeft,
         AccessibleName = "通知",
     };
-    private readonly IAnnouncer _announcer; // コンストラクタで UiaAnnouncer を直接生成（下記参照）
+
+    // CA1859: 実体は常に UiaAnnouncer(65 行下 ctor で直接生成)。
+    // downstream (SearchController / GrepDialog / KinsokuFormatController 等) には
+    // 依然 IAnnouncer として渡される(implicit conversion)ため公開契約は不変。
+    private readonly UiaAnnouncer _announcer;
     private ToolStripMenuItem _recentMenu = null!; // BuildMenu で生成
     private readonly string _settingsPath;
     private AppSettings _settings = new();
@@ -238,8 +242,21 @@ public sealed partial class MainForm : Form
     protected override void Dispose(bool disposing)
     {
         // 異常系（OnFormClosed 未経由）でも Timer/背景スレッドを確実に解放する。Shutdown 済みなら冪等で無害。
+        // Sub 3.4-B(CA1001): _docs(DocumentManager) と _csv(CsvController) が IDisposable 化されたが、
+        // _docs は TabHost 経由で本 Form.Controls ツリーに接続済みのため base.Dispose(disposing) で
+        // _tabs → TabPages → EditorControl まで解放される(=DocumentManager.Dispose を明示呼び出しても
+        // 冪等で無害だが、既存の解放経路を尊重して二重呼び出しを増やさない)。
+        // _csv は Form の Controls ツリーに載らないため明示 Dispose する(CsvCellEditor 内 TextBox の
+        // リーク防止=編集中に強制終了する異常系のセーフティ)。
+        // _docs?.Dispose() は現状 no-op(内部 field は全て Control で base.Dispose が回収する)だが、
+        // 将来 DocumentManager が non-Control disposable を保持した際の silent leak 防止で明示呼び出し。
+        // Dispose は冪等契約のため二重呼び出しでも無害。
         if (disposing)
+        {
             _backup?.Dispose();
+            _csv?.Dispose();
+            _docs?.Dispose();
+        }
         base.Dispose(disposing);
     }
 

@@ -82,4 +82,14 @@ public sealed class BackupSettingsTab : ISettingsTab
         r.BackupIntervalSeconds = (int)_interval.Value;
         r.ConfirmRestoreOnStartup = _confirmRestore.Checked;
     }
+
+    // CA1001 対応(Sub 3.4-B): BuildPage() を通じて Form の Controls ツリーに接続された
+    // 場合は Form.Dispose 経由で二重に呼ばれるが、Control.Dispose は冪等なので安全。
+    // BuildPage 未呼び出しで破棄された場合(異常系/テスト)のリーク防止が本 Dispose の主目的。
+    public void Dispose()
+    {
+        _enabled.Dispose();
+        _interval.Dispose();
+        _confirmRestore.Dispose();
+    }
 }

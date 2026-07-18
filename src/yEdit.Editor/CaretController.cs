@@ -84,7 +84,7 @@ internal sealed class CaretController
     /// CharLength 位置(=EOF)はキャレットが立てる境界なのでクランプ後もそのまま許可。
     /// Task 3b で EditorControl.Caret.cs から bit-perfect 移設。
     /// </summary>
-    public int SnapAndClamp(int offset, TextSnapshot snap)
+    public static int SnapAndClamp(int offset, TextSnapshot snap)
     {
         if (offset <= 0)
             return 0;

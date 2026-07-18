@@ -103,7 +103,9 @@ public class FileControllerTests
             Assert.Equal(LineEnding.Crlf, doc.State.LineEnding); // ロールバック
             Assert.Contains(
                 host.Prompt.Log,
-                e => e.Kind == "Error" && e.Text.StartsWith("保存できませんでした")
+                e =>
+                    e.Kind == "Error"
+                    && e.Text.StartsWith("保存できませんでした", System.StringComparison.Ordinal)
             );
         });
 
@@ -252,7 +254,12 @@ public class FileControllerTests
                 Assert.Equal("orig", File2.ReadAllText(path)); // 原本は不変(AtomicFile の契約)
                 Assert.Contains(
                     host.Prompt.Log,
-                    e => e.Kind == "Error" && e.Text.StartsWith("保存できませんでした")
+                    e =>
+                        e.Kind == "Error"
+                        && e.Text.StartsWith(
+                            "保存できませんでした",
+                            System.StringComparison.Ordinal
+                        )
                 );
             }
             finally
@@ -395,7 +402,9 @@ public class FileControllerTests
             Assert.Same(prev, host.Docs.Active); // 直前のアクティブへ復帰
             Assert.Contains(
                 host.Prompt.Log,
-                e => e.Kind == "Error" && e.Text.StartsWith("開けませんでした")
+                e =>
+                    e.Kind == "Error"
+                    && e.Text.StartsWith("開けませんでした", System.StringComparison.Ordinal)
             );
         });
 
@@ -715,7 +724,9 @@ public class FileControllerTests
             Assert.Null(doc.State.Path); // Path は旧のまま維持(:238 は失敗時通らない)
             Assert.Contains(
                 host.Prompt.Log,
-                e => e.Kind == "Error" && e.Text.StartsWith("保存できませんでした")
+                e =>
+                    e.Kind == "Error"
+                    && e.Text.StartsWith("保存できませんでした", System.StringComparison.Ordinal)
             );
 
             // ---- 本文ロールバック(バグ 1 修正で緑化=修正後の担保) ----
@@ -764,7 +775,12 @@ public class FileControllerTests
                 Assert.Equal("orig", File2.ReadAllText(path)); // 原本は不変(AtomicFile の契約)
                 Assert.Contains(
                     host.Prompt.Log,
-                    e => e.Kind == "Error" && e.Text.StartsWith("保存できませんでした")
+                    e =>
+                        e.Kind == "Error"
+                        && e.Text.StartsWith(
+                            "保存できませんでした",
+                            System.StringComparison.Ordinal
+                        )
                 );
 
                 // ---- 本文ロールバック(バグ 1 修正で緑化=修正後の担保) ----
@@ -853,7 +869,12 @@ public class FileControllerTests
                 Assert.Equal(scrollXBefore, doc.Editor.ScrollX); // 観測制約=常に 0=documentation 目的
                 Assert.Contains(
                     host.Prompt.Log,
-                    e => e.Kind == "Error" && e.Text.StartsWith("保存できませんでした")
+                    e =>
+                        e.Kind == "Error"
+                        && e.Text.StartsWith(
+                            "保存できませんでした",
+                            System.StringComparison.Ordinal
+                        )
                 );
             }
             finally

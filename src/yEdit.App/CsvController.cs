@@ -17,7 +17,7 @@ namespace yEdit.App;
 /// 防御（EditorControl OnGotFocus の明示 SelectionChangedEvent で行を読まれるのを防ぐ）。
 /// F2 は CsvCellEditor に委譲し、終了時の復帰先は FocusTarget(=Editor)。
 /// </summary>
-public sealed class CsvController
+public sealed class CsvController : IDisposable
 {
     private readonly DocumentManager _docs;
     private readonly IAnnouncer _announcer;
@@ -30,6 +30,11 @@ public sealed class CsvController
         _announcer = announcer;
         _cellPicker = cellPicker;
     }
+
+    // CA1001 対応(Sub 3.4-B): _editor(CsvCellEditor) を new() で所有生成しているため
+    // IDisposable を実装。_docs はコンストラクタ注入(MainForm 所有)のため破棄しない。
+    // 呼び出し元は MainForm.Dispose(bool) で本 Dispose を呼び出す(Editor.Abort が冪等)。
+    public void Dispose() => _editor.Dispose();
 
     /// <summary>F2 編集オーバーレイ表示中か（MainForm がキー横取りを抑止するのに使う）。</summary>
     public bool IsEditing => _editor.IsEditing;

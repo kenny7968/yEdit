@@ -20,6 +20,11 @@ public static class GrepService
     // これを超えるファイルは読まずスキップ（OOM で grep 全体が落ちるのを防ぐ）。
     private const long MaxFileBytes = 64L * 1024 * 1024;
 
+    // CA1861: BuildFilterRegex は複数回呼ばれるため、Split の separator と全一致 fallback を
+    // 呼び出しごとに new せず static readonly で共有する。
+    private static readonly char[] FilterGlobSeparators = new[] { ';', ',' };
+    private static readonly string[] FilterAllPatterns = new[] { "*" };
+
     /// <summary>
     /// request に従ってフォルダを（再帰）走査し全ヒットを返す。読めないファイル/ディレクトリは
     /// 例外を投げず Errors に集約して走査を継続する。cancellationToken による協調キャンセルでは
@@ -195,11 +200,11 @@ public static class GrepService
     internal static Regex BuildFilterRegex(string patterns)
     {
         string[] globs = (patterns ?? "").Split(
-            new[] { ';', ',' },
+            FilterGlobSeparators,
             StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries
         );
         if (globs.Length == 0)
-            globs = new[] { "*" };
+            globs = FilterAllPatterns;
 
         var parts = globs.Select(g =>
             // "*" と "*.*" は「すべてのファイル」を表す慣用（Windows シェル準拠）。素直に翻訳すると

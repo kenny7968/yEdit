@@ -21,8 +21,10 @@ public sealed class TextBufferBuilder
 
     public void Add(ReadOnlySpan<byte> utf8Bytes)
     {
-        if (_built) throw new InvalidOperationException("Build後のAddはできません。");
-        if (utf8Bytes.IsEmpty && _carry.Length == 0) return;
+        if (_built)
+            throw new InvalidOperationException("Build後のAddはできません。");
+        if (utf8Bytes.IsEmpty && _carry.Length == 0)
+            return;
 
         // 繰越し+今回分を結合(TextChunkが参照を保持するため必ず自前の配列にコピー)
         byte[] combined = new byte[_carry.Length + utf8Bytes.Length];
@@ -37,11 +39,13 @@ public sealed class TextBufferBuilder
         {
             int len = Math.Min(TargetChunkBytes, bodyLen - off);
             if (off + len < bodyLen)
-            {   // 4MB分割点をコード点境界へ後退スナップ(最大3バイト)
+            { // 4MB分割点をコード点境界へ後退スナップ(最大3バイト)
                 int cut = off + len;
-                for (int back = 0; back < 3 && cut > off && (combined[cut] & 0xC0) == 0x80; back++) cut--;
+                for (int back = 0; back < 3 && cut > off && (combined[cut] & 0xC0) == 0x80; back++)
+                    cut--;
                 len = cut - off;
-                if (len == 0) len = Math.Min(TargetChunkBytes, bodyLen - off);   // 全部継続バイト=不正列: そのまま切る
+                if (len == 0)
+                    len = Math.Min(TargetChunkBytes, bodyLen - off); // 全部継続バイト=不正列: そのまま切る
             }
             AddChunk(combined.AsMemory(off, len));
             off += len;
@@ -51,19 +55,25 @@ public sealed class TextBufferBuilder
     /// <summary>木を一括構築(O(n))。繰越しに不完全列が残っていれば U+FFFD 化して吐く。</summary>
     public TextBuffer Build()
     {
-        if (_built) throw new InvalidOperationException("Buildは一度だけ呼べます。");
+        if (_built)
+            throw new InvalidOperationException("Buildは一度だけ呼べます。");
         _built = true;
         if (_carry.Length > 0)
         {
-            AddChunk(_carry);   // 不完全列=不正UTF-8として Sanitize が置換する
+            AddChunk(_carry); // 不完全列=不正UTF-8として Sanitize が置換する
             _carry = [];
         }
-        return new TextBuffer(PieceTree.BuildBalanced(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_pieces)));
+        return new TextBuffer(
+            PieceTree.BuildBalanced(
+                System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_pieces)
+            )
+        );
     }
 
     private void AddChunk(ReadOnlyMemory<byte> bytes)
     {
-        if (bytes.IsEmpty) return;
+        if (bytes.IsEmpty)
+            return;
         var (clean, replaced) = Utf8Sanitizer.Sanitize(bytes);
         HadReplacement |= replaced;
         // 上限は実格納バイトで判定(U+FFFD置換による膨張も含む)
@@ -81,10 +91,15 @@ public sealed class TextBufferBuilder
         for (int back = 1; back <= 3 && back <= n; back++)
         {
             byte c = b[n - back];
-            if ((c & 0xC0) == 0x80) continue;   // 継続バイト→さらに遡る
-            int expected = c < 0x80 ? 1 : c < 0xE0 ? 2 : c < 0xF0 ? 3 : 4;
+            if ((c & 0xC0) == 0x80)
+                continue; // 継続バイト→さらに遡る
+            int expected =
+                c < 0x80 ? 1
+                : c < 0xE0 ? 2
+                : c < 0xF0 ? 3
+                : 4;
             return expected > back ? back : 0;
         }
-        return 0;   // 3バイト遡っても先頭バイトが無い=不正列(Sanitizeに任せる)
+        return 0; // 3バイト遡っても先頭バイトが無い=不正列(Sanitizeに任せる)
     }
 }

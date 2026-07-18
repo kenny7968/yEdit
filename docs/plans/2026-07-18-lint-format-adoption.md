@@ -6,7 +6,9 @@
 
 **Architecture:** バランス派スタック(CSharpier + Roslynator + SonarAnalyzer)。5 本の分割 PR で段階的に main へマージ。ローカルゲートは Husky pre-commit + `tools/pre-merge-check.ps1` 統合、CI では `dotnet csharpier check` を verify として追加。既存 `-warnaserror` がアナライザのゲートを兼ねる。
 
-**Tech Stack:** .NET 9 SDK / dotnet-csharpier 0.30.6 / Roslynator.Analyzers 4.12.9 / SonarAnalyzer.CSharp 10.4.0 / Husky.Net 0.7.2
+**Tech Stack:** .NET 9 SDK / dotnet-csharpier 1.3.0 / Roslynator.Analyzers 4.12.9 / SonarAnalyzer.CSharp 10.4.0 / Husky.Net 0.9.1
+
+> **PR2 実装時の版更新** (2026-07-18): 計画立案時の csharpier 0.30.6 / husky 0.7.2 は install 時点で入手可能な最新版に置換 (csharpier 1.3.0 / husky 0.9.1)。CSharpier 1.x は 0.x とは CLI 構造が非互換 (詳細は下記 PR2 Task 2.6 の注釈)。
 
 **設計書**: `docs/plans/2026-07-18-lint-format-adoption-design.md`
 
@@ -325,6 +327,8 @@ dotnet husky --help
 
 Expected: バージョン表示 + `dotnet husky` のヘルプが出る
 
+> **CSharpier 1.x での CLI 変更 (Phase A/B 実装時のメモ)**: 0.x にあった `--pipe-multiple-files` 等のフラグは廃止され、1.x では `format` / `check` / `pipe-files` / `server` の **subcommand 構造** に変わっている。従って本 plan doc の各 Task で従来書かれていた `dotnet csharpier .` (0.x) は 1.x では `dotnet csharpier format .` になる (Task 2.6 参照)。また pre-commit hook の args は `["csharpier", "format", "${staged}"]` を使う (Task 2.4 参照)。`check` サブコマンド名は 0.x/1.x 共通なので pre-merge-check.ps1 の `dotnet csharpier check` はそのまま。
+
 ### Task 2.3: `.csharpierrc.json` と `.csharpierignore` を作成
 
 **Files:**
@@ -346,7 +350,12 @@ Expected: バージョン表示 + `dotnet husky` のヘルプが出る
 **/obj/
 **/bin/
 **/*.Designer.cs
+# MSBuild XML: CSharpier 1.x が対応追加したが、csproj/props の空行はグループ化に使う慣行があるため除外。EOL は .editorconfig で担保。
+**/*.csproj
+**/*.props
 ```
+
+> **MSBuild XML の除外 (PR2 実装で判明)**: CSharpier 1.x は `.csproj`/`.props` も整形対象になった。しかし csproj は `<PackageReference>` を関心事別にグループ化したり `<InternalsVisibleTo>` ブロックを分離したりする用途で developer が意図的に空行を入れる慣行がある。CSharpier に silent に潰される摩擦を避けるため除外し、EOL policy は `.editorconfig` の CRLF 宣言で担保する。初回一括整形(commit `79d2304`)で 10 XML ファイルは既に整形済みなので、追加の format 実行は不要。
 
 **Step 3: Designer ファイル存在確認**(除外漏れの事前検出)
 
@@ -391,18 +400,20 @@ dotnet husky run --group pre-commit
 
 ```json
 {
+  "$schema": "https://alirezanet.github.io/Husky.Net/schema.json",
   "tasks": [
     {
       "name": "csharpier-format-staged",
       "group": "pre-commit",
       "command": "dotnet",
-      "args": ["csharpier", "--pipe-multiple-files"],
-      "include": ["**/*.cs"],
-      "pathMode": "staged"
+      "args": ["csharpier", "format", "${staged}"],
+      "include": ["**/*.cs"]
     }
   ]
 }
 ```
+
+> **husky.net の実装反映 (Phase A/B メモ)**: 元計画の `"args": ["csharpier", "--pipe-multiple-files"]` は CSharpier 1.x では非互換 (subcommand 化)。また `"pathMode": "staged"` は husky.net のスキーマで無効 (有効値は `"absolute"` / `"relative"` のみ) — staged ファイルを渡すには args 内に `${staged}` 変数を書く方式を使う。
 
 ### Task 2.5: hook が動くことを手動確認(整形前)
 
@@ -443,6 +454,10 @@ Remove-Item src/yEdit.Core/_HookProbe.cs -ErrorAction SilentlyContinue
 
 Expected: リポジトリが Task 2.4 完了時点に戻る
 
+> **Phase A/B 実装時の発見**:
+> - `dotnet new tool-manifest` は **modern SDK では CWD 直下** に `dotnet-tools.json` を作成する (`.config/` 配下に置いてくれない)。Task 2.1 完了後に `New-Item .config -ItemType Directory; Move-Item dotnet-tools.json .config/dotnet-tools.json` で手動移動が必要。
+> - `dotnet husky add pre-commit` は `.husky/task-runner.json` に `welcome-message-example` タスクの雛形を自動生成する。Task 2.4 Step 4 で本 plan の内容へ上書きすること。
+
 ### Task 2.6: 一括整形の実行
 
 **Step 1: 事前状態確認**
@@ -456,10 +471,12 @@ Expected: `.config/`, `.csharpierrc.json`, `.csharpierignore`, `.husky/` が unt
 **Step 2: 一括整形実行**
 
 ```powershell
-dotnet csharpier .
+dotnet csharpier format .
 ```
 
 Expected: 大量のファイルが「Formatted」で表示される。エラー無し(ファイル毎の parse エラーがあれば止める)。
+
+> **CSharpier 1.x での注意**: 0.x の `dotnet csharpier .` は 1.x では `dotnet csharpier format .` (`format` subcommand を明示) と書く必要がある。また 1.x は **`.csproj` / `.props` 等の MSBuild XML ファイルも整形対象** になる (blank-line 削除・EOL 正規化)。`.csharpierignore` で明示除外しない限り一括整形の diff にこれらも含まれる (PR2 実測で 261 files 中 10 files が csproj/props。PR2 fix commit 298403a で `.csharpierignore` に `**/*.csproj` + `**/*.props` を追加し、以降の `csharpier check` は 251 files を対象とする)。
 
 **Step 3: 差分規模を確認**
 

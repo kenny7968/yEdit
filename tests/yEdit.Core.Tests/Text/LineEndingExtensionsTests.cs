@@ -1,5 +1,5 @@
-using yEdit.Core.Text;
 using Xunit;
+using yEdit.Core.Text;
 
 namespace yEdit.Core.Tests.Text;
 
@@ -9,13 +9,13 @@ public class LineEndingExtensionsTests
     [InlineData(LineEnding.Crlf, "\r\n")]
     [InlineData(LineEnding.Lf, "\n")]
     [InlineData(LineEnding.Cr, "\r")]
-    public void ToEolString_returns_actual_newline(LineEnding eol, string expected)
-        => Assert.Equal(expected, eol.ToEolString());
+    public void ToEolString_returns_actual_newline(LineEnding eol, string expected) =>
+        Assert.Equal(expected, eol.ToEolString());
 
     [Theory]
     [InlineData(LineEnding.Crlf, "CRLF")]
     [InlineData(LineEnding.Lf, "LF")]
     [InlineData(LineEnding.Cr, "CR")]
-    public void ToDisplayString_returns_short_name(LineEnding eol, string expected)
-        => Assert.Equal(expected, eol.ToDisplayString());
+    public void ToDisplayString_returns_short_name(LineEnding eol, string expected) =>
+        Assert.Equal(expected, eol.ToDisplayString());
 }

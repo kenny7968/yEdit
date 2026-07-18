@@ -24,16 +24,20 @@ public sealed partial class EditorControl
             // HScrollBar 高さを明示的に減算。(ScrollableControl と違って Control は
             // DisplayRectangle でも同じ挙動)
             int paintWidth = Math.Max(0, ClientSize.Width - _vscroll.Width);
-            int paintHeight = Math.Max(0, ClientSize.Height - (_hscroll.Visible ? _hscroll.Height : 0));
+            int paintHeight = Math.Max(
+                0,
+                ClientSize.Height - (_hscroll.Visible ? _hscroll.Height : 0)
+            );
             var rows = ViewportLayout.Build(snap, _topLine, paintHeight, _wrapColumns, _metrics);
             int lnWidth = _showLineNumbers ? MeasureLineNumberWidth(snap.LineCount) : 0;
 
             // 選択がある間は現在行強調 FillRect を抑止する(選択矩形と重ねると
             // ハイライトが二重になり視覚的に読みにくいため=EditorControl 層の責務)。
             bool hasSelection = _caretCtrl.HasSelection;
-            int currentLineLogical = (_highlightCurrentLine && !hasSelection)
-                ? snap.GetLineIndexOfChar(_caretCtrl.Caret)
-                : -1;
+            int currentLineLogical =
+                (_highlightCurrentLine && !hasSelection)
+                    ? snap.GetLineIndexOfChar(_caretCtrl.Caret)
+                    : -1;
             SelectionRange? selection = null;
             if (hasSelection)
             {
@@ -42,11 +46,18 @@ public sealed partial class EditorControl
             }
 
             var frame = FrameBuilder.Build(
-                snap, rows, paintWidth, paintHeight,
+                snap,
+                rows,
+                paintWidth,
+                paintHeight,
                 lnWidth,
                 currentLineLogical,
                 selection,
-                _cellHighlight, ShowWhitespace, _style, _metrics);
+                _cellHighlight,
+                ShowWhitespace,
+                _style,
+                _metrics
+            );
             RenderFrame(g, frame);
 
             // P4 Task 9: 未確定文字列 overlay(本文 → cellHighlight → キャレット行強調 →
@@ -55,7 +66,8 @@ public sealed partial class EditorControl
             // IME 内キャレット位置反映は Task 11 で扱う。
             // Task 3a: 描画ロジックは ImeController.Draw に bit-perfect 移設済 (IImeOverlayHost 経由で
             // Font/Color/Metrics/ComputeCaretPoint を取得)。
-            if (IsComposing) _imeCtrl.Draw(g);
+            if (IsComposing)
+                _imeCtrl.Draw(g);
 
             // P5 Task 10: 描画完了時点の Frame を UIA 座標 API 用に公開(不変参照)。
             _lastFrame = frame;
@@ -81,7 +93,7 @@ public sealed partial class EditorControl
     {
         foreach (var op in frame.Ops)
         {
-            int x = op.X - _scrollX;   // 一様シフト
+            int x = op.X - _scrollX; // 一様シフト
             switch (op.Kind)
             {
                 case PaintOpKind.FillRect:
@@ -90,10 +102,13 @@ public sealed partial class EditorControl
                     break;
                 case PaintOpKind.DrawText:
                     TextRenderer.DrawText(
-                        g, op.Text ?? string.Empty, _font,
+                        g,
+                        op.Text ?? string.Empty,
+                        _font,
                         new Rectangle(x, op.Y, op.Width, op.Height),
                         ToColor(op.Fore),
-                        TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.Left);
+                        TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.Left
+                    );
                     break;
                 case PaintOpKind.DrawLine:
                     using (var p = new Pen(ToColor(op.Fore)))
@@ -110,17 +125,19 @@ public sealed partial class EditorControl
         return _metrics.MeasureRun(new string('9', digits)) + 4;
     }
 
-    private static Color ToColor(PaintColor c)
-        => Color.FromArgb(c.Alpha, (c.Rgb >> 16) & 0xFF, (c.Rgb >> 8) & 0xFF, c.Rgb & 0xFF);
+    private static Color ToColor(PaintColor c) =>
+        Color.FromArgb(c.Alpha, (c.Rgb >> 16) & 0xFF, (c.Rgb >> 8) & 0xFF, c.Rgb & 0xFF);
 
-    private static ViewportStyle DefaultStyle() => new(
-        Foreground:       new PaintColor(0x000000),
-        Background:       new PaintColor(0xFFFFFF),
-        CurrentLineBack:  new PaintColor(0xF0F0F0),
-        SelectionBack:    new PaintColor(0xADD8E6),
-        LineNumberFore:   new PaintColor(0x777777),
-        HighlightOutline: new PaintColor(0xD77800),
-        WhitespaceGlyph:  new PaintColor(0xCCCCCC));
+    private static ViewportStyle DefaultStyle() =>
+        new(
+            Foreground: new PaintColor(0x000000),
+            Background: new PaintColor(0xFFFFFF),
+            CurrentLineBack: new PaintColor(0xF0F0F0),
+            SelectionBack: new PaintColor(0xADD8E6),
+            LineNumberFore: new PaintColor(0x777777),
+            HighlightOutline: new PaintColor(0xD77800),
+            WhitespaceGlyph: new PaintColor(0xCCCCCC)
+        );
 
     /// <summary>
     /// <see cref="AppearanceTheme"/> の Fore/Back RGB から派生色を算出して <see cref="ViewportStyle"/> を組む。
@@ -138,13 +155,14 @@ public sealed partial class EditorControl
             ? new PaintColor(BlendRgb(theme.BackRgb, theme.ForeRgb, 0.12))
             : new PaintColor(0, 0);
         return new ViewportStyle(
-            Foreground:       new PaintColor(theme.ForeRgb),
-            Background:       new PaintColor(theme.BackRgb),
-            CurrentLineBack:  currentLineBack,
-            SelectionBack:    new PaintColor(0xADD8E6),
-            LineNumberFore:   new PaintColor(BlendRgb(theme.BackRgb, theme.ForeRgb, 0.5)),
+            Foreground: new PaintColor(theme.ForeRgb),
+            Background: new PaintColor(theme.BackRgb),
+            CurrentLineBack: currentLineBack,
+            SelectionBack: new PaintColor(0xADD8E6),
+            LineNumberFore: new PaintColor(BlendRgb(theme.BackRgb, theme.ForeRgb, 0.5)),
             HighlightOutline: new PaintColor(0xD77800),
-            WhitespaceGlyph:  new PaintColor(BlendRgb(theme.BackRgb, theme.ForeRgb, 0.3)));
+            WhitespaceGlyph: new PaintColor(BlendRgb(theme.BackRgb, theme.ForeRgb, 0.3))
+        );
     }
 
     /// <summary>
@@ -161,6 +179,6 @@ public sealed partial class EditorControl
     }
 
     /// <summary>0xRRGGBB の int から Alpha=255 の <see cref="Color"/> を組む(BackColor 設定用)。</summary>
-    private static Color FromRgb(int rgb)
-        => Color.FromArgb(255, (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+    private static Color FromRgb(int rgb) =>
+        Color.FromArgb(255, (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
 }

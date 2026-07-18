@@ -8,10 +8,10 @@ namespace yEdit.Accessibility;
 /// 自作 EditorControl のルート UIA プロバイダ(v2)。
 /// WM_GETOBJECT から返し、TextPattern を公開する(fragment root として hwnd に同居)。
 /// </summary>
-public sealed class TextControlProviderV2 :
-    IRawElementProviderSimple,
-    IRawElementProviderFragment,
-    IRawElementProviderFragmentRoot
+public sealed class TextControlProviderV2
+    : IRawElementProviderSimple,
+        IRawElementProviderFragment,
+        IRawElementProviderFragmentRoot
 {
     private readonly IUiaTextHost _host;
     private readonly TextProviderImplV2 _textProvider;
@@ -28,7 +28,8 @@ public sealed class TextControlProviderV2 :
 
     public object GetPatternProvider(int patternId)
     {
-        if (patternId == TextPatternIdentifiers.Pattern.Id) return _textProvider;
+        if (patternId == TextPatternIdentifiers.Pattern.Id)
+            return _textProvider;
         return null;
     }
 
@@ -53,8 +54,8 @@ public sealed class TextControlProviderV2 :
         return null;
     }
 
-    public IRawElementProviderSimple HostRawElementProvider
-        => AutomationInteropProvider.HostProviderFromHandle(_host.Handle);
+    public IRawElementProviderSimple HostRawElementProvider =>
+        AutomationInteropProvider.HostProviderFromHandle(_host.Handle);
 
     // ---------- IRawElementProviderFragment ----------
 

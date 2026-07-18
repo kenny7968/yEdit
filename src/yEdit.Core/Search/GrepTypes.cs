@@ -5,20 +5,22 @@ namespace yEdit.Core.Search;
 /// オフセットは UTF-16 文字位置（エディタの string index・SelectCharRange と同一空間）。
 /// </summary>
 public sealed record GrepHit(
-    string FilePath,        // 絶対パス
-    int LineNumber,         // 1 始まり
-    int Column,             // 1 始まり（行内 UTF-16 桁・最初のマッチ）
-    string LineText,        // 行内容（EOL 除外・表示用）
-    int MatchStartInLine,   // 行内 UTF-16 オフセット（0 始まり）
-    int MatchLength,        // マッチ長（UTF-16）
-    int AbsoluteOffset);    // ファイル先頭からの UTF-16 オフセット（ジャンプ用）
+    string FilePath, // 絶対パス
+    int LineNumber, // 1 始まり
+    int Column, // 1 始まり（行内 UTF-16 桁・最初のマッチ）
+    string LineText, // 行内容（EOL 除外・表示用）
+    int MatchStartInLine, // 行内 UTF-16 オフセット（0 始まり）
+    int MatchLength, // マッチ長（UTF-16）
+    int AbsoluteOffset
+); // ファイル先頭からの UTF-16 オフセット（ジャンプ用）
 
 /// <summary>grep の要求。FilePatterns は ";"/"," 区切りの glob（空＝全ファイル）。</summary>
 public sealed record GrepRequest(
     string Folder,
     string FilePatterns,
     bool Recursive,
-    SearchOptions Options);
+    SearchOptions Options
+);
 
 /// <summary>読めなかった/対象外になったファイル・ディレクトリの記録（握り潰さず一覧化）。</summary>
 public sealed record GrepError(string Path, string Message);
@@ -35,4 +37,5 @@ public sealed record GrepOutcome(
     int FilesScanned,
     int FilesMatched,
     IReadOnlyList<GrepError> Errors,
-    bool Cancelled);
+    bool Cancelled
+);

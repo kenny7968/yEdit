@@ -22,8 +22,9 @@ if (args.Length > 0 && args[0] == "--ime")
     ApplicationConfiguration.Initialize();
     var buf = TextBuffer.FromString(
         "IME 動作確認用サンプル(P4 Task 14)\n"
-        + "文字入力→確定/変換/取消 の動作をこの EditorControl 上で試してください。\n\n"
-        + string.Concat(Enumerable.Repeat("あいうえおかきくけこさしすせそたちつてと\n", 20)));
+            + "文字入力→確定/変換/取消 の動作をこの EditorControl 上で試してください。\n\n"
+            + string.Concat(Enumerable.Repeat("あいうえおかきくけこさしすせそたちつてと\n", 20))
+    );
     Application.Run(new MainForm(buf, "(IME サンプル)"));
     return 0;
 }
@@ -50,11 +51,14 @@ if (args.Length > 0 && args[0] == "--uia")
 if (args.Length >= 2 && args[0] == "--gen-1gb")
 {
     string outPath = args[1];
-    byte[] block = new byte[1024 * 1024];  // 1MB
-    for (int i = 0; i < block.Length; i++) block[i] = (byte)('a' + (i % 26));
-    for (int i = 63; i < block.Length; i += 64) block[i] = (byte)'\n';
+    byte[] block = new byte[1024 * 1024]; // 1MB
+    for (int i = 0; i < block.Length; i++)
+        block[i] = (byte)('a' + (i % 26));
+    for (int i = 63; i < block.Length; i += 64)
+        block[i] = (byte)'\n';
     using var fs = File.Create(outPath);
-    for (int i = 0; i < 1024; i++) fs.Write(block, 0, block.Length);
+    for (int i = 0; i < 1024; i++)
+        fs.Write(block, 0, block.Length);
     fs.Flush();
     Console.WriteLine($"generated {outPath} = {new FileInfo(outPath).Length:N0} bytes");
     return 0;
@@ -66,11 +70,16 @@ if (args.Length >= 2 && args[0] == "--gen-1gb")
 if (args.Length >= 2 && args[0] == "--bench-save")
 {
     string inPath = args[1];
-    string outPath = Path.Combine(Path.GetTempPath(), "yedit-bench-save-" + Path.GetRandomFileName() + ".txt");
+    string outPath = Path.Combine(
+        Path.GetTempPath(),
+        "yedit-bench-save-" + Path.GetRandomFileName() + ".txt"
+    );
     try
     {
         // ベースライン(GC 強制回収後の peak)
-        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
         long peak0 = GC.GetTotalMemory(forceFullCollection: false);
 
         // Load(Stream I/O・UTF-8 は TextBufferBuilder チャンク経路)
@@ -82,7 +91,10 @@ if (args.Length >= 2 && args[0] == "--bench-save")
         // EditorControl.SetSource は Handle 作成(CreateCaret/Invalidate)を発火し得る。
         // WinForms Control のハンドル作成は STA 前提=直接 MTA スレッドで呼ぶと落ちる可能性がある。
         // 安全側で STA スレッドを立てて Set/ConvertEols/Save をその中で回す。
-        long peakConvert = 0, peakSave = 0, convertMs = 0, saveMs = 0;
+        long peakConvert = 0,
+            peakSave = 0,
+            convertMs = 0,
+            saveMs = 0;
         Exception? threadEx = null;
         var thread = new System.Threading.Thread(() =>
         {
@@ -102,22 +114,36 @@ if (args.Length >= 2 && args[0] == "--bench-save")
                 saveMs = sw2.ElapsedMilliseconds;
                 peakSave = GC.GetTotalMemory(forceFullCollection: false);
             }
-            catch (Exception ex) { threadEx = ex; }
+            catch (Exception ex)
+            {
+                threadEx = ex;
+            }
         });
         thread.SetApartmentState(System.Threading.ApartmentState.STA);
         thread.Start();
         thread.Join();
-        if (threadEx is not null) throw threadEx;
+        if (threadEx is not null)
+            throw threadEx;
 
         long inSize = new FileInfo(inPath).Length;
         long outSize = new FileInfo(outPath).Length;
         Console.WriteLine($"in={inSize:N0} B  out={outSize:N0} B  match={(inSize == outSize)}");
         Console.WriteLine($"peak0     ={peak0:N0} B");
-        Console.WriteLine($"peakLoad  ={peakLoad:N0} B  (delta={(peakLoad - peak0):N0})  loadMs={loadMs}");
-        Console.WriteLine($"peakConvert={peakConvert:N0} B  (delta={(peakConvert - peakLoad):N0})  convertMs={convertMs}");
-        Console.WriteLine($"peakSave  ={peakSave:N0} B  (delta={(peakSave - peakConvert):N0})  saveMs={saveMs}");
+        Console.WriteLine(
+            $"peakLoad  ={peakLoad:N0} B  (delta={(peakLoad - peak0):N0})  loadMs={loadMs}"
+        );
+        Console.WriteLine(
+            $"peakConvert={peakConvert:N0} B  (delta={(peakConvert - peakLoad):N0})  convertMs={convertMs}"
+        );
+        Console.WriteLine(
+            $"peakSave  ={peakSave:N0} B  (delta={(peakSave - peakConvert):N0})  saveMs={saveMs}"
+        );
     }
-    finally { if (File.Exists(outPath)) File.Delete(outPath); }
+    finally
+    {
+        if (File.Exists(outPath))
+            File.Delete(outPath);
+    }
     return 0;
 }
 

@@ -7,12 +7,12 @@ public class TextBufferEditTests
     private static string FullText(TextBuffer b) => b.Current.GetText(0, b.Current.CharLength);
 
     [Theory]
-    [InlineData("hello", 0, "X", "Xhello")]        // 先頭
-    [InlineData("hello", 2, "X", "heXllo")]        // 中間
-    [InlineData("hello", 5, "X", "helloX")]        // 末尾
-    [InlineData("", 0, "abc", "abc")]              // 空文書へ
-    [InlineData("hello", 2, "", "hello")]          // 空文字insert=無変化
-    [InlineData("あいう", 1, "😀", "あ😀いう")]     // マルチバイト
+    [InlineData("hello", 0, "X", "Xhello")] // 先頭
+    [InlineData("hello", 2, "X", "heXllo")] // 中間
+    [InlineData("hello", 5, "X", "helloX")] // 末尾
+    [InlineData("", 0, "abc", "abc")] // 空文書へ
+    [InlineData("hello", 2, "", "hello")] // 空文字insert=無変化
+    [InlineData("あいう", 1, "😀", "あ😀いう")] // マルチバイト
     public void Insert_basic(string doc, int pos, string text, string expected)
     {
         var b = TextBuffer.FromString(doc);
@@ -24,8 +24,8 @@ public class TextBufferEditTests
     [InlineData("hello", 0, 2, "llo")]
     [InlineData("hello", 2, 2, "heo")]
     [InlineData("hello", 3, 2, "hel")]
-    [InlineData("hello", 0, 5, "")]                // 全文削除
-    [InlineData("hello", 2, 0, "hello")]           // 0長削除=無変化
+    [InlineData("hello", 0, 5, "")] // 全文削除
+    [InlineData("hello", 2, 0, "hello")] // 0長削除=無変化
     public void Delete_basic(string doc, int pos, int len, string expected)
     {
         var b = TextBuffer.FromString(doc);
@@ -49,16 +49,16 @@ public class TextBufferEditTests
     {
         var b = TextBuffer.FromString("a\r\nb");
         Assert.Equal(2, b.Current.LineCount);
-        b.Delete(2, 1);   // \n だけ削除
+        b.Delete(2, 1); // \n だけ削除
         Assert.Equal("a\rb", FullText(b));
-        Assert.Equal(2, b.Current.LineCount);   // 単独CRになっても1 break
+        Assert.Equal(2, b.Current.LineCount); // 単独CRになっても1 break
     }
 
     [Fact]
     public void Delete_cr_of_crlf_keeps_line_count()
     {
         var b = TextBuffer.FromString("a\r\nb");
-        b.Delete(1, 1);   // \r だけ削除
+        b.Delete(1, 1); // \r だけ削除
         Assert.Equal("a\nb", FullText(b));
         Assert.Equal(2, b.Current.LineCount);
     }
@@ -68,16 +68,16 @@ public class TextBufferEditTests
     {
         var b = TextBuffer.FromString("a\rb");
         Assert.Equal(2, b.Current.LineCount);
-        b.Insert(2, "\n");   // \r 直後に \n
+        b.Insert(2, "\n"); // \r 直後に \n
         Assert.Equal("a\r\nb", FullText(b));
-        Assert.Equal(2, b.Current.LineCount);   // CR+LF が1つのbreakに融合
+        Assert.Equal(2, b.Current.LineCount); // CR+LF が1つのbreakに融合
     }
 
     [Fact]
     public void Insert_at_surrogate_middle_snaps_low()
     {
         var b = TextBuffer.FromString("a😀b");
-        b.Insert(2, "x");   // pos=2 はペア中間 → pos=1 扱い
+        b.Insert(2, "x"); // pos=2 はペア中間 → pos=1 扱い
         Assert.Equal("ax😀b", FullText(b));
     }
 
@@ -85,7 +85,7 @@ public class TextBufferEditTests
     public void Delete_spanning_surrogate_middles_snaps_both_ends()
     {
         var b = TextBuffer.FromString("😀😀");
-        b.Delete(1, 2);   // [1,3) は両端とも中間 → [0,2) = 最初のペア
+        b.Delete(1, 2); // [1,3) は両端とも中間 → [0,2) = 最初のペア
         Assert.Equal("😀", FullText(b));
     }
 
@@ -93,7 +93,7 @@ public class TextBufferEditTests
     public void Lone_surrogate_insert_becomes_replacement_char()
     {
         var b = TextBuffer.FromString("ab");
-        b.Insert(1, "\uD83D");   // 孤立ハイサロゲート
+        b.Insert(1, "\uD83D"); // 孤立ハイサロゲート
         Assert.Equal("a�b", FullText(b));
     }
 
@@ -118,10 +118,12 @@ public class TextBufferEditTests
         // 同一64KBブロックを共有するピースを含むスナップショットが、
         // その後の同ブロックへの追記で変化しないこと(公開済み範囲不変の直接検証)
         var b = TextBuffer.FromString("base:");
-        for (int i = 0; i < 10; i++) b.Insert(b.Current.CharLength, "タイプ" + i);
+        for (int i = 0; i < 10; i++)
+            b.Insert(b.Current.CharLength, "タイプ" + i);
         var mid = b.Current;
         string midText = mid.GetText(0, mid.CharLength);
-        for (int i = 0; i < 200; i++) b.Insert(b.Current.CharLength, "追記" + i + "\r\n");
+        for (int i = 0; i < 200; i++)
+            b.Insert(b.Current.CharLength, "追記" + i + "\r\n");
         Assert.Equal(midText, mid.GetText(0, mid.CharLength));
         Assert.NotEqual(midText, b.Current.GetText(0, b.Current.CharLength));
     }
@@ -134,8 +136,10 @@ public class TextBufferEditTests
         for (int i = 0; i < 1000; i++)
             b.Insert(b.Current.CharLength, "a");
         Assert.Equal("seed" + new string('a', 1000), FullText(b));
-        Assert.True(b.Current.PieceCount <= initial + 2,
-            $"PieceCount {b.Current.PieceCount} > initial {initial} + 2");
+        Assert.True(
+            b.Current.PieceCount <= initial + 2,
+            $"PieceCount {b.Current.PieceCount} > initial {initial} + 2"
+        );
     }
 
     [Fact]
@@ -176,7 +180,8 @@ public class TextBufferEditTests
             if (op == 0)
             {
                 int pos = rnd.Next(model.Length + 1);
-                if (pos > 0 && pos < model.Length && char.IsLowSurrogate(model[pos])) pos--;
+                if (pos > 0 && pos < model.Length && char.IsLowSurrogate(model[pos]))
+                    pos--;
                 string text = pool[rnd.Next(pool.Length)];
                 b.Insert(pos, text);
                 model = model[..pos] + text + model[pos..];
@@ -185,20 +190,26 @@ public class TextBufferEditTests
             {
                 int pos = rnd.Next(model.Length);
                 int len = Math.Min(rnd.Next(1, 6), model.Length - pos);
-                if (pos > 0 && char.IsLowSurrogate(model[pos])) pos--;
+                if (pos > 0 && char.IsLowSurrogate(model[pos]))
+                    pos--;
                 int end = pos + len;
-                if (end < model.Length && char.IsLowSurrogate(model[end])) end--;
-                if (end < pos) end = pos;
+                if (end < model.Length && char.IsLowSurrogate(model[end]))
+                    end--;
+                if (end < pos)
+                    end = pos;
                 b.Delete(pos, len);
                 model = model[..pos] + model[end..];
             }
             else if (model.Length > 1)
             {
                 int pos = rnd.Next(model.Length - 1);
-                if (pos > 0 && char.IsLowSurrogate(model[pos])) pos--;
+                if (pos > 0 && char.IsLowSurrogate(model[pos]))
+                    pos--;
                 int end = pos + 1;
-                if (end < model.Length && char.IsLowSurrogate(model[end])) end--;
-                if (end < pos) end = pos;
+                if (end < model.Length && char.IsLowSurrogate(model[end]))
+                    end--;
+                if (end < pos)
+                    end = pos;
                 b.Replace(pos, 1, "R");
                 model = model[..pos] + "R" + model[end..];
             }

@@ -12,7 +12,13 @@ using yEdit.Core.Text;
 namespace yEdit.Editor;
 
 /// <summary>Task 3c: InputRouter がマウス入力を dispatch する種別。</summary>
-internal enum MouseEventKind { Down, Move, Up, DoubleClick }
+internal enum MouseEventKind
+{
+    Down,
+    Move,
+    Up,
+    DoubleClick,
+}
 
 /// <summary>
 /// keymap dispatcher(state なし)。EditorControl.Input.cs の OnKeyDown 分岐(22 個)と
@@ -44,10 +50,13 @@ internal sealed class InputRouter
     /// </remarks>
     public void RouteKey(KeyEventArgs e)
     {
-        if (_host.Buffer is null) return;
-        if (!_keyMap.TryGetValue(e.KeyCode, out var handler)) return;
+        if (_host.Buffer is null)
+            return;
+        if (!_keyMap.TryGetValue(e.KeyCode, out var handler))
+            return;
         var ctx = new InputContext(_host, _caret);
-        if (handler(ctx, e)) e.Handled = true;
+        if (handler(ctx, e))
+            e.Handled = true;
     }
 
     /// <summary>マウス経路: <paramref name="kind"/> に応じて MouseXxx ハンドラへ dispatch。</summary>
@@ -60,10 +69,18 @@ internal sealed class InputRouter
         var ctx = new InputContext(_host, _caret);
         switch (kind)
         {
-            case MouseEventKind.Down:        HandleMouseDown(ctx, e); break;
-            case MouseEventKind.Move:        HandleMouseMove(ctx, e); break;
-            case MouseEventKind.Up:          HandleMouseUp(ctx, e); break;
-            case MouseEventKind.DoubleClick: HandleMouseDoubleClick(ctx, e); break;
+            case MouseEventKind.Down:
+                HandleMouseDown(ctx, e);
+                break;
+            case MouseEventKind.Move:
+                HandleMouseMove(ctx, e);
+                break;
+            case MouseEventKind.Up:
+                HandleMouseUp(ctx, e);
+                break;
+            case MouseEventKind.DoubleClick:
+                HandleMouseDoubleClick(ctx, e);
+                break;
         }
     }
 
@@ -78,25 +95,25 @@ internal sealed class InputRouter
     {
         return new Dictionary<Keys, Func<InputContext, KeyEventArgs, bool>>
         {
-            [Keys.Left]     = HandleLeft,
-            [Keys.Right]    = HandleRight,
-            [Keys.Home]     = HandleHome,
-            [Keys.End]      = HandleEnd,
-            [Keys.Up]       = HandleUp,
-            [Keys.Down]     = HandleDown,
-            [Keys.PageUp]   = HandlePageUp,
+            [Keys.Left] = HandleLeft,
+            [Keys.Right] = HandleRight,
+            [Keys.Home] = HandleHome,
+            [Keys.End] = HandleEnd,
+            [Keys.Up] = HandleUp,
+            [Keys.Down] = HandleDown,
+            [Keys.PageUp] = HandlePageUp,
             [Keys.PageDown] = HandlePageDown,
-            [Keys.A]        = HandleA,
-            [Keys.X]        = HandleX,
-            [Keys.C]        = HandleC,
-            [Keys.V]        = HandleV,
-            [Keys.Z]        = HandleZ,
-            [Keys.Y]        = HandleY,
-            [Keys.Insert]   = HandleInsert,
-            [Keys.Delete]   = HandleDelete,
-            [Keys.Back]     = HandleBack,
-            [Keys.Enter]    = HandleEnter,
-            [Keys.Tab]      = HandleTab,
+            [Keys.A] = HandleA,
+            [Keys.X] = HandleX,
+            [Keys.C] = HandleC,
+            [Keys.V] = HandleV,
+            [Keys.Z] = HandleZ,
+            [Keys.Y] = HandleY,
+            [Keys.Insert] = HandleInsert,
+            [Keys.Delete] = HandleDelete,
+            [Keys.Back] = HandleBack,
+            [Keys.Enter] = HandleEnter,
+            [Keys.Tab] = HandleTab,
         };
     }
 
@@ -112,12 +129,20 @@ internal sealed class InputRouter
     /// - 純キャレット移動でも <see cref="Core.Buffers.TextBuffer.BreakUndoCoalescing"/> を呼ぶ
     ///   (Scintilla 互換)。<see cref="EditorControl.BringCaretIntoView"/> で追従スクロール。
     /// </summary>
-    private static void ApplyNavMove(InputContext ctx, KeyEventArgs e, int target, bool resetDesired)
+    private static void ApplyNavMove(
+        InputContext ctx,
+        KeyEventArgs e,
+        int target,
+        bool resetDesired
+    )
     {
-        if (resetDesired) ctx.Caret.DesiredXpx = -1;
+        if (resetDesired)
+            ctx.Caret.DesiredXpx = -1;
         bool shift = (e.Modifiers & Keys.Shift) != 0;
-        if (shift) ctx.Host.MoveCaretWithSelection(target);
-        else ctx.Host.SetCaretCharOffset(target);
+        if (shift)
+            ctx.Host.MoveCaretWithSelection(target);
+        else
+            ctx.Host.SetCaretCharOffset(target);
         ctx.Host.Buffer!.BreakUndoCoalescing();
         ctx.Host.BringCaretIntoView();
     }
@@ -128,8 +153,9 @@ internal sealed class InputRouter
     {
         var snap = ctx.Host.Buffer!.Current;
         bool ctrl = (e.Modifiers & Keys.Control) != 0;
-        int target = ctrl ? WordBoundary.PrevWordStart(snap, ctx.Caret.Caret)
-                          : NavigationCommands.MoveLeftChar(snap, ctx.Caret.Caret);
+        int target = ctrl
+            ? WordBoundary.PrevWordStart(snap, ctx.Caret.Caret)
+            : NavigationCommands.MoveLeftChar(snap, ctx.Caret.Caret);
         ApplyNavMove(ctx, e, target, resetDesired: true);
         return true;
     }
@@ -138,8 +164,9 @@ internal sealed class InputRouter
     {
         var snap = ctx.Host.Buffer!.Current;
         bool ctrl = (e.Modifiers & Keys.Control) != 0;
-        int target = ctrl ? WordBoundary.NextWordStart(snap, ctx.Caret.Caret)
-                          : NavigationCommands.MoveRightChar(snap, ctx.Caret.Caret);
+        int target = ctrl
+            ? WordBoundary.NextWordStart(snap, ctx.Caret.Caret)
+            : NavigationCommands.MoveRightChar(snap, ctx.Caret.Caret);
         ApplyNavMove(ctx, e, target, resetDesired: true);
         return true;
     }
@@ -149,9 +176,14 @@ internal sealed class InputRouter
         var snap = ctx.Host.Buffer!.Current;
         bool ctrl = (e.Modifiers & Keys.Control) != 0;
         // P8-1a: 折り返し ON では視覚行(折り返し行)の先頭へ(NVDA が視覚行先頭から読むよう App 層挙動を統一)
-        int target = ctrl ? 0
-                          : NavigationCommands.MoveHomeSmart(snap, ctx.Caret.Caret,
-                                ctx.Host.WrapColumns, ctx.Host.Metrics);
+        int target = ctrl
+            ? 0
+            : NavigationCommands.MoveHomeSmart(
+                snap,
+                ctx.Caret.Caret,
+                ctx.Host.WrapColumns,
+                ctx.Host.Metrics
+            );
         ApplyNavMove(ctx, e, target, resetDesired: true);
         return true;
     }
@@ -160,8 +192,7 @@ internal sealed class InputRouter
     {
         var snap = ctx.Host.Buffer!.Current;
         bool ctrl = (e.Modifiers & Keys.Control) != 0;
-        int target = ctrl ? snap.CharLength
-                          : NavigationCommands.MoveEnd(snap, ctx.Caret.Caret);
+        int target = ctrl ? snap.CharLength : NavigationCommands.MoveEnd(snap, ctx.Caret.Caret);
         ApplyNavMove(ctx, e, target, resetDesired: true);
         return true;
     }
@@ -169,8 +200,13 @@ internal sealed class InputRouter
     private static bool HandleUp(InputContext ctx, KeyEventArgs e)
     {
         var snap = ctx.Host.Buffer!.Current;
-        var (t, d) = VerticalNavigation.MoveUp(snap, ctx.Caret.Caret, ctx.Caret.DesiredXpx,
-            ctx.Host.WrapColumns, ctx.Host.Metrics);
+        var (t, d) = VerticalNavigation.MoveUp(
+            snap,
+            ctx.Caret.Caret,
+            ctx.Caret.DesiredXpx,
+            ctx.Host.WrapColumns,
+            ctx.Host.Metrics
+        );
         ctx.Caret.DesiredXpx = d;
         ApplyNavMove(ctx, e, t, resetDesired: false);
         return true;
@@ -179,8 +215,13 @@ internal sealed class InputRouter
     private static bool HandleDown(InputContext ctx, KeyEventArgs e)
     {
         var snap = ctx.Host.Buffer!.Current;
-        var (t, d) = VerticalNavigation.MoveDown(snap, ctx.Caret.Caret, ctx.Caret.DesiredXpx,
-            ctx.Host.WrapColumns, ctx.Host.Metrics);
+        var (t, d) = VerticalNavigation.MoveDown(
+            snap,
+            ctx.Caret.Caret,
+            ctx.Caret.DesiredXpx,
+            ctx.Host.WrapColumns,
+            ctx.Host.Metrics
+        );
         ctx.Caret.DesiredXpx = d;
         ApplyNavMove(ctx, e, t, resetDesired: false);
         return true;
@@ -189,9 +230,18 @@ internal sealed class InputRouter
     private static bool HandlePageUp(InputContext ctx, KeyEventArgs e)
     {
         var snap = ctx.Host.Buffer!.Current;
-        int rows = Math.Max(1, ctx.Host.ClientSize.Height / Math.Max(1, ctx.Host.Metrics.LineHeightPx));
-        var (t, d) = VerticalNavigation.PageUp(snap, ctx.Caret.Caret, ctx.Caret.DesiredXpx,
-            ctx.Host.WrapColumns, rows, ctx.Host.Metrics);
+        int rows = Math.Max(
+            1,
+            ctx.Host.ClientSize.Height / Math.Max(1, ctx.Host.Metrics.LineHeightPx)
+        );
+        var (t, d) = VerticalNavigation.PageUp(
+            snap,
+            ctx.Caret.Caret,
+            ctx.Caret.DesiredXpx,
+            ctx.Host.WrapColumns,
+            rows,
+            ctx.Host.Metrics
+        );
         ctx.Caret.DesiredXpx = d;
         ApplyNavMove(ctx, e, t, resetDesired: false);
         return true;
@@ -200,9 +250,18 @@ internal sealed class InputRouter
     private static bool HandlePageDown(InputContext ctx, KeyEventArgs e)
     {
         var snap = ctx.Host.Buffer!.Current;
-        int rows = Math.Max(1, ctx.Host.ClientSize.Height / Math.Max(1, ctx.Host.Metrics.LineHeightPx));
-        var (t, d) = VerticalNavigation.PageDown(snap, ctx.Caret.Caret, ctx.Caret.DesiredXpx,
-            ctx.Host.WrapColumns, rows, ctx.Host.Metrics);
+        int rows = Math.Max(
+            1,
+            ctx.Host.ClientSize.Height / Math.Max(1, ctx.Host.Metrics.LineHeightPx)
+        );
+        var (t, d) = VerticalNavigation.PageDown(
+            snap,
+            ctx.Caret.Caret,
+            ctx.Caret.DesiredXpx,
+            ctx.Host.WrapColumns,
+            rows,
+            ctx.Host.Metrics
+        );
         ctx.Caret.DesiredXpx = d;
         ApplyNavMove(ctx, e, t, resetDesired: false);
         return true;
@@ -214,7 +273,8 @@ internal sealed class InputRouter
     {
         // 元 switch: case Keys.A when ctrl → ctrl 無しは no-match(fallthrough で unhandled)
         bool ctrl = (e.Modifiers & Keys.Control) != 0;
-        if (!ctrl) return false;
+        if (!ctrl)
+            return false;
         var snap = ctx.Host.Buffer!.Current;
         ctx.Host.SetSelectionAnchored(0, snap.CharLength);
         // 全選択=文書頭〜末尾のジャンプ相当なので、水平移動と同様に desired X をリセット。
@@ -228,7 +288,8 @@ internal sealed class InputRouter
     {
         // 元 switch: case Keys.X when ctrl && !ReadOnly
         bool ctrl = (e.Modifiers & Keys.Control) != 0;
-        if (!ctrl || ctx.Host.ReadOnly) return false;
+        if (!ctrl || ctx.Host.ReadOnly)
+            return false;
         ctx.Host.Cut();
         return true;
     }
@@ -237,7 +298,8 @@ internal sealed class InputRouter
     {
         // 元 switch: case Keys.C when ctrl (ReadOnly でも動く=Notepad と同挙動)
         bool ctrl = (e.Modifiers & Keys.Control) != 0;
-        if (!ctrl) return false;
+        if (!ctrl)
+            return false;
         ctx.Host.Copy();
         return true;
     }
@@ -246,7 +308,8 @@ internal sealed class InputRouter
     {
         // 元 switch: case Keys.V when ctrl && !ReadOnly
         bool ctrl = (e.Modifiers & Keys.Control) != 0;
-        if (!ctrl || ctx.Host.ReadOnly) return false;
+        if (!ctrl || ctx.Host.ReadOnly)
+            return false;
         ctx.Host.Paste();
         return true;
     }
@@ -255,7 +318,8 @@ internal sealed class InputRouter
     {
         // 元 switch: case Keys.Z when ctrl && !ReadOnly
         bool ctrl = (e.Modifiers & Keys.Control) != 0;
-        if (!ctrl || ctx.Host.ReadOnly) return false;
+        if (!ctrl || ctx.Host.ReadOnly)
+            return false;
         ctx.Host.Undo();
         return true;
     }
@@ -264,7 +328,8 @@ internal sealed class InputRouter
     {
         // 元 switch: case Keys.Y when ctrl && !ReadOnly
         bool ctrl = (e.Modifiers & Keys.Control) != 0;
-        if (!ctrl || ctx.Host.ReadOnly) return false;
+        if (!ctrl || ctx.Host.ReadOnly)
+            return false;
         ctx.Host.Redo();
         return true;
     }
@@ -297,7 +362,8 @@ internal sealed class InputRouter
         }
         // 残り(bare Insert / Shift+Insert@ReadOnly / Alt+Insert 等)=元 case Keys.Insert:。
         // 修飾なしのみ Overtype トグル(if 条件は body 側)。Handled=true は常に立てる。
-        if (!ctrl && !shift) ctx.Host.Overtype = !ctx.Host.Overtype;
+        if (!ctrl && !shift)
+            ctx.Host.Overtype = !ctx.Host.Overtype;
         return true;
     }
 
@@ -308,7 +374,8 @@ internal sealed class InputRouter
     private static bool HandleDelete(InputContext ctx, KeyEventArgs e)
     {
         // 元 switch: ReadOnly=true のとき Shift+Delete も bare Delete も case マッチせず fallthrough
-        if (ctx.Host.ReadOnly) return false;
+        if (ctx.Host.ReadOnly)
+            return false;
         bool shift = (e.Modifiers & Keys.Shift) != 0;
         if (shift)
         {
@@ -341,7 +408,8 @@ internal sealed class InputRouter
     private static bool HandleBack(InputContext ctx, KeyEventArgs e)
     {
         // 元 switch: case Keys.Back when !ReadOnly
-        if (ctx.Host.ReadOnly) return false;
+        if (ctx.Host.ReadOnly)
+            return false;
         var buffer = ctx.Host.Buffer!;
         var snap = buffer.Current;
         var (s, en) = ctx.Host.GetSelectionCharRange();
@@ -366,8 +434,9 @@ internal sealed class InputRouter
     private static bool HandleEnter(InputContext ctx, KeyEventArgs e)
     {
         // 元 switch: case Keys.Enter when !ReadOnly
-        if (ctx.Host.ReadOnly) return false;
-        string eol = ctx.Host.EolMode.ToEolString();   // "\r\n" / "\n" / "\r"
+        if (ctx.Host.ReadOnly)
+            return false;
+        string eol = ctx.Host.EolMode.ToEolString(); // "\r\n" / "\n" / "\r"
         var buffer = ctx.Host.Buffer!;
         var (s, en) = ctx.Host.GetSelectionCharRange();
         buffer.Replace(s, en - s, eol);
@@ -381,7 +450,8 @@ internal sealed class InputRouter
     {
         // 元 switch: case Keys.Tab when !ReadOnly
         // TabsToSpaces / TabWidth 対応は P6 送り(YAGNI・Task 9 は素の \t 挿入のみ)。
-        if (ctx.Host.ReadOnly) return false;
+        if (ctx.Host.ReadOnly)
+            return false;
         var buffer = ctx.Host.Buffer!;
         var (s, en) = ctx.Host.GetSelectionCharRange();
         buffer.Replace(s, en - s, "\t");
@@ -399,12 +469,15 @@ internal sealed class InputRouter
     /// </summary>
     private static void HandleMouseDown(InputContext ctx, MouseEventArgs e)
     {
-        if (ctx.Host.Buffer is null || e.Button != MouseButtons.Left) return;
+        if (ctx.Host.Buffer is null || e.Button != MouseButtons.Left)
+            return;
         ctx.Host.Focus();
         int target = ctx.Host.OffsetFromClientPoint(e.X, e.Y);
         bool shift = (Control.ModifierKeys & Keys.Shift) != 0;
-        if (shift) ctx.Host.MoveCaretWithSelection(target);
-        else ctx.Host.SetCaretCharOffset(target);
+        if (shift)
+            ctx.Host.MoveCaretWithSelection(target);
+        else
+            ctx.Host.SetCaretCharOffset(target);
         ctx.Host.MouseDragging = true;
         ctx.Caret.DesiredXpx = -1;
         ctx.Host.Buffer.BreakUndoCoalescing();
@@ -414,7 +487,8 @@ internal sealed class InputRouter
     /// <summary>マウス移動(元 OnMouseMove 本体)。ドラッグ選択専用。</summary>
     private static void HandleMouseMove(InputContext ctx, MouseEventArgs e)
     {
-        if (!ctx.Host.MouseDragging || ctx.Host.Buffer is null) return;
+        if (!ctx.Host.MouseDragging || ctx.Host.Buffer is null)
+            return;
         if ((e.Button & MouseButtons.Left) == 0)
         {
             ctx.Host.MouseDragging = false;
@@ -428,14 +502,16 @@ internal sealed class InputRouter
     /// <summary>マウス左ボタン Up(元 OnMouseUp 本体)。フラグ落としのみ。</summary>
     private static void HandleMouseUp(InputContext ctx, MouseEventArgs e)
     {
-        if (e.Button != MouseButtons.Left) return;
+        if (e.Button != MouseButtons.Left)
+            return;
         ctx.Host.MouseDragging = false;
     }
 
     /// <summary>マウス左ボタンダブルクリック(元 OnMouseDoubleClick 本体)。単語選択。</summary>
     private static void HandleMouseDoubleClick(InputContext ctx, MouseEventArgs e)
     {
-        if (ctx.Host.Buffer is null || e.Button != MouseButtons.Left) return;
+        if (ctx.Host.Buffer is null || e.Button != MouseButtons.Left)
+            return;
         int target = ctx.Host.OffsetFromClientPoint(e.X, e.Y);
         var snap = ctx.Host.Buffer.Current;
         int start = PrevWordBoundary(snap, target);
@@ -459,8 +535,10 @@ internal sealed class InputRouter
     /// </summary>
     private static int PrevWordBoundary(TextSnapshot snap, int target)
     {
-        if (target <= 0) return 0;
-        if (target >= snap.CharLength) return WordBoundary.PrevWordStart(snap, target);
+        if (target <= 0)
+            return 0;
+        if (target >= snap.CharLength)
+            return WordBoundary.PrevWordStart(snap, target);
         return WordBoundary.PrevWordStart(snap, target + 1);
     }
 
@@ -473,12 +551,14 @@ internal sealed class InputRouter
     /// </summary>
     private static int NextWordBoundary(TextSnapshot snap, int target)
     {
-        if (target >= snap.CharLength) return snap.CharLength;
+        if (target >= snap.CharLength)
+            return snap.CharLength;
         int nextWordStart = WordBoundary.NextWordStart(snap, target);
         while (nextWordStart > target)
         {
             char c = snap.GetChar(nextWordStart - 1);
-            if (c != ' ' && c != '\t' && c != '\r' && c != '\n') break;
+            if (c != ' ' && c != '\t' && c != '\r' && c != '\n')
+                break;
             nextWordStart--;
         }
         return nextWordStart;

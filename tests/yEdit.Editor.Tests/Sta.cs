@@ -26,13 +26,20 @@ public static class Sta
         Exception? captured = null;
         var t = new Thread(() =>
         {
-            try { action(); }
-            catch (Exception ex) { captured = ex; }
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                captured = ex;
+            }
         });
         t.IsBackground = true;
         t.SetApartmentState(ApartmentState.STA);
         t.Start();
         t.Join();
-        if (captured is not null) ExceptionDispatchInfo.Capture(captured).Throw();
+        if (captured is not null)
+            ExceptionDispatchInfo.Capture(captured).Throw();
     }
 }

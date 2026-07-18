@@ -9,10 +9,17 @@ public static class PathKey
 {
     public static string For(string path)
     {
-        if (string.IsNullOrEmpty(path)) return string.Empty;
+        if (string.IsNullOrEmpty(path))
+            return string.Empty;
         string full;
-        try { full = Path.GetFullPath(path); }
-        catch { full = path; }
+        try
+        {
+            full = Path.GetFullPath(path);
+        }
+        catch
+        {
+            full = path;
+        }
         return full.ToLowerInvariant();
     }
 }

@@ -1,8 +1,8 @@
 using System;
 using System.Windows.Forms;
+using Xunit;
 using yEdit.Core.Buffers;
 using yEdit.Editor;
-using Xunit;
 
 namespace yEdit.Editor.Tests;
 
@@ -27,20 +27,31 @@ public class EditorControlUiaEventsTests
                 try
                 {
                     // WM_GETOBJECT 経由でプロバイダを生成させる(=RaiseUia の early return を回避)
-                    var msg = Message.Create(ctrl.Handle, 0x003D, System.IntPtr.Zero, new System.IntPtr(-25));
+                    var msg = Message.Create(
+                        ctrl.Handle,
+                        0x003D,
+                        System.IntPtr.Zero,
+                        new System.IntPtr(-25)
+                    );
                     EditorControl.TestHook_WndProc(ctrl, ref msg);
 
                     EditorControl.TestHook_ResetUiaEventCounts(ctrl);
                     ctrl.SetSelectionCharRange(3, 3);
-                    ctrl.ReplaceCharRange(3, 0, "x");   // "abcx"
+                    ctrl.ReplaceCharRange(3, 0, "x"); // "abcx"
                     Application.DoEvents();
                     var (textChanged, selChanged, _) = EditorControl.TestHook_UiaEventCounts(ctrl);
                     Assert.True(textChanged >= 1, "TextChangedEvent が発火していない");
                     Assert.True(selChanged >= 1, "TextSelectionChangedEvent が発火していない");
                 }
-                finally { form.Close(); }
+                finally
+                {
+                    form.Close();
+                }
             }
-            finally { EditorControl.TestHook_ForceUiaListen = false; }
+            finally
+            {
+                EditorControl.TestHook_ForceUiaListen = false;
+            }
         });
     }
 
@@ -59,18 +70,32 @@ public class EditorControlUiaEventsTests
                 form.Show();
                 try
                 {
-                    var msg = Message.Create(ctrl.Handle, 0x003D, System.IntPtr.Zero, new System.IntPtr(-25));
+                    var msg = Message.Create(
+                        ctrl.Handle,
+                        0x003D,
+                        System.IntPtr.Zero,
+                        new System.IntPtr(-25)
+                    );
                     EditorControl.TestHook_WndProc(ctrl, ref msg);
 
                     EditorControl.TestHook_ResetUiaEventCounts(ctrl);
                     ctrl.SetCaretCharOffset(3);
                     Application.DoEvents();
                     var (_, selChanged, _) = EditorControl.TestHook_UiaEventCounts(ctrl);
-                    Assert.True(selChanged >= 1, "MoveCaret で TextSelectionChangedEvent が発火していない");
+                    Assert.True(
+                        selChanged >= 1,
+                        "MoveCaret で TextSelectionChangedEvent が発火していない"
+                    );
                 }
-                finally { form.Close(); }
+                finally
+                {
+                    form.Close();
+                }
             }
-            finally { EditorControl.TestHook_ForceUiaListen = false; }
+            finally
+            {
+                EditorControl.TestHook_ForceUiaListen = false;
+            }
         });
     }
 
@@ -89,7 +114,12 @@ public class EditorControlUiaEventsTests
                 form.Show();
                 try
                 {
-                    var msg = Message.Create(ctrl.Handle, 0x003D, System.IntPtr.Zero, new System.IntPtr(-25));
+                    var msg = Message.Create(
+                        ctrl.Handle,
+                        0x003D,
+                        System.IntPtr.Zero,
+                        new System.IntPtr(-25)
+                    );
                     EditorControl.TestHook_WndProc(ctrl, ref msg);
 
                     ctrl.RaiseUiaSelectionEvents = false;
@@ -99,9 +129,15 @@ public class EditorControlUiaEventsTests
                     var (_, selChanged, _) = EditorControl.TestHook_UiaEventCounts(ctrl);
                     Assert.Equal(0, selChanged);
                 }
-                finally { form.Close(); }
+                finally
+                {
+                    form.Close();
+                }
             }
-            finally { EditorControl.TestHook_ForceUiaListen = false; }
+            finally
+            {
+                EditorControl.TestHook_ForceUiaListen = false;
+            }
         });
     }
 }

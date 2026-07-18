@@ -14,8 +14,8 @@ public class TextSnapshotTests
         return Piece.Of(new TextChunk(bytes, gridBytes: 8), 0, bytes.Length);
     }
 
-    private static TextSnapshot Snap(params string[] parts)
-        => new(PieceTree.BuildBalanced(parts.Select(P).ToArray()));
+    private static TextSnapshot Snap(params string[] parts) =>
+        new(PieceTree.BuildBalanced(parts.Select(P).ToArray()));
 
     /// <summary>単一ピース版と CRLF跨ぎ複数ピース版の両レイアウト。</summary>
     private static IEnumerable<TextSnapshot> DocLayouts()
@@ -58,7 +58,12 @@ public class TextSnapshotTests
                 int expectedEndIncl = isLast ? Doc.Length : ends[line] + 1;
                 int expectedEndNoBreak = isLast
                     ? Doc.Length
-                    : ends[line] - (Doc[ends[line]] == '\n' && ends[line] > 0 && Doc[ends[line] - 1] == '\r' ? 1 : 0);
+                    : ends[line]
+                        - (
+                            Doc[ends[line]] == '\n' && ends[line] > 0 && Doc[ends[line] - 1] == '\r'
+                                ? 1
+                                : 0
+                        );
                 Assert.Equal(expectedEndIncl, snap.GetLineEnd(line, includeBreak: true));
                 Assert.Equal(expectedEndNoBreak, snap.GetLineEnd(line, includeBreak: false));
             }
@@ -111,15 +116,17 @@ public class TextSnapshotTests
         {
             for (int t = 0; t < 50; t++)
             {
-                int a = rnd.Next(Doc.Length + 1), b = rnd.Next(Doc.Length + 1);
-                if (a > b) (a, b) = (b, a);
+                int a = rnd.Next(Doc.Length + 1),
+                    b = rnd.Next(Doc.Length + 1);
+                if (a > b)
+                    (a, b) = (b, a);
                 Assert.Equal(Doc.Substring(a, b - a), snap.GetText(a, b - a));
             }
             // 絵文字(末尾のサロゲートペア)の中間開始・中間終了を明示的に
-            int hi = Doc.Length - 2;   // 😀 の high surrogate
-            Assert.Equal(Doc.Substring(hi + 1, 1), snap.GetText(hi + 1, 1));       // 中間開始
-            Assert.Equal(Doc.Substring(hi - 1, 2), snap.GetText(hi - 1, 2));       // 中間終了
-            Assert.Equal(Doc.Substring(hi + 1), snap.GetText(hi + 1, 1));          // low のみ
+            int hi = Doc.Length - 2; // 😀 の high surrogate
+            Assert.Equal(Doc.Substring(hi + 1, 1), snap.GetText(hi + 1, 1)); // 中間開始
+            Assert.Equal(Doc.Substring(hi - 1, 2), snap.GetText(hi - 1, 2)); // 中間終了
+            Assert.Equal(Doc.Substring(hi + 1), snap.GetText(hi + 1, 1)); // low のみ
         }
     }
 
@@ -150,6 +157,9 @@ public class TextSnapshotTests
     public void PieceCount_reflects_layout()
     {
         Assert.Equal(1, Snap(Doc).PieceCount);
-        Assert.Equal(4, Snap("これは1行目\r", "\n2nd line\nempty next", "\r\r", "\n\n最終行😀").PieceCount);
+        Assert.Equal(
+            4,
+            Snap("これは1行目\r", "\n2nd line\nempty next", "\r\r", "\n\n最終行😀").PieceCount
+        );
     }
 }

@@ -5,8 +5,10 @@ public enum CellPickKind
 {
     /// <summary>ユーザーが Cancel/Esc/×ボタンで閉じた(無音扱い)。</summary>
     Canceled,
+
     /// <summary>OK を押したが入力書式が不正("行,列" として解釈不能)。呼び出し側が「書式が不正です」を通知する。</summary>
     InvalidFormat,
+
     /// <summary>OK+書式 OK。<see cref="CellPickResult.Row1"/>/<see cref="CellPickResult.Col1"/> は 1 始まり。範囲外判定は呼び出し側(CsvController)が行う。</summary>
     Ok,
 }
@@ -19,6 +21,7 @@ public sealed record CellPickResult(CellPickKind Kind, int Row1, int Col1)
 {
     public static readonly CellPickResult Canceled = new(CellPickKind.Canceled, 0, 0);
     public static readonly CellPickResult InvalidFormat = new(CellPickKind.InvalidFormat, 0, 0);
+
     public static CellPickResult Ok(int row1, int col1) => new(CellPickKind.Ok, row1, col1);
 }
 

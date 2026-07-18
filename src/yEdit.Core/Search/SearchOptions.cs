@@ -8,4 +8,5 @@ public sealed record SearchOptions(
     string Pattern,
     bool MatchCase = false,
     bool WholeWord = false,
-    bool UseRegex = false);
+    bool UseRegex = false
+);

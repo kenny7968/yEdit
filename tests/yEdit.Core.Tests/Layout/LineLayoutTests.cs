@@ -30,7 +30,7 @@ public class LineLayoutTests
         // 幅=3 で "a😀b" → "a"+"😀" (1+2=3) / "b"
         var r = LineLayout.Wrap("a😀b", 3, M);
         Assert.Equal(2, r.Count);
-        Assert.Equal((0, 3), (r[0].OffsetInLine, r[0].Length));  // 'a'+high+low
+        Assert.Equal((0, 3), (r[0].OffsetInLine, r[0].Length)); // 'a'+high+low
         Assert.Equal((3, 1), (r[1].OffsetInLine, r[1].Length));
     }
 
@@ -57,7 +57,8 @@ public class LineLayoutTests
         var line = "あいうえお漢字ABC";
         var r = LineLayout.Wrap(line, 5, M);
         int sum = 0;
-        foreach (var s in r) sum += s.Length;
+        foreach (var s in r)
+            sum += s.Length;
         Assert.Equal(line.Length, sum);
     }
 
@@ -69,7 +70,7 @@ public class LineLayoutTests
         // 幅=1・"\uD83Da": [\uD83D] は幅 2 > 1 だが強制前進で seg0 に入る → 次の 'a' は幅 1 で seg1 開始
         var r = LineLayout.Wrap("\uD83Da", 1, M);
         Assert.Equal(2, r.Count);
-        Assert.Equal((0, 1), (r[0].OffsetInLine, r[0].Length));  // lone high-surrogate だけ
-        Assert.Equal((1, 1), (r[1].OffsetInLine, r[1].Length));  // 'a'
+        Assert.Equal((0, 1), (r[0].OffsetInLine, r[0].Length)); // lone high-surrogate だけ
+        Assert.Equal((1, 1), (r[1].OffsetInLine, r[1].Length)); // 'a'
     }
 }

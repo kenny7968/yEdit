@@ -30,8 +30,13 @@ public sealed class TextSnapshot
         ArgumentOutOfRangeException.ThrowIfNegative(start);
         ArgumentOutOfRangeException.ThrowIfNegative(length);
         if ((long)start + length > CharLength)
-            throw new ArgumentOutOfRangeException(nameof(length), length, "範囲が文書末尾を超えています。");
-        if (length == 0) return string.Empty;
+            throw new ArgumentOutOfRangeException(
+                nameof(length),
+                length,
+                "範囲が文書末尾を超えています。"
+            );
+        if (length == 0)
+            return string.Empty;
         var sb = new StringBuilder(length);
         AppendRange(_root, start, start + length, sb);
         return sb.ToString();
@@ -56,10 +61,13 @@ public sealed class TextSnapshot
     {
         if (line < 0 || line >= LineCount)
             throw new ArgumentOutOfRangeException(nameof(line));
-        if (line == LineCount - 1) return CharLength;
+        if (line == LineCount - 1)
+            return CharLength;
         int breakEnd = PieceTree.NthBreakEnd(_root!, line + 1, followedByLf: false);
-        if (includeBreak) return breakEnd + 1;
-        return breakEnd - (breakEnd > 0 && GetChar(breakEnd) == '\n' && GetChar(breakEnd - 1) == '\r' ? 1 : 0);
+        if (includeBreak)
+            return breakEnd + 1;
+        return breakEnd
+            - (breakEnd > 0 && GetChar(breakEnd) == '\n' && GetChar(breakEnd - 1) == '\r' ? 1 : 0);
     }
 
     /// <summary>pos が属する行番号。pos == CharLength は最終行(キャレットがEOF位置に立つため)。</summary>
@@ -71,7 +79,8 @@ public sealed class TextSnapshot
         int breaks = prefix.Breaks;
         // CRLFの途中(pos-1がCR かつ posがLF)= breakはまだ完了していない。
         // 接頭辞末尾がCRのときだけ pos のLF判定を行う(通常経路は追加走査なし)
-        if (prefix.LastIsCr && pos < CharLength && IsLfAt(pos)) breaks--;
+        if (prefix.LastIsCr && pos < CharLength && IsLfAt(pos))
+            breaks--;
         return breaks;
     }
 
@@ -82,11 +91,16 @@ public sealed class TextSnapshot
         while (true)
         {
             int leftChars = PieceTree.SumOf(t!.Left).CharLen;
-            if (pos < leftChars) { t = t.Left; continue; }
+            if (pos < leftChars)
+            {
+                t = t.Left;
+                continue;
+            }
             pos -= leftChars;
             if (pos < t.Piece.CharLen)
             {
-                if (pos == 0) return t.Piece.Stats.FirstIsLf;
+                if (pos == 0)
+                    return t.Piece.Stats.FirstIsLf;
                 int b = t.Piece.Chunk.CharToByte(t.Piece.ByteStart, t.Piece.ByteLen, pos);
                 return t.Piece.Chunk.Span[b] == (byte)'\n';
             }
@@ -109,18 +123,25 @@ public sealed class TextSnapshot
     /// <summary>ノードの文字区間 [from, to) を sb へ追記。ピース全域は直接デコード、端はスナップ切り出し。</summary>
     private static void AppendRange(PieceTree.Node? t, int from, int to, StringBuilder sb)
     {
-        if (t is null || from >= to) return;
+        if (t is null || from >= to)
+            return;
         int leftChars = PieceTree.SumOf(t.Left).CharLen;
-        if (from < leftChars) AppendRange(t.Left, from, Math.Min(to, leftChars), sb);
-        int ps = leftChars, pe = leftChars + t.Piece.CharLen;
+        if (from < leftChars)
+            AppendRange(t.Left, from, Math.Min(to, leftChars), sb);
+        int ps = leftChars,
+            pe = leftChars + t.Piece.CharLen;
         if (to > ps && from < pe && t.Piece.CharLen > 0)
         {
-            int f = Math.Max(from, ps) - ps, e = Math.Min(to, pe) - ps;
+            int f = Math.Max(from, ps) - ps,
+                e = Math.Min(to, pe) - ps;
             var p = t.Piece;
-            sb.Append(f == 0 && e == p.CharLen
-                ? p.Chunk.GetString(p.ByteStart, p.ByteLen)
-                : p.Chunk.GetSubstring(p.ByteStart, p.ByteLen, f, e));
+            sb.Append(
+                f == 0 && e == p.CharLen
+                    ? p.Chunk.GetString(p.ByteStart, p.ByteLen)
+                    : p.Chunk.GetSubstring(p.ByteStart, p.ByteLen, f, e)
+            );
         }
-        if (to > pe) AppendRange(t.Right, Math.Max(from, pe) - pe, to - pe, sb);
+        if (to > pe)
+            AppendRange(t.Right, Math.Max(from, pe) - pe, to - pe, sb);
     }
 }

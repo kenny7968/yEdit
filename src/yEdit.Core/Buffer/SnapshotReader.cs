@@ -12,15 +12,19 @@ internal sealed class SnapshotReader : TextReader
     private int _pos;
     private bool _done;
 
-    public SnapshotReader(PieceTree.Node? root)
-        => _pieces = PieceTree.Enumerate(root).GetEnumerator();
+    public SnapshotReader(PieceTree.Node? root) =>
+        _pieces = PieceTree.Enumerate(root).GetEnumerator();
 
     /// <summary>現在ピースに未読文字が残るよう次ピースへ進める。EOFなら false。</summary>
     private bool Ensure()
     {
         while (_pos >= _current.Length)
         {
-            if (_done || !_pieces.MoveNext()) { _done = true; return false; }
+            if (_done || !_pieces.MoveNext())
+            {
+                _done = true;
+                return false;
+            }
             var p = _pieces.Current;
             _current = p.Chunk.GetString(p.ByteStart, p.ByteLen);
             _pos = 0;
@@ -55,7 +59,8 @@ internal sealed class SnapshotReader : TextReader
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) _pieces.Dispose();
+        if (disposing)
+            _pieces.Dispose();
         base.Dispose(disposing);
     }
 }

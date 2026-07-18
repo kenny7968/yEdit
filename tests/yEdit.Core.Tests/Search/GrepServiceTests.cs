@@ -1,7 +1,7 @@
 using System.Text;
+using Xunit;
 using yEdit.Core.Search;
 using yEdit.Core.Text;
-using Xunit;
 
 namespace yEdit.Core.Tests.Search;
 
@@ -11,11 +11,13 @@ public class GrepServiceTests
     private sealed class TempDir : IDisposable
     {
         public string Root { get; }
+
         public TempDir()
         {
             Root = Path.Combine(Path.GetTempPath(), "yedit_grep_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Root);
         }
+
         public string Write(string relative, byte[] bytes)
         {
             string full = Path.Combine(Root, relative);
@@ -23,21 +25,47 @@ public class GrepServiceTests
             File.WriteAllBytes(full, bytes);
             return full;
         }
-        public string WriteUtf8(string relative, string text) => Write(relative, Encoding.UTF8.GetBytes(text));
-        public void Dispose() { try { Directory.Delete(Root, recursive: true); } catch { /* 後始末失敗は無害 */ } }
+
+        public string WriteUtf8(string relative, string text) =>
+            Write(relative, Encoding.UTF8.GetBytes(text));
+
+        public void Dispose()
+        {
+            try
+            {
+                Directory.Delete(Root, recursive: true);
+            }
+            catch
+            { /* 後始末失敗は無害 */
+            }
+        }
     }
 
     // 同期 IProgress（Progress<T> はスレッドプールへ非同期投函するためテストでは使わない）。
     private sealed class SyncProgress : IProgress<GrepProgress>
     {
         private readonly Action<GrepProgress> _on;
+
         public SyncProgress(Action<GrepProgress> on) => _on = on;
+
         public void Report(GrepProgress value) => _on(value);
     }
 
-    private static GrepRequest Req(string folder, string pattern, string patterns = "*.*",
-        bool recursive = true, bool matchCase = false, bool wholeWord = false, bool useRegex = false)
-        => new(folder, patterns, recursive, new SearchOptions(pattern, matchCase, wholeWord, useRegex));
+    private static GrepRequest Req(
+        string folder,
+        string pattern,
+        string patterns = "*.*",
+        bool recursive = true,
+        bool matchCase = false,
+        bool wholeWord = false,
+        bool useRegex = false
+    ) =>
+        new(
+            folder,
+            patterns,
+            recursive,
+            new SearchOptions(pattern, matchCase, wholeWord, useRegex)
+        );
 
     [Fact]
     public void Finds_matches_across_utf8_and_shift_jis()
@@ -53,7 +81,10 @@ public class GrepServiceTests
         Assert.Equal(2, outcome.FilesScanned);
         Assert.False(outcome.Cancelled);
         Assert.Empty(outcome.Errors);
-        Assert.All(outcome.Hits, h => Assert.Equal("TARGET", h.LineText.Substring(h.MatchStartInLine, h.MatchLength)));
+        Assert.All(
+            outcome.Hits,
+            h => Assert.Equal("TARGET", h.LineText.Substring(h.MatchStartInLine, h.MatchLength))
+        );
     }
 
     [Fact]
@@ -111,7 +142,10 @@ public class GrepServiceTests
         t.WriteUtf8("c.log", "TARGET\n");
 
         Assert.Single(GrepService.Search(Req(t.Root, "TARGET", patterns: "*.txt")).Hits);
-        Assert.Equal(2, GrepService.Search(Req(t.Root, "TARGET", patterns: "*.txt;*.cs")).Hits.Count);
+        Assert.Equal(
+            2,
+            GrepService.Search(Req(t.Root, "TARGET", patterns: "*.txt;*.cs")).Hits.Count
+        );
         Assert.Equal(3, GrepService.Search(Req(t.Root, "TARGET", patterns: "")).Hits.Count); // 空＝全件
         Assert.Equal(3, GrepService.Search(Req(t.Root, "TARGET", patterns: "*.*")).Hits.Count);
     }
@@ -120,7 +154,7 @@ public class GrepServiceTests
     public void Star_dot_star_and_star_match_extensionless_files()
     {
         using var t = new TempDir();
-        t.WriteUtf8("Makefile", "TARGET\n");   // 拡張子（ドット）なし
+        t.WriteUtf8("Makefile", "TARGET\n"); // 拡張子（ドット）なし
         t.WriteUtf8("a.txt", "TARGET\n");
 
         // "*.*" と "*" はどちらも「すべてのファイル」を意味し、拡張子なしファイルも拾う。
@@ -138,7 +172,21 @@ public class GrepServiceTests
     {
         using var t = new TempDir();
         // ASCII の "TARGET" を含むが NUL を持つ＝バイナリとしてスキップされる。
-        t.Write("bin.dat", new byte[] { 0x00, 0x01, (byte)'T', (byte)'A', (byte)'R', (byte)'G', (byte)'E', (byte)'T', 0x00 });
+        t.Write(
+            "bin.dat",
+            new byte[]
+            {
+                0x00,
+                0x01,
+                (byte)'T',
+                (byte)'A',
+                (byte)'R',
+                (byte)'G',
+                (byte)'E',
+                (byte)'T',
+                0x00,
+            }
+        );
         t.WriteUtf8("text.txt", "TARGET\n");
 
         var outcome = GrepService.Search(Req(t.Root, "TARGET"));
@@ -217,7 +265,11 @@ public class GrepServiceTests
         t.WriteUtf8("a.txt", "TARGET\n");
         var cts = new CancellationTokenSource();
         cts.Cancel();
-        var outcome = GrepService.Search(Req(t.Root, "TARGET"), progress: null, cancellationToken: cts.Token);
+        var outcome = GrepService.Search(
+            Req(t.Root, "TARGET"),
+            progress: null,
+            cancellationToken: cts.Token
+        );
         Assert.True(outcome.Cancelled);
         Assert.Empty(outcome.Hits);
     }
@@ -226,23 +278,31 @@ public class GrepServiceTests
     public void Cooperative_cancellation_returns_partial_results()
     {
         using var t = new TempDir();
-        for (int i = 0; i < 130; i++) t.WriteUtf8($"f{i:D3}.txt", "TARGET\n"); // 名前昇順で安定
+        for (int i = 0; i < 130; i++)
+            t.WriteUtf8($"f{i:D3}.txt", "TARGET\n"); // 名前昇順で安定
 
         var cts = new CancellationTokenSource();
         // 進捗は 64 ファイル毎に通知。最初の通知（64 件走査時点）でキャンセル。
-        var prog = new SyncProgress(p => { if (p.FilesScanned >= 64) cts.Cancel(); });
+        var prog = new SyncProgress(p =>
+        {
+            if (p.FilesScanned >= 64)
+                cts.Cancel();
+        });
 
         var outcome = GrepService.Search(Req(t.Root, "TARGET"), prog, cts.Token);
 
         Assert.True(outcome.Cancelled);
-        Assert.Equal(64, outcome.FilesScanned);   // 65 件目に入る前に break
-        Assert.Equal(64, outcome.Hits.Count);     // 部分結果が保持される
+        Assert.Equal(64, outcome.FilesScanned); // 65 件目に入る前に break
+        Assert.Equal(64, outcome.Hits.Count); // 部分結果が保持される
     }
 
     [Fact]
     public void Missing_folder_records_error_not_throws()
     {
-        string missing = Path.Combine(Path.GetTempPath(), "yedit_grep_missing_" + Guid.NewGuid().ToString("N"));
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            "yedit_grep_missing_" + Guid.NewGuid().ToString("N")
+        );
         var outcome = GrepService.Search(Req(missing, "TARGET"));
         Assert.Empty(outcome.Hits);
         Assert.NotEmpty(outcome.Errors); // 列挙時の DirectoryNotFound を集約

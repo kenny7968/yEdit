@@ -15,7 +15,12 @@ public sealed class MarkdownPreviewForm : Form
     private readonly WebView2 _web = new() { Dock = DockStyle.Fill, AccessibleName = "プレビュー" };
     private readonly Button _close = new()
     {
-        Text = "閉じる(&C)", AccessibleName = "閉じる", Left = 6, Top = 6, Width = 100, Height = 26,
+        Text = "閉じる(&C)",
+        AccessibleName = "閉じる",
+        Left = 6,
+        Top = 6,
+        Width = 100,
+        Height = 26,
     };
     private readonly string _html;
     private readonly string? _baseDir;
@@ -49,11 +54,15 @@ public sealed class MarkdownPreviewForm : Form
         {
             string userData = System.IO.Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "yEdit", "WebView2");
+                "yEdit",
+                "WebView2"
+            );
             var env = await CoreWebView2Environment.CreateAsync(userDataFolder: userData);
-            if (IsDisposed || Disposing) return;
+            if (IsDisposed || Disposing)
+                return;
             await _web.EnsureCoreWebView2Async(env);
-            if (IsDisposed || Disposing) return;
+            if (IsDisposed || Disposing)
+                return;
 
             var core = _web.CoreWebView2;
 
@@ -61,7 +70,10 @@ public sealed class MarkdownPreviewForm : Form
             if (!string.IsNullOrEmpty(_baseDir) && System.IO.Directory.Exists(_baseDir))
             {
                 core.SetVirtualHostNameToFolderMapping(
-                    MarkdownRenderer.PreviewVirtualHost, _baseDir, CoreWebView2HostResourceAccessKind.Allow);
+                    MarkdownRenderer.PreviewVirtualHost,
+                    _baseDir,
+                    CoreWebView2HostResourceAccessKind.Allow
+                );
             }
 
             // ローカル閲覧用途のため不要機能を抑止。
@@ -72,19 +84,23 @@ public sealed class MarkdownPreviewForm : Form
             // このスクリプトは CDP 経由で注入されページ CSP の影響を受けずに実行される。
             core.WebMessageReceived += (_, e) =>
             {
-                if (e.TryGetWebMessageAsString() == "close") Close();
+                if (e.TryGetWebMessageAsString() == "close")
+                    Close();
             };
             await core.AddScriptToExecuteOnDocumentCreatedAsync(
-                "document.addEventListener('keydown', e => {" +
-                " if (e.key === 'Escape') window.chrome.webview.postMessage('close'); });");
-            if (IsDisposed || Disposing) return;
+                "document.addEventListener('keydown', e => {"
+                    + " if (e.key === 'Escape') window.chrome.webview.postMessage('close'); });"
+            );
+            if (IsDisposed || Disposing)
+                return;
 
             // DOM 準備完了・keydown リスナー装着済みの状態で WebView にフォーカス（本文を先に読ませる）。
             // 一発着火とし、以降のリダイレクト等では発火しない。
             void OnNavCompleted(object? _s, CoreWebView2NavigationCompletedEventArgs e)
             {
                 core.NavigationCompleted -= OnNavCompleted;
-                if (!IsDisposed && !Disposing && e.IsSuccess) _web.Focus();
+                if (!IsDisposed && !Disposing && e.IsSuccess)
+                    _web.Focus();
             }
             core.NavigationCompleted += OnNavCompleted;
 
@@ -92,14 +108,22 @@ public sealed class MarkdownPreviewForm : Form
         }
         catch (Exception ex)
         {
-            if (IsDisposed || Disposing) return; // フォーム破棄後（初期化中に閉じられた等）は何もしない
-            string head = ex is WebView2RuntimeNotFoundException
-                ? "マークダウンプレビューには Microsoft Edge WebView2 ランタイムが必要です。\n" +
-                  "インストール後に再度お試しください。"
-                : "マークダウンプレビューを表示できませんでした。";
-            MessageBox.Show(this, $"{head}\n\n詳細: {ex.Message}",
-                "プレビューを表示できません", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            if (!IsDisposed) Close();
+            if (IsDisposed || Disposing)
+                return; // フォーム破棄後（初期化中に閉じられた等）は何もしない
+            string head =
+                ex is WebView2RuntimeNotFoundException
+                    ? "マークダウンプレビューには Microsoft Edge WebView2 ランタイムが必要です。\n"
+                        + "インストール後に再度お試しください。"
+                    : "マークダウンプレビューを表示できませんでした。";
+            MessageBox.Show(
+                this,
+                $"{head}\n\n詳細: {ex.Message}",
+                "プレビューを表示できません",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning
+            );
+            if (!IsDisposed)
+                Close();
         }
     }
 }

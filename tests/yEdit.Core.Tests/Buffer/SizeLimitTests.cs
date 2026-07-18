@@ -11,7 +11,7 @@ public class SizeLimitTests
     {
         var builder = new TextBufferBuilder { MaxTotalBytes = 10 };
         builder.Add("12345"u8);
-        Assert.Throws<InvalidOperationException>(() => builder.Add("6789ab"u8));   // 5+6=11 > 10
+        Assert.Throws<InvalidOperationException>(() => builder.Add("6789ab"u8)); // 5+6=11 > 10
     }
 
     [Fact]
@@ -34,9 +34,9 @@ public class SizeLimitTests
     [Fact]
     public void Insert_beyond_limit_throws_and_leaves_buffer_intact()
     {
-        var buffer = TextBuffer.FromString("abcdef");   // 6バイト
+        var buffer = TextBuffer.FromString("abcdef"); // 6バイト
         buffer.MaxTotalBytes = 10;
-        Assert.Throws<InvalidOperationException>(() => buffer.Insert(3, "12345"));   // 6+5=11 > 10
+        Assert.Throws<InvalidOperationException>(() => buffer.Insert(3, "12345")); // 6+5=11 > 10
         Assert.Equal("abcdef", buffer.Current.GetText(0, 6));
         Assert.False(buffer.CanUndo);
         Assert.False(buffer.Modified);
@@ -45,18 +45,18 @@ public class SizeLimitTests
     [Fact]
     public void Replace_that_shrinks_below_limit_succeeds()
     {
-        var buffer = TextBuffer.FromString("あいう");   // 9バイト
+        var buffer = TextBuffer.FromString("あいう"); // 9バイト
         buffer.MaxTotalBytes = 10;
-        buffer.Replace(0, 3, "xyz45");                  // 9−9+5=5 ≤ 10
+        buffer.Replace(0, 3, "xyz45"); // 9−9+5=5 ≤ 10
         Assert.Equal("xyz45", buffer.Current.GetText(0, 5));
     }
 
     [Fact]
     public void Insert_at_exact_limit_succeeds()
     {
-        var buffer = TextBuffer.FromString("abcde");    // 5バイト
+        var buffer = TextBuffer.FromString("abcde"); // 5バイト
         buffer.MaxTotalBytes = 10;
-        buffer.Insert(5, "あ12");                       // 5+5=10
+        buffer.Insert(5, "あ12"); // 5+5=10
         Assert.Equal("abcdeあ12", buffer.Current.GetText(0, 8));
     }
 }

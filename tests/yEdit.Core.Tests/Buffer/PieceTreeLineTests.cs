@@ -11,8 +11,8 @@ public class PieceTreeLineTests
         return Piece.Of(new TextChunk(bytes, gridBytes: 8), 0, bytes.Length);
     }
 
-    private static PieceTree.Node Build(params string[] parts)
-        => PieceTree.BuildBalanced(parts.Select(P).ToArray())!;
+    private static PieceTree.Node Build(params string[] parts) =>
+        PieceTree.BuildBalanced(parts.Select(P).ToArray())!;
 
     /// <summary>ナイーブ: 全break終端文字(LFまたは単独CR)の文字位置を列挙。</summary>
     private static List<int> NaiveBreakEnds(string s)
@@ -49,8 +49,8 @@ public class PieceTreeLineTests
         // "a\r\nb\r\n" を CRLF がピース境界を跨ぐ形で構築
         var root = Build("a\r", "\nb\r", "\n");
         Assert.Equal(2, PieceTree.SumOf(root).Breaks);
-        Assert.Equal(2, PieceTree.NthBreakEnd(root, 1, false));  // CRLFのLF
-        Assert.Equal(5, PieceTree.NthBreakEnd(root, 2, false));  // CRLFのLF
+        Assert.Equal(2, PieceTree.NthBreakEnd(root, 1, false)); // CRLFのLF
+        Assert.Equal(5, PieceTree.NthBreakEnd(root, 2, false)); // CRLFのLF
 
         // 固定文書をバラバラのピース割りにしても同じ結果
         AssertAllBreakEnds("a\nb\r\nc\rd\r", Build("a\n", "b\r", "\nc\r", "d\r"));
@@ -76,11 +76,13 @@ public class PieceTreeLineTests
     public void PrefixStats_matches_naive_scan_of_prefix()
     {
         var rnd = new Random(20260705);
-        string doc = "これは1行目\r\n2nd line\nempty\r\r\n\n最終行😀x\r" + RandomNewlineHeavy(rnd, 300);
+        string doc =
+            "これは1行目\r\n2nd line\nempty\r\r\n\n最終行😀x\r" + RandomNewlineHeavy(rnd, 300);
         var root = BuildRandomPieces(doc, rnd, 12);
         var bounds = new List<int>();
         for (int i = 0; i <= doc.Length; i++)
-            if (i == doc.Length || !char.IsLowSurrogate(doc[i])) bounds.Add(i);
+            if (i == doc.Length || !char.IsLowSurrogate(doc[i]))
+                bounds.Add(i);
         foreach (int pos in bounds)
         {
             byte[] prefix = Encoding.UTF8.GetBytes(doc[..pos]);
@@ -109,10 +111,14 @@ public class PieceTreeLineTests
         while (sb.Length < approxLen)
         {
             int roll = rnd.Next(10);
-            if (roll == 0) sb.Append('\r');
-            else if (roll == 1) sb.Append('\n');
-            else if (roll == 2) sb.Append("\r\n");
-            else sb.Append((char)('a' + rnd.Next(26)));
+            if (roll == 0)
+                sb.Append('\r');
+            else if (roll == 1)
+                sb.Append('\n');
+            else if (roll == 2)
+                sb.Append("\r\n");
+            else
+                sb.Append((char)('a' + rnd.Next(26)));
         }
         return sb.ToString();
     }
@@ -124,13 +130,15 @@ public class PieceTreeLineTests
         while (cuts.Count < pieceCount + 1 && guard++ < 1000)
         {
             int c = rnd.Next(s.Length + 1);
-            if (c > 0 && c < s.Length && char.IsLowSurrogate(s[c])) continue;  // ペアは割らない
+            if (c > 0 && c < s.Length && char.IsLowSurrogate(s[c]))
+                continue; // ペアは割らない
             cuts.Add(c);
         }
         var list = cuts.ToList();
         var pieces = new List<Piece>();
         for (int i = 0; i + 1 < list.Count; i++)
-            if (list[i + 1] > list[i]) pieces.Add(P(s[list[i]..list[i + 1]]));
+            if (list[i + 1] > list[i])
+                pieces.Add(P(s[list[i]..list[i + 1]]));
         return PieceTree.BuildBalanced(pieces.ToArray())!;
     }
 }

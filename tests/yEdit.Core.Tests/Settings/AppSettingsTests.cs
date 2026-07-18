@@ -1,5 +1,5 @@
-using yEdit.Core.Settings;
 using Xunit;
+using yEdit.Core.Settings;
 
 namespace yEdit.Core.Tests.Settings;
 
@@ -10,8 +10,11 @@ public class AppSettingsTests
     {
         var s = new AppSettings
         {
-            FontName = "テスト", FontSize = 14f, Theme = "white-on-black",
-            DefaultCodePage = 932, WrapColumn = 40,
+            FontName = "テスト",
+            FontSize = 14f,
+            Theme = "white-on-black",
+            DefaultCodePage = 932,
+            WrapColumn = 40,
             RecentFiles = new List<string> { @"C:\a.txt", @"C:\b.txt" },
         };
         var c = s.Clone();
@@ -46,7 +49,7 @@ public class AppSettingsTests
         Assert.Equal(1, def.CaretWidth);
         Assert.False(def.ShowWhitespace);
         Assert.True(def.BackupEnabled);
-        Assert.Equal(300, def.BackupIntervalSeconds);   // 30→300 へ変更（設計 2026-07-04）
+        Assert.Equal(300, def.BackupIntervalSeconds); // 30→300 へ変更（設計 2026-07-04）
         Assert.True(def.ConfirmRestoreOnStartup);
     }
 
@@ -55,9 +58,14 @@ public class AppSettingsTests
     {
         var s = new AppSettings
         {
-            CsvAutoModeOnOpen = true, TabWidth = 8, TabsToSpaces = true,
-            ShowLineNumbers = true, HighlightCurrentLine = true, CaretWidth = 3,
-            ShowWhitespace = true, ConfirmRestoreOnStartup = false,
+            CsvAutoModeOnOpen = true,
+            TabWidth = 8,
+            TabsToSpaces = true,
+            ShowLineNumbers = true,
+            HighlightCurrentLine = true,
+            CaretWidth = 3,
+            ShowWhitespace = true,
+            ConfirmRestoreOnStartup = false,
         };
         var c = s.Clone();
         Assert.True(c.CsvAutoModeOnOpen);

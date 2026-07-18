@@ -11,8 +11,10 @@ public class InputRouterContractTests
     [Fact]
     public void EditorControl_HoldsInputRouter_ByField()
     {
-        var f = typeof(EditorControl).GetField("_input",
-            BindingFlags.Instance | BindingFlags.NonPublic);
+        var f = typeof(EditorControl).GetField(
+            "_input",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
         Assert.NotNull(f);
     }
 
@@ -21,8 +23,10 @@ public class InputRouterContractTests
     {
         var routerType = typeof(EditorControl).Assembly.GetType("yEdit.Editor.InputRouter");
         Assert.NotNull(routerType);
-        var mutableFields = routerType!.GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
-            .Where(f => !f.IsInitOnly).ToList();
+        var mutableFields = routerType!
+            .GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Where(f => !f.IsInitOnly)
+            .ToList();
         Assert.Empty(mutableFields);
     }
 }

@@ -23,7 +23,11 @@ internal static class LineLayout
     /// <c>[(0, 0)]</c> を返す。ViewportLayout はこの契約に依存して空行/空文書の視覚行を
     /// 確保するため、この挙動を変更してはならない(変更する場合は ViewportLayout 側も直す)。
     /// </remarks>
-    public static IReadOnlyList<WrapSegment> Wrap(ReadOnlySpan<char> line, int maxWidthPx, ICharMetrics metrics)
+    public static IReadOnlyList<WrapSegment> Wrap(
+        ReadOnlySpan<char> line,
+        int maxWidthPx,
+        ICharMetrics metrics
+    )
     {
         // OFF: 単一セグメント
         if (maxWidthPx <= 0)

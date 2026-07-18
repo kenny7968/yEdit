@@ -135,7 +135,12 @@ internal static class NativeMethods
     // ImmGetCompositionString: バッファ長を返す(先に大きさ問い合わせ→バッファ確保→本呼び出し のパターン)
     // lpBuf に IntPtr.Zero を渡すと必要バイト数を返す(自身のバッファは要らない)。
     [DllImport("imm32.dll")]
-    public static extern int ImmGetCompositionStringW(nint hIMC, int dwIndex, nint lpBuf, int dwBufLen);
+    public static extern int ImmGetCompositionStringW(
+        nint hIMC,
+        int dwIndex,
+        nint lpBuf,
+        int dwBufLen
+    );
 
     [DllImport("imm32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

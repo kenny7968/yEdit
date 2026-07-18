@@ -1,7 +1,7 @@
 using System.Text;
+using Xunit;
 using yEdit.Core.Buffers;
 using yEdit.Core.Text;
-using Xunit;
 
 namespace yEdit.Core.Tests.Text;
 
@@ -16,11 +16,18 @@ public class TextFileServiceLoadAsBufferTests
         try
         {
             File.WriteAllBytes(path, Encoding.UTF8.GetBytes(Jp));
-            var (buf, hadReplacement) = TextFileService.LoadAsBuffer(path, new UTF8Encoding(false), hasBom: false);
+            var (buf, hadReplacement) = TextFileService.LoadAsBuffer(
+                path,
+                new UTF8Encoding(false),
+                hasBom: false
+            );
             Assert.Equal(Jp, buf.Current.GetText(0, buf.Current.CharLength));
             Assert.False(hadReplacement);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -31,11 +38,18 @@ public class TextFileServiceLoadAsBufferTests
         {
             var bom = new byte[] { 0xEF, 0xBB, 0xBF };
             File.WriteAllBytes(path, bom.Concat(Encoding.UTF8.GetBytes(Jp)).ToArray());
-            var (buf, hadReplacement) = TextFileService.LoadAsBuffer(path, new UTF8Encoding(false), hasBom: true);
+            var (buf, hadReplacement) = TextFileService.LoadAsBuffer(
+                path,
+                new UTF8Encoding(false),
+                hasBom: true
+            );
             Assert.Equal(Jp, buf.Current.GetText(0, buf.Current.CharLength));
             Assert.False(hadReplacement);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -50,7 +64,10 @@ public class TextFileServiceLoadAsBufferTests
             Assert.Equal(Jp, buf.Current.GetText(0, buf.Current.CharLength));
             Assert.False(hadReplacement);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -65,7 +82,10 @@ public class TextFileServiceLoadAsBufferTests
             Assert.Equal(Jp, buf.Current.GetText(0, buf.Current.CharLength));
             Assert.False(hadReplacement);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -79,11 +99,18 @@ public class TextFileServiceLoadAsBufferTests
         try
         {
             File.WriteAllBytes(path, Encoding.UTF8.GetBytes(sample));
-            var (buf, hadReplacement) = TextFileService.LoadAsBuffer(path, new UTF8Encoding(false), hasBom: false);
+            var (buf, hadReplacement) = TextFileService.LoadAsBuffer(
+                path,
+                new UTF8Encoding(false),
+                hasBom: false
+            );
             Assert.Equal(sample, buf.Current.GetText(0, buf.Current.CharLength));
             Assert.False(hadReplacement);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -93,20 +120,30 @@ public class TextFileServiceLoadAsBufferTests
         // 大容量ファイルでも本文が完全復元されることを固定する(挙動固定テスト=chunk 化前後で PASS)。
         EncodingCatalog.EnsureRegistered();
         // TextBufferBuilder の 4MB チャンク境界を跨ぐ SJIS ファイル
-        string body = new string('あ', 3 * 1024 * 1024);  // SJIS 6MB
+        string body = new string('あ', 3 * 1024 * 1024); // SJIS 6MB
         byte[] sjisBytes = Encoding.GetEncoding(932).GetBytes(body);
         string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
         try
         {
             File.WriteAllBytes(path, sjisBytes);
-            var (buf, hadRepl) = TextFileService.LoadAsBuffer(path, EncodingCatalog.Get(932), hasBom: false);
+            var (buf, hadRepl) = TextFileService.LoadAsBuffer(
+                path,
+                EncodingCatalog.Get(932),
+                hasBom: false
+            );
             Assert.False(hadRepl);
             Assert.Equal(body.Length, buf.Current.CharLength);
             Assert.Equal(body.Substring(0, 100), buf.Current.GetText(0, 100));
-            Assert.Equal(body.Substring(body.Length - 100, 100),
-                         buf.Current.GetText(body.Length - 100, 100));
+            Assert.Equal(
+                body.Substring(body.Length - 100, 100),
+                buf.Current.GetText(body.Length - 100, 100)
+            );
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -120,12 +157,20 @@ public class TextFileServiceLoadAsBufferTests
         try
         {
             File.WriteAllBytes(path, eucBytes);
-            var (buf, hadRepl) = TextFileService.LoadAsBuffer(path, EncodingCatalog.Get(51932), hasBom: false);
+            var (buf, hadRepl) = TextFileService.LoadAsBuffer(
+                path,
+                EncodingCatalog.Get(51932),
+                hasBom: false
+            );
             Assert.False(hadRepl);
             Assert.Equal(body.Length, buf.Current.CharLength);
             Assert.Equal(body, buf.Current.GetText(0, buf.Current.CharLength));
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -140,10 +185,18 @@ public class TextFileServiceLoadAsBufferTests
         try
         {
             File.WriteAllBytes(path, bytes);
-            var (buf, hadRepl) = TextFileService.LoadAsBuffer(path, EncodingCatalog.Get(932), hasBom: false);
+            var (buf, hadRepl) = TextFileService.LoadAsBuffer(
+                path,
+                EncodingCatalog.Get(932),
+                hasBom: false
+            );
             Assert.True(hadRepl);
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -163,6 +216,9 @@ public class TextFileServiceLoadAsBufferTests
             var (_, hadReplacement) = TextFileService.LoadAsBuffer(path, EncodingCatalog.Get(932));
             Assert.True(hadReplacement);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }

@@ -1,7 +1,7 @@
 using System.Text;
+using Xunit;
 using yEdit.Core.Buffers;
 using yEdit.Core.Text;
-using Xunit;
 
 namespace yEdit.Core.Tests.Text;
 
@@ -22,9 +22,15 @@ public class TextFileServiceLoadAsBufferAutoTests
             Assert.False(loaded.HasBom);
             Assert.Equal(LineEnding.Crlf, loaded.LineEnding);
             Assert.False(loaded.HadReplacementChar);
-            Assert.Equal(JpCrlf, loaded.Buffer.Current.GetText(0, loaded.Buffer.Current.CharLength));
+            Assert.Equal(
+                JpCrlf,
+                loaded.Buffer.Current.GetText(0, loaded.Buffer.Current.CharLength)
+            );
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -38,9 +44,15 @@ public class TextFileServiceLoadAsBufferAutoTests
             var loaded = TextFileService.LoadAsBufferAuto(path);
             Assert.Equal(65001, loaded.Encoding.CodePage);
             Assert.True(loaded.HasBom);
-            Assert.Equal(JpCrlf, loaded.Buffer.Current.GetText(0, loaded.Buffer.Current.CharLength));
+            Assert.Equal(
+                JpCrlf,
+                loaded.Buffer.Current.GetText(0, loaded.Buffer.Current.CharLength)
+            );
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -54,9 +66,15 @@ public class TextFileServiceLoadAsBufferAutoTests
             var loaded = TextFileService.LoadAsBufferAuto(path);
             Assert.Equal(932, loaded.Encoding.CodePage);
             Assert.False(loaded.HasBom);
-            Assert.Equal(JpCrlf, loaded.Buffer.Current.GetText(0, loaded.Buffer.Current.CharLength));
+            Assert.Equal(
+                JpCrlf,
+                loaded.Buffer.Current.GetText(0, loaded.Buffer.Current.CharLength)
+            );
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -75,7 +93,10 @@ public class TextFileServiceLoadAsBufferAutoTests
             Assert.NotNull(loaded.Buffer);
             Assert.Equal(LineEnding.Crlf, loaded.LineEnding);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -88,7 +109,10 @@ public class TextFileServiceLoadAsBufferAutoTests
             var loaded = TextFileService.LoadAsBufferAuto(path);
             Assert.Equal(LineEnding.Lf, loaded.LineEnding);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -104,7 +128,10 @@ public class TextFileServiceLoadAsBufferAutoTests
             Assert.Equal(932, loaded.Encoding.CodePage);
             Assert.False(loaded.HasBom);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -120,9 +147,15 @@ public class TextFileServiceLoadAsBufferAutoTests
             var loaded = TextFileService.LoadAsBufferAuto(path);
             Assert.Equal(65001, loaded.Encoding.CodePage);
             Assert.False(loaded.HasBom);
-            Assert.Equal(sample, loaded.Buffer.Current.GetText(0, loaded.Buffer.Current.CharLength));
+            Assert.Equal(
+                sample,
+                loaded.Buffer.Current.GetText(0, loaded.Buffer.Current.CharLength)
+            );
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -135,10 +168,13 @@ public class TextFileServiceLoadAsBufferAutoTests
             var loaded = TextFileService.LoadAsBufferAuto(path);
             Assert.Equal(65001, loaded.Encoding.CodePage);
             Assert.False(loaded.HasBom);
-            Assert.Equal(LineEnding.Crlf, loaded.LineEnding);   // 既定
+            Assert.Equal(LineEnding.Crlf, loaded.LineEnding); // 既定
             Assert.False(loaded.HadReplacementChar);
             Assert.Equal(0, loaded.Buffer.Current.CharLength);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }

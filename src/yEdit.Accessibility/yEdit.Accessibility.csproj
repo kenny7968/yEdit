@@ -1,5 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFramework>net9.0-windows</TargetFramework>
     <!-- Directory.Build.props で共通 enable のため、UIA v2 shim の Nullable 未対応部分を通すために明示的に override(維持理由=Accessibility レイヤは v2 shim のシグネチャ都合で nullable 化が困難) -->
@@ -14,5 +13,4 @@
     <InternalsVisibleTo Include="yEdit.Core.Tests" />
     <InternalsVisibleTo Include="yEdit.Editor.Tests" />
   </ItemGroup>
-
 </Project>

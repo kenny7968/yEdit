@@ -10,15 +10,20 @@ namespace yEdit.App.Tests.Fakes;
 public sealed class FakeGrepResultsView : IGrepResultsView
 {
     private readonly GrepResultsCallbacks _cb;
-    public FakeGrepResultsView(GrepResultsCallbacks callbacks) { _cb = callbacks; }
+
+    public FakeGrepResultsView(GrepResultsCallbacks callbacks)
+    {
+        _cb = callbacks;
+    }
 
     public bool IsDisposed { get; set; }
 
     public List<(string Pattern, string Folder, GrepOutcome Outcome)> PopulateLog { get; } = new();
     public int ShowResultsCount;
 
-    public void Populate(string pattern, string folder, GrepOutcome outcome)
-        => PopulateLog.Add((pattern, folder, outcome));
+    public void Populate(string pattern, string folder, GrepOutcome outcome) =>
+        PopulateLog.Add((pattern, folder, outcome));
+
     public void ShowResults(IWin32Window owner) => ShowResultsCount++;
 
     /// <summary>結果一覧の「アクティベート」相当を発火(<see cref="GrepResultsCallbacks.OnActivate"/> 経由で

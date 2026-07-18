@@ -8,11 +8,20 @@ public static class PositionFormatter
     /// overtype 時は「、上書き」を付ける（挿入/上書きモードを照会でも分かるようにする）。
     /// line/column は 1 始まり、totalChars は本文の UTF-16 文字数（CRLF=2・サロゲート=2 で数える）。
     /// </summary>
-    public static string Format(int line, int totalLines, int column, int totalChars, int selectionLength, bool overtype = false)
+    public static string Format(
+        int line,
+        int totalLines,
+        int column,
+        int totalChars,
+        int selectionLength,
+        bool overtype = false
+    )
     {
         string s = $"行 {line} / 全 {totalLines}、桁 {column}、文字数 {totalChars}";
-        if (selectionLength > 0) s += $"、選択 {selectionLength} 文字";
-        if (overtype) s += "、上書き";
+        if (selectionLength > 0)
+            s += $"、選択 {selectionLength} 文字";
+        if (overtype)
+            s += "、上書き";
         return s;
     }
 }

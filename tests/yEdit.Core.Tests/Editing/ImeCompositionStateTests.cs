@@ -1,5 +1,5 @@
-using yEdit.Core.Editing;
 using Xunit;
+using yEdit.Core.Editing;
 
 namespace yEdit.Core.Tests.Editing;
 
@@ -15,7 +15,13 @@ public class ImeCompositionStateTests
     [Fact]
     public void WithText_MarksActive()
     {
-        var s = new ImeCompositionState(Start: 5, Text: "あい", CursorPos: 2, Attrs: [0, 0], Clauses: [0, 2]);
+        var s = new ImeCompositionState(
+            Start: 5,
+            Text: "あい",
+            CursorPos: 2,
+            Attrs: [0, 0],
+            Clauses: [0, 2]
+        );
         Assert.True(s.IsActive);
         Assert.Equal(5, s.Start);
         Assert.Equal(2, s.CursorPos);
@@ -39,9 +45,18 @@ public class ImeCompositionStateTests
         // 3 clauses: [0, 2, 4] → 0x00,0x00,0x00,0x00, 0x02,0x00,0x00,0x00, 0x04,0x00,0x00,0x00
         var bytes = new byte[]
         {
-            0x00, 0x00, 0x00, 0x00,
-            0x02, 0x00, 0x00, 0x00,
-            0x04, 0x00, 0x00, 0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x02,
+            0x00,
+            0x00,
+            0x00,
+            0x04,
+            0x00,
+            0x00,
+            0x00,
         };
         var parsed = ImeCompositionState.ParseClauses(bytes);
         Assert.Equal(new[] { 0, 2, 4 }, parsed);
@@ -60,21 +75,21 @@ public class ImeCompositionStateTests
     [Fact]
     public void SnapCursorPos_MovesFromLowSurrogateToHigh()
     {
-        string text = "あ😀い";      // Length = 4
+        string text = "あ😀い"; // Length = 4
         // CursorPos = 2 (text[2]=low surrogate, text[1]=high surrogate) → 1 にスナップ
         // CursorPos = 3 (text[3]='い' = BMP) → 保持
-        Assert.Equal(1, ImeCompositionState.SnapCursorPos(text, 2));   // low → high 側 (=1)
-        Assert.Equal(3, ImeCompositionState.SnapCursorPos(text, 3));   // 'い' — 保持
+        Assert.Equal(1, ImeCompositionState.SnapCursorPos(text, 2)); // low → high 側 (=1)
+        Assert.Equal(3, ImeCompositionState.SnapCursorPos(text, 3)); // 'い' — 保持
         Assert.Equal(0, ImeCompositionState.SnapCursorPos(text, 0));
-        Assert.Equal(4, ImeCompositionState.SnapCursorPos(text, 4));   // 末尾
-        Assert.Equal(1, ImeCompositionState.SnapCursorPos(text, 1));   // text[1]=high — 保持
+        Assert.Equal(4, ImeCompositionState.SnapCursorPos(text, 4)); // 末尾
+        Assert.Equal(1, ImeCompositionState.SnapCursorPos(text, 1)); // text[1]=high — 保持
     }
 
     // Clauses のバイト長不整合(4 の倍数でない): 切り捨てで tolerate する
     [Fact]
     public void ParseClauses_IgnoresTrailingPartialDword()
     {
-        var bytes = new byte[] { 0x00, 0x00, 0x00, 0x00, 0x02, 0x00 };  // 6 bytes = 1 full + 2 半端
+        var bytes = new byte[] { 0x00, 0x00, 0x00, 0x00, 0x02, 0x00 }; // 6 bytes = 1 full + 2 半端
         Assert.Equal(new[] { 0 }, ImeCompositionState.ParseClauses(bytes));
     }
 }

@@ -11,6 +11,6 @@ public sealed class FakeBackupTraceSink : IBackupTraceSink
 {
     public List<(string Category, string Detail, Exception? Ex)> Warnings { get; } = new();
 
-    public void Warn(string category, string detail, Exception? ex)
-        => Warnings.Add((category, detail, ex));
+    public void Warn(string category, string detail, Exception? ex) =>
+        Warnings.Add((category, detail, ex));
 }

@@ -32,10 +32,12 @@ internal sealed class WinImeContext : IImeContext
     /// <summary>旧 <c>EditorControl.ReadImeString</c> 移設。ImmGetCompositionStringW の 2 段階呼び出しパターン。</summary>
     public string? GetCompositionString(long gcsFlags)
     {
-        if (_himc == IntPtr.Zero) return null;
+        if (_himc == IntPtr.Zero)
+            return null;
         int gcs = (int)gcsFlags;
         int byteLen = NativeMethods.ImmGetCompositionStringW(_himc, gcs, IntPtr.Zero, 0);
-        if (byteLen <= 0) return "";
+        if (byteLen <= 0)
+            return "";
         nint buf = Marshal.AllocHGlobal(byteLen);
         try
         {
@@ -43,16 +45,21 @@ internal sealed class WinImeContext : IImeContext
             // byteLen は UTF-16 のバイト数=char 数は byteLen / 2 (旧 ReadImeString と同じ)。
             return Marshal.PtrToStringUni(buf, byteLen / 2) ?? "";
         }
-        finally { Marshal.FreeHGlobal(buf); }
+        finally
+        {
+            Marshal.FreeHGlobal(buf);
+        }
     }
 
     /// <summary>旧 <c>EditorControl.ReadImeBytes</c> 移設。GCS_COMPATTR / GCS_COMPCLAUSE の raw byte 取得。</summary>
     public byte[]? GetCompositionBytes(long gcsFlags)
     {
-        if (_himc == IntPtr.Zero) return null;
+        if (_himc == IntPtr.Zero)
+            return null;
         int gcs = (int)gcsFlags;
         int byteLen = NativeMethods.ImmGetCompositionStringW(_himc, gcs, IntPtr.Zero, 0);
-        if (byteLen <= 0) return [];
+        if (byteLen <= 0)
+            return [];
         nint buf = Marshal.AllocHGlobal(byteLen);
         try
         {
@@ -61,20 +68,25 @@ internal sealed class WinImeContext : IImeContext
             Marshal.Copy(buf, arr, 0, byteLen);
             return arr;
         }
-        finally { Marshal.FreeHGlobal(buf); }
+        finally
+        {
+            Marshal.FreeHGlobal(buf);
+        }
     }
 
     /// <summary>旧 <c>EditorControl.ReadImeInt</c> 移設。GCS_CURSORPOS は「戻り値そのものが値」。</summary>
     public int GetCompositionInt(long gcsFlags)
     {
-        if (_himc == IntPtr.Zero) return 0;
+        if (_himc == IntPtr.Zero)
+            return 0;
         return NativeMethods.ImmGetCompositionStringW(_himc, (int)gcsFlags, IntPtr.Zero, 0);
     }
 
     /// <summary>旧 <c>EditorControl.NotifyCandidateWindow</c> 内の ImmSetCandidateWindow 呼び出し部分を移設。</summary>
     public void SetCandidateWindow(int x, int y)
     {
-        if (_himc == IntPtr.Zero) return;
+        if (_himc == IntPtr.Zero)
+            return;
         var form = new NativeMethods.CANDIDATEFORM
         {
             dwIndex = 0,
@@ -91,7 +103,8 @@ internal sealed class WinImeContext : IImeContext
     /// </remarks>
     public void SetCompositionFont(Font font)
     {
-        if (_himc == IntPtr.Zero) return;
+        if (_himc == IntPtr.Zero)
+            return;
         object boxed = new NativeMethods.LOGFONT();
         font.ToLogFont(boxed);
         var lf = (NativeMethods.LOGFONT)boxed;
@@ -101,22 +114,33 @@ internal sealed class WinImeContext : IImeContext
     /// <summary>旧 <c>EditorControl.CancelCompositionAndDefault</c> の ImmNotifyIME(CPS_CANCEL) を移設。</summary>
     public void CancelComposition()
     {
-        if (_himc == IntPtr.Zero) return;
-        NativeMethods.ImmNotifyIME(_himc, NativeMethods.NI_COMPOSITIONSTR,
-                                   NativeMethods.CPS_CANCEL, 0);
+        if (_himc == IntPtr.Zero)
+            return;
+        NativeMethods.ImmNotifyIME(
+            _himc,
+            NativeMethods.NI_COMPOSITIONSTR,
+            NativeMethods.CPS_CANCEL,
+            0
+        );
     }
 
     /// <summary>旧 <c>EditorControl.OnLostFocus</c> 内の ImmNotifyIME(CPS_COMPLETE) を移設。</summary>
     public void CompleteComposition()
     {
-        if (_himc == IntPtr.Zero) return;
-        NativeMethods.ImmNotifyIME(_himc, NativeMethods.NI_COMPOSITIONSTR,
-                                   NativeMethods.CPS_COMPLETE, 0);
+        if (_himc == IntPtr.Zero)
+            return;
+        NativeMethods.ImmNotifyIME(
+            _himc,
+            NativeMethods.NI_COMPOSITIONSTR,
+            NativeMethods.CPS_COMPLETE,
+            0
+        );
     }
 
     public void Dispose()
     {
-        if (_disposed) return;
+        if (_disposed)
+            return;
         _disposed = true;
         if (_himc != IntPtr.Zero)
         {

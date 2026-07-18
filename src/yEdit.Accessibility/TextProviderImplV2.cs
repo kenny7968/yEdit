@@ -23,11 +23,11 @@ internal sealed class TextProviderImplV2 : ITextProvider
         return new ITextRangeProvider[] { new TextRangeProviderV2(this, s, e) };
     }
 
-    public ITextRangeProvider[] GetVisibleRanges()
-        => new ITextRangeProvider[] { new TextRangeProviderV2(this, 0, Host.TextLength) };
+    public ITextRangeProvider[] GetVisibleRanges() =>
+        new ITextRangeProvider[] { new TextRangeProviderV2(this, 0, Host.TextLength) };
 
-    public ITextRangeProvider RangeFromChild(IRawElementProviderSimple childElement)
-        => new TextRangeProviderV2(this, 0, 0);
+    public ITextRangeProvider RangeFromChild(IRawElementProviderSimple childElement) =>
+        new TextRangeProviderV2(this, 0, 0);
 
     /// <summary>スクリーン座標直下の縮退範囲(host.OffsetFromScreenPoint 委譲・本実装)。</summary>
     public ITextRangeProvider RangeFromPoint(Point screenLocation)

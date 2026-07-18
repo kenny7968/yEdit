@@ -14,10 +14,12 @@ public static class EncodingCatalog
 
     public static void EnsureRegistered()
     {
-        if (_registered) return;
+        if (_registered)
+            return;
         lock (_sync)
         {
-            if (_registered) return;
+            if (_registered)
+                return;
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
             _registered = true;
         }
@@ -41,27 +43,33 @@ public static class EncodingCatalog
     /// 選択・表示で使える文字コード一覧（表示順）。BOM 有無は含まない基本名。
     /// 表示名／選択肢の定義をここに一本化し、App 側（ステータス表示・開き直しダイアログ）が参照する。
     /// </summary>
-    public static IReadOnlyList<EncodingOption> SelectableEncodings { get; } = new[]
-    {
-        new EncodingOption(65001, "UTF-8"),
-        new EncodingOption(932, "Shift_JIS"),
-        new EncodingOption(51932, "EUC-JP"),
-    };
+    public static IReadOnlyList<EncodingOption> SelectableEncodings { get; } =
+        new[]
+        {
+            new EncodingOption(65001, "UTF-8"),
+            new EncodingOption(932, "Shift_JIS"),
+            new EncodingOption(51932, "EUC-JP"),
+        };
 
     /// <summary>SaveAs 用の選択肢。UTF-8 のみ BOM 有無で 2 エントリに展開し、
     /// 他の CodePage はそのまま(BOM 概念が意味を持たないため HasBom=false 固定)。</summary>
-    public readonly record struct SaveAsEncodingOption(int CodePage, bool HasBom, string DisplayName);
+    public readonly record struct SaveAsEncodingOption(
+        int CodePage,
+        bool HasBom,
+        string DisplayName
+    );
 
     /// <summary>SaveAs で使う文字コード選択肢(表示順)。
     /// 既存の <see cref="SelectableEncodings"/> は開き直し/設定/ステータス表示で使う BOM 無視の一覧。
     /// 本一覧は SaveAs 専用で BOM 有無を明示させるため別プロパティで公開する。</summary>
-    public static IReadOnlyList<SaveAsEncodingOption> SaveAsSelectableEncodings { get; } = new[]
-    {
-        new SaveAsEncodingOption(65001, false, "UTF-8 (BOM なし)"),
-        new SaveAsEncodingOption(65001, true,  "UTF-8 (BOM)"),
-        new SaveAsEncodingOption(932,   false, "Shift_JIS"),
-        new SaveAsEncodingOption(51932, false, "EUC-JP"),
-    };
+    public static IReadOnlyList<SaveAsEncodingOption> SaveAsSelectableEncodings { get; } =
+        new[]
+        {
+            new SaveAsEncodingOption(65001, false, "UTF-8 (BOM なし)"),
+            new SaveAsEncodingOption(65001, true, "UTF-8 (BOM)"),
+            new SaveAsEncodingOption(932, false, "Shift_JIS"),
+            new SaveAsEncodingOption(51932, false, "EUC-JP"),
+        };
 
     /// <summary>
     /// コードページの基本表示名（BOM 有無は含まない）。未知のコードページは WebName を返す。
@@ -70,7 +78,8 @@ public static class EncodingCatalog
     public static string DisplayName(int codePage)
     {
         foreach (var opt in SelectableEncodings)
-            if (opt.CodePage == codePage) return opt.DisplayName;
+            if (opt.CodePage == codePage)
+                return opt.DisplayName;
         return Get(codePage).WebName;
     }
 }

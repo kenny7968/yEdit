@@ -17,15 +17,42 @@ public class ViewportLayoutTests
         var rows = ViewportLayout.Build(buf.Current, topLine: 0, heightPx: 25, wrapColumns: 0, M);
 
         Assert.Equal(3, rows.Count);
-        Assert.Equal(new VisualRow(LogicalLine: 0, SegmentIndex: 0, SegmentStartChar: 0, SegmentLength: 1, YPx: 0), rows[0]);
-        Assert.Equal(new VisualRow(LogicalLine: 1, SegmentIndex: 0, SegmentStartChar: 2, SegmentLength: 1, YPx: 10), rows[1]);
-        Assert.Equal(new VisualRow(LogicalLine: 2, SegmentIndex: 0, SegmentStartChar: 4, SegmentLength: 1, YPx: 20), rows[2]);
+        Assert.Equal(
+            new VisualRow(
+                LogicalLine: 0,
+                SegmentIndex: 0,
+                SegmentStartChar: 0,
+                SegmentLength: 1,
+                YPx: 0
+            ),
+            rows[0]
+        );
+        Assert.Equal(
+            new VisualRow(
+                LogicalLine: 1,
+                SegmentIndex: 0,
+                SegmentStartChar: 2,
+                SegmentLength: 1,
+                YPx: 10
+            ),
+            rows[1]
+        );
+        Assert.Equal(
+            new VisualRow(
+                LogicalLine: 2,
+                SegmentIndex: 0,
+                SegmentStartChar: 4,
+                SegmentLength: 1,
+                YPx: 20
+            ),
+            rows[2]
+        );
     }
 
     [Fact]
     public void TopLine_beyond_line_count_yields_empty_list()
     {
-        var buf = TextBuffer.FromString("a\nb\nc");   // LineCount=3
+        var buf = TextBuffer.FromString("a\nb\nc"); // LineCount=3
         var rows = ViewportLayout.Build(buf.Current, topLine: 3, heightPx: 100, wrapColumns: 0, M);
         Assert.Empty(rows);
     }
@@ -38,7 +65,16 @@ public class ViewportLayoutTests
         var rows = ViewportLayout.Build(buf.Current, topLine: 0, heightPx: 100, wrapColumns: 0, M);
 
         Assert.Single(rows);
-        Assert.Equal(new VisualRow(LogicalLine: 0, SegmentIndex: 0, SegmentStartChar: 0, SegmentLength: 0, YPx: 0), rows[0]);
+        Assert.Equal(
+            new VisualRow(
+                LogicalLine: 0,
+                SegmentIndex: 0,
+                SegmentStartChar: 0,
+                SegmentLength: 0,
+                YPx: 0
+            ),
+            rows[0]
+        );
     }
 
     [Fact]
@@ -49,8 +85,26 @@ public class ViewportLayoutTests
         var rows = ViewportLayout.Build(buf.Current, topLine: 0, heightPx: 100, wrapColumns: 3, M);
 
         Assert.Equal(2, rows.Count);
-        Assert.Equal(new VisualRow(LogicalLine: 0, SegmentIndex: 0, SegmentStartChar: 0, SegmentLength: 3, YPx: 0), rows[0]);
-        Assert.Equal(new VisualRow(LogicalLine: 0, SegmentIndex: 1, SegmentStartChar: 3, SegmentLength: 3, YPx: 10), rows[1]);
+        Assert.Equal(
+            new VisualRow(
+                LogicalLine: 0,
+                SegmentIndex: 0,
+                SegmentStartChar: 0,
+                SegmentLength: 3,
+                YPx: 0
+            ),
+            rows[0]
+        );
+        Assert.Equal(
+            new VisualRow(
+                LogicalLine: 0,
+                SegmentIndex: 1,
+                SegmentStartChar: 3,
+                SegmentLength: 3,
+                YPx: 10
+            ),
+            rows[1]
+        );
     }
 
     [Fact]
@@ -62,8 +116,26 @@ public class ViewportLayoutTests
         var rows = ViewportLayout.Build(buf.Current, topLine: 0, heightPx: 100, wrapColumns: 0, M);
 
         Assert.Equal(2, rows.Count);
-        Assert.Equal(new VisualRow(LogicalLine: 0, SegmentIndex: 0, SegmentStartChar: 0, SegmentLength: 2, YPx: 0), rows[0]);
-        Assert.Equal(new VisualRow(LogicalLine: 1, SegmentIndex: 0, SegmentStartChar: 4, SegmentLength: 2, YPx: 10), rows[1]);
+        Assert.Equal(
+            new VisualRow(
+                LogicalLine: 0,
+                SegmentIndex: 0,
+                SegmentStartChar: 0,
+                SegmentLength: 2,
+                YPx: 0
+            ),
+            rows[0]
+        );
+        Assert.Equal(
+            new VisualRow(
+                LogicalLine: 1,
+                SegmentIndex: 0,
+                SegmentStartChar: 4,
+                SegmentLength: 2,
+                YPx: 10
+            ),
+            rows[1]
+        );
     }
 
     [Fact]
@@ -74,7 +146,16 @@ public class ViewportLayoutTests
         var rows = ViewportLayout.Build(buf.Current, topLine: 0, heightPx: 10, wrapColumns: 0, M);
 
         Assert.Single(rows);
-        Assert.Equal(new VisualRow(LogicalLine: 0, SegmentIndex: 0, SegmentStartChar: 0, SegmentLength: 1, YPx: 0), rows[0]);
+        Assert.Equal(
+            new VisualRow(
+                LogicalLine: 0,
+                SegmentIndex: 0,
+                SegmentStartChar: 0,
+                SegmentLength: 1,
+                YPx: 0
+            ),
+            rows[0]
+        );
     }
 
     [Fact]
@@ -85,8 +166,26 @@ public class ViewportLayoutTests
         var rows = ViewportLayout.Build(buf.Current, topLine: 1, heightPx: 100, wrapColumns: 0, M);
 
         Assert.Equal(2, rows.Count);
-        Assert.Equal(new VisualRow(LogicalLine: 1, SegmentIndex: 0, SegmentStartChar: 2, SegmentLength: 1, YPx: 0), rows[0]);
-        Assert.Equal(new VisualRow(LogicalLine: 2, SegmentIndex: 0, SegmentStartChar: 4, SegmentLength: 1, YPx: 10), rows[1]);
+        Assert.Equal(
+            new VisualRow(
+                LogicalLine: 1,
+                SegmentIndex: 0,
+                SegmentStartChar: 2,
+                SegmentLength: 1,
+                YPx: 0
+            ),
+            rows[0]
+        );
+        Assert.Equal(
+            new VisualRow(
+                LogicalLine: 2,
+                SegmentIndex: 0,
+                SegmentStartChar: 4,
+                SegmentLength: 1,
+                YPx: 10
+            ),
+            rows[1]
+        );
     }
 
     [Fact]
@@ -97,8 +196,35 @@ public class ViewportLayoutTests
         var rows = ViewportLayout.Build(buf.Current, topLine: 0, heightPx: 100, wrapColumns: 0, M);
 
         Assert.Equal(3, rows.Count);
-        Assert.Equal(new VisualRow(LogicalLine: 0, SegmentIndex: 0, SegmentStartChar: 0, SegmentLength: 1, YPx: 0), rows[0]);
-        Assert.Equal(new VisualRow(LogicalLine: 1, SegmentIndex: 0, SegmentStartChar: 2, SegmentLength: 0, YPx: 10), rows[1]);
-        Assert.Equal(new VisualRow(LogicalLine: 2, SegmentIndex: 0, SegmentStartChar: 3, SegmentLength: 1, YPx: 20), rows[2]);
+        Assert.Equal(
+            new VisualRow(
+                LogicalLine: 0,
+                SegmentIndex: 0,
+                SegmentStartChar: 0,
+                SegmentLength: 1,
+                YPx: 0
+            ),
+            rows[0]
+        );
+        Assert.Equal(
+            new VisualRow(
+                LogicalLine: 1,
+                SegmentIndex: 0,
+                SegmentStartChar: 2,
+                SegmentLength: 0,
+                YPx: 10
+            ),
+            rows[1]
+        );
+        Assert.Equal(
+            new VisualRow(
+                LogicalLine: 2,
+                SegmentIndex: 0,
+                SegmentStartChar: 3,
+                SegmentLength: 1,
+                YPx: 20
+            ),
+            rows[2]
+        );
     }
 }

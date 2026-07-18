@@ -1,7 +1,7 @@
 using System.Windows.Forms;
+using Xunit;
 using yEdit.Core.Buffers;
 using yEdit.Editor;
-using Xunit;
 
 namespace yEdit.Editor.Tests;
 
@@ -25,7 +25,7 @@ public class EditorControlCompatApiTests
         {
             using var ctrl = new EditorControl();
             ctrl.SetSource(TextBuffer.FromString("hello world"));
-            ctrl.SelectCharRange(6, 5);   // "world"
+            ctrl.SelectCharRange(6, 5); // "world"
             Assert.Equal((6, 11), ctrl.GetSelectionCharRange());
         });
     }
@@ -72,7 +72,7 @@ public class EditorControlCompatApiTests
         {
             using var ctrl = new EditorControl();
             ctrl.SetSource(TextBuffer.FromString("aaa\nbbb\nccc"));
-            ctrl.GoToLine(2);   // 0-based=2 → 3行目 "ccc"
+            ctrl.GoToLine(2); // 0-based=2 → 3行目 "ccc"
             Assert.Equal(8, ctrl.CaretCharOffset);
         });
     }
@@ -96,7 +96,7 @@ public class EditorControlCompatApiTests
         {
             using var ctrl = new EditorControl();
             ctrl.SetSource(TextBuffer.FromString("hello"));
-            ctrl.ReplaceCharRange(0, 5, "xxx");  // Modified=true
+            ctrl.ReplaceCharRange(0, 5, "xxx"); // Modified=true
             int fired = 0;
             ctrl.SavePointReached += (_, _) => fired++;
             ctrl.SetSavePoint();
@@ -114,7 +114,7 @@ public class EditorControlCompatApiTests
             ctrl.SetSource(TextBuffer.FromString("hello"));
             int fired = 0;
             ctrl.SavePointLeft += (_, _) => fired++;
-            ctrl.ReplaceCharRange(0, 5, "xxx");   // Modified=false → true
+            ctrl.ReplaceCharRange(0, 5, "xxx"); // Modified=false → true
             Assert.Equal(1, fired);
         });
     }
@@ -142,8 +142,8 @@ public class EditorControlCompatApiTests
             ctrl.SetSource(TextBuffer.FromString("hello"));
             int fired = 0;
             ctrl.SavePointLeft += (_, _) => fired++;
-            ctrl.ReplaceCharRange(0, 5, "xxx");   // Modified false→true → fire
-            ctrl.ReplaceCharRange(0, 3, "yyy");   // stays Modified=true → no fire
+            ctrl.ReplaceCharRange(0, 5, "xxx"); // Modified false→true → fire
+            ctrl.ReplaceCharRange(0, 3, "yyy"); // stays Modified=true → no fire
             Assert.Equal(1, fired);
         });
     }
@@ -156,14 +156,14 @@ public class EditorControlCompatApiTests
         {
             using var ctrl = new EditorControl();
             ctrl.SetSource(TextBuffer.FromString("hello"));
-            ctrl.SetSavePoint();                  // 保存点=空編集履歴
+            ctrl.SetSavePoint(); // 保存点=空編集履歴
             int reachedFires = 0;
             ctrl.SavePointReached += (_, _) => reachedFires++;
-            ctrl.ReplaceCharRange(0, 5, "xxx");   // Modified true → タブ「*」表示
+            ctrl.ReplaceCharRange(0, 5, "xxx"); // Modified true → タブ「*」表示
             Assert.True(ctrl.Modified);
-            ctrl.Undo();                          // 保存点=Modified false へ戻る
+            ctrl.Undo(); // 保存点=Modified false へ戻る
             Assert.False(ctrl.Modified);
-            Assert.Equal(1, reachedFires);        // タブラベル「*」を消せる
+            Assert.Equal(1, reachedFires); // タブラベル「*」を消せる
         });
     }
 
@@ -176,13 +176,13 @@ public class EditorControlCompatApiTests
         {
             using var ctrl = new EditorControl();
             ctrl.SetSource(TextBuffer.FromString("hello"));
-            Assert.False(ctrl.Modified);          // fresh バッファ=クリーン
+            Assert.False(ctrl.Modified); // fresh バッファ=クリーン
             int leftFires = 0;
             ctrl.SavePointLeft += (_, _) => leftFires++;
             ctrl.ClearSavePoint();
-            Assert.True(ctrl.Modified);           // 編集なしでも dirty(タブ「*」表示へ)
+            Assert.True(ctrl.Modified); // 編集なしでも dirty(タブ「*」表示へ)
             Assert.Equal(1, leftFires);
-            ctrl.ReplaceCharRange(0, 5, "xxx");   // Modified true のまま → 追加発火なし
+            ctrl.ReplaceCharRange(0, 5, "xxx"); // Modified true のまま → 追加発火なし
             Assert.Equal(1, leftFires);
         });
     }
@@ -195,7 +195,7 @@ public class EditorControlCompatApiTests
             using var ctrl = new EditorControl();
             int leftFires = 0;
             ctrl.SavePointLeft += (_, _) => leftFires++;
-            ctrl.ClearSavePoint();                // dirty にすべき本文が存在しない=何も起きない
+            ctrl.ClearSavePoint(); // dirty にすべき本文が存在しない=何も起きない
             Assert.False(ctrl.Modified);
             Assert.Equal(0, leftFires);
         });

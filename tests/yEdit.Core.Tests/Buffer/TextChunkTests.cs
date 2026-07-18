@@ -19,12 +19,13 @@ public class TextChunkTests
     {
         var list = new List<int>();
         for (int i = 0; i <= s.Length; i++)
-            if (i == s.Length || !char.IsLowSurrogate(s[i])) list.Add(i);
+            if (i == s.Length || !char.IsLowSurrogate(s[i]))
+                list.Add(i);
         return list;
     }
 
-    private static int ByteOff(string s, int charIndex)
-        => Encoding.UTF8.GetByteCount(s.AsSpan(0, charIndex));
+    private static int ByteOff(string s, int charIndex) =>
+        Encoding.UTF8.GetByteCount(s.AsSpan(0, charIndex));
 
     private static void AssertStatsEqual(byte[] slice, PieceStats actual)
     {
@@ -55,9 +56,12 @@ public class TextChunkTests
         var rnd = new Random(20260705);
         for (int t = 0; t < 100; t++)
         {
-            int i = bounds[rnd.Next(bounds.Count)], j = bounds[rnd.Next(bounds.Count)];
-            if (i > j) (i, j) = (j, i);
-            int a = ByteOff(doc, i), b = ByteOff(doc, j);
+            int i = bounds[rnd.Next(bounds.Count)],
+                j = bounds[rnd.Next(bounds.Count)];
+            if (i > j)
+                (i, j) = (j, i);
+            int a = ByteOff(doc, i),
+                b = ByteOff(doc, j);
             AssertStatsEqual(bytes[a..b], chunk.StatsOfRange(a, b - a));
         }
     }
@@ -67,9 +71,9 @@ public class TextChunkTests
     {
         byte[] bytes = Encoding.UTF8.GetBytes("x\r\ny");
         var chunk = new TextChunk(bytes, gridBytes: 8);
-        Assert.Equal(1, chunk.StatsOfRange(2, 2).Breaks);   // "\ny"
-        Assert.Equal(1, chunk.StatsOfRange(0, 2).Breaks);   // "x\r"
-        Assert.Equal(1, chunk.StatsOfRange(0, 4).Breaks);   // 全体 CRLF=1
+        Assert.Equal(1, chunk.StatsOfRange(2, 2).Breaks); // "\ny"
+        Assert.Equal(1, chunk.StatsOfRange(0, 2).Breaks); // "x\r"
+        Assert.Equal(1, chunk.StatsOfRange(0, 4).Breaks); // 全体 CRLF=1
     }
 
     [Fact]
@@ -92,9 +96,12 @@ public class TextChunkTests
         var rnd = new Random(20260705);
         for (int t = 0; t < 50; t++)
         {
-            int i = bounds[rnd.Next(bounds.Count)], j = bounds[rnd.Next(bounds.Count)];
-            if (i > j) (i, j) = (j, i);
-            int a = ByteOff(doc, i), b = ByteOff(doc, j);
+            int i = bounds[rnd.Next(bounds.Count)],
+                j = bounds[rnd.Next(bounds.Count)];
+            if (i > j)
+                (i, j) = (j, i);
+            int a = ByteOff(doc, i),
+                b = ByteOff(doc, j);
             // 範囲 [a,b) の先頭から (j-i) UTF-16単位進むと範囲末尾
             Assert.Equal(b, chunk.CharToByte(a, b - a, j - i));
         }
@@ -106,9 +113,9 @@ public class TextChunkTests
         byte[] bytes = Encoding.UTF8.GetBytes("a\nb\r\nc\rd");
         var chunk = new TextChunk(bytes, gridBytes: 8);
         int len = bytes.Length;
-        Assert.Equal(1, chunk.NthBreakEndChar(0, len, 1));  // \n
-        Assert.Equal(4, chunk.NthBreakEndChar(0, len, 2));  // CRLFのLF
-        Assert.Equal(6, chunk.NthBreakEndChar(0, len, 3));  // 単独\r
+        Assert.Equal(1, chunk.NthBreakEndChar(0, len, 1)); // \n
+        Assert.Equal(4, chunk.NthBreakEndChar(0, len, 2)); // CRLFのLF
+        Assert.Equal(6, chunk.NthBreakEndChar(0, len, 3)); // 単独\r
     }
 
     [Fact]
@@ -117,8 +124,8 @@ public class TextChunkTests
         // 範囲がCRLFの間で切れる場合: 範囲内ではCRが単独扱い=終端
         byte[] bytes = Encoding.UTF8.GetBytes("a\r\nb");
         var chunk = new TextChunk(bytes, gridBytes: 8);
-        Assert.Equal(1, chunk.NthBreakEndChar(0, 2, 1));    // "a\r" → \r が終端
-        Assert.Equal(0, chunk.NthBreakEndChar(2, 2, 1));    // "\nb" → \n が終端
+        Assert.Equal(1, chunk.NthBreakEndChar(0, 2, 1)); // "a\r" → \r が終端
+        Assert.Equal(0, chunk.NthBreakEndChar(2, 2, 1)); // "\nb" → \n が終端
     }
 
     [Fact]
@@ -127,14 +134,14 @@ public class TextChunkTests
         string doc = "あ😀\nい\r";
         byte[] bytes = Encoding.UTF8.GetBytes(doc);
         var chunk = new TextChunk(bytes, gridBytes: 4);
-        Assert.Equal(3, chunk.NthBreakEndChar(0, bytes.Length, 1));  // あ(1)+😀(2)の直後
-        Assert.Equal(5, chunk.NthBreakEndChar(0, bytes.Length, 2));  // 末尾\r
+        Assert.Equal(3, chunk.NthBreakEndChar(0, bytes.Length, 1)); // あ(1)+😀(2)の直後
+        Assert.Equal(5, chunk.NthBreakEndChar(0, bytes.Length, 2)); // 末尾\r
     }
 
     [Fact]
     public void Grid_snap_across_3byte_chars_does_not_break_conversion()
     {
-        string doc = "あいうえお";   // 3バイト×5(格子幅3の格子点がコード点境界と衝突/中間の両方を踏む)
+        string doc = "あいうえお"; // 3バイト×5(格子幅3の格子点がコード点境界と衝突/中間の両方を踏む)
         byte[] bytes = Encoding.UTF8.GetBytes(doc);
         var chunk = new TextChunk(bytes, gridBytes: 3);
         for (int k = 0; k <= 5; k++)
@@ -154,13 +161,20 @@ public class TextChunkTests
         var rnd = new Random(20260705);
         for (int t = 0; t < 200; t++)
         {
-            int i = bounds[rnd.Next(bounds.Count)], j = bounds[rnd.Next(bounds.Count)];
-            if (i > j) (i, j) = (j, i);
-            int a = ByteOff(doc, i), b = ByteOff(doc, j);
+            int i = bounds[rnd.Next(bounds.Count)],
+                j = bounds[rnd.Next(bounds.Count)];
+            if (i > j)
+                (i, j) = (j, i);
+            int a = ByteOff(doc, i),
+                b = ByteOff(doc, j);
             // 範囲内のランダムな境界 k まで
             int k = i;
             foreach (int cand in bounds)
-                if (cand >= i && cand <= j && rnd.Next(4) == 0) { k = cand; break; }
+                if (cand >= i && cand <= j && rnd.Next(4) == 0)
+                {
+                    k = cand;
+                    break;
+                }
             var (byteMid, prefix) = chunk.SplitStats(a, b - a, k - i);
             Assert.Equal(ByteOff(doc, k), byteMid);
             AssertStatsEqual(bytes[a..byteMid], prefix);
@@ -172,8 +186,8 @@ public class TextChunkTests
     {
         byte[] bytes = Encoding.UTF8.GetBytes("a😀b");
         var chunk = new TextChunk(bytes, gridBytes: 4);
-        var (byteMid, prefix) = chunk.SplitStats(0, bytes.Length, 2);   // ペア中間
-        Assert.Equal(1, byteMid);                                       // "a" の直後へスナップ
+        var (byteMid, prefix) = chunk.SplitStats(0, bytes.Length, 2); // ペア中間
+        Assert.Equal(1, byteMid); // "a" の直後へスナップ
         Assert.Equal(1, prefix.CharLen);
     }
 
@@ -201,7 +215,8 @@ public class TextChunkTests
         byte[] bytes = Encoding.UTF8.GetBytes(doc);
         var chunk = new TextChunk(bytes, gridBytes: 16);
         Assert.Equal(doc, chunk.GetString(0, bytes.Length));
-        int a = ByteOff(doc, 5), b = ByteOff(doc, 20);
+        int a = ByteOff(doc, 5),
+            b = ByteOff(doc, 20);
         Assert.Equal(doc[5..20], chunk.GetString(a, b - a));
     }
 }

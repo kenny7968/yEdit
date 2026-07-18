@@ -34,7 +34,7 @@ public static class CsvParser
     {
         var rows = new List<IReadOnlyList<CsvField>>();
         var row = new List<CsvField>();
-        var sb = new StringBuilder();   // 現在フィールドの論理値
+        var sb = new StringBuilder(); // 現在フィールドの論理値
         int pos = 0;
         int fieldStart = 0;
         bool inQuotes = false;
@@ -59,26 +59,55 @@ public static class CsvParser
             {
                 if (c == '"')
                 {
-                    if (reader.Peek() == '"') { sb.Append('"'); reader.Read(); pos += 2; continue; }
-                    inQuotes = false; pos++; continue;   // 閉じ引用符
+                    if (reader.Peek() == '"')
+                    {
+                        sb.Append('"');
+                        reader.Read();
+                        pos += 2;
+                        continue;
+                    }
+                    inQuotes = false;
+                    pos++;
+                    continue; // 閉じ引用符
                 }
-                sb.Append(c); pos++; continue;           // 引用符内のカンマ・改行も literal
+                sb.Append(c);
+                pos++;
+                continue; // 引用符内のカンマ・改行も literal
             }
 
-            if (c == '"' && pos == fieldStart) { inQuotes = true; pos++; continue; } // 開き引用符（フィールド先頭のみ）
-            if (c == ',') { EndField(pos); pos++; fieldStart = pos; continue; }
+            if (c == '"' && pos == fieldStart)
+            {
+                inQuotes = true;
+                pos++;
+                continue;
+            } // 開き引用符（フィールド先頭のみ）
+            if (c == ',')
+            {
+                EndField(pos);
+                pos++;
+                fieldStart = pos;
+                continue;
+            }
             if (c == '\r' || c == '\n')
             {
                 EndField(pos);
                 int lb = 1;
-                if (c == '\r' && reader.Peek() == '\n') { reader.Read(); lb = 2; }
+                if (c == '\r' && reader.Peek() == '\n')
+                {
+                    reader.Read();
+                    lb = 2;
+                }
                 EndRow();
-                pos += lb; fieldStart = pos; continue;
+                pos += lb;
+                fieldStart = pos;
+                continue;
             }
-            sb.Append(c); pos++;   // 通常文字（閉じ引用符後の余剰文字も寛容に literal 扱い）
+            sb.Append(c);
+            pos++; // 通常文字（閉じ引用符後の余剰文字も寛容に literal 扱い）
         }
 
-        if (inQuotes) ok = false;   // 引用符未終端
+        if (inQuotes)
+            ok = false; // 引用符未終端
 
         // 末尾レコードの確定: 直近の改行後に内容が無い「末尾の空レコード」は捨てる。
         if (pos > fieldStart || row.Count > 0)

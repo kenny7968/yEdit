@@ -1,8 +1,8 @@
 using System;
 using System.Windows.Forms;
+using Xunit;
 using yEdit.Core.Buffers;
 using yEdit.Editor;
-using Xunit;
 
 namespace yEdit.Editor.Tests;
 
@@ -28,7 +28,12 @@ public class EditorControlUiaFocusEventTests
                 form.Show();
 
                 // WM_GETOBJECT 経由でプロバイダを生成させる(=RaiseUia の early return を回避)
-                var msg = Message.Create(ctrl.Handle, 0x003D, System.IntPtr.Zero, new System.IntPtr(-25));
+                var msg = Message.Create(
+                    ctrl.Handle,
+                    0x003D,
+                    System.IntPtr.Zero,
+                    new System.IntPtr(-25)
+                );
                 EditorControl.TestHook_WndProc(ctrl, ref msg);
 
                 other.Focus();
@@ -40,10 +45,16 @@ public class EditorControlUiaFocusEventTests
 
                 var (_, selChanged, focusChanged) = EditorControl.TestHook_UiaEventCounts(ctrl);
                 Assert.True(focusChanged >= 1, "AutomationFocusChangedEvent が発火していない");
-                Assert.True(selChanged >= 1, "OnGotFocus 明示発火 TextSelectionChangedEvent が発火していない");
+                Assert.True(
+                    selChanged >= 1,
+                    "OnGotFocus 明示発火 TextSelectionChangedEvent が発火していない"
+                );
                 form.Close();
             }
-            finally { EditorControl.TestHook_ForceUiaListen = false; }
+            finally
+            {
+                EditorControl.TestHook_ForceUiaListen = false;
+            }
         });
     }
 }

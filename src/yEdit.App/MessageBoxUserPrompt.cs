@@ -6,18 +6,19 @@ namespace yEdit.App;
 /// </summary>
 internal sealed class MessageBoxUserPrompt : IUserPrompt
 {
-    public void Info(string text, string caption)
-        => MessageBox.Show(text, caption, MessageBoxButtons.OK, MessageBoxIcon.Information);
+    public void Info(string text, string caption) =>
+        MessageBox.Show(text, caption, MessageBoxButtons.OK, MessageBoxIcon.Information);
 
-    public void Warn(string text, string caption)
-        => MessageBox.Show(text, caption, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+    public void Warn(string text, string caption) =>
+        MessageBox.Show(text, caption, MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
-    public void Error(string text, string caption)
-        => MessageBox.Show(text, caption, MessageBoxButtons.OK, MessageBoxIcon.Error);
+    public void Error(string text, string caption) =>
+        MessageBox.Show(text, caption, MessageBoxButtons.OK, MessageBoxIcon.Error);
 
-    public bool OkCancel(string text, string caption)
-        => MessageBox.Show(text, caption, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK;
+    public bool OkCancel(string text, string caption) =>
+        MessageBox.Show(text, caption, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning)
+        == DialogResult.OK;
 
-    public DialogResult YesNoCancel(string text, string caption)
-        => MessageBox.Show(text, caption, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
+    public DialogResult YesNoCancel(string text, string caption) =>
+        MessageBox.Show(text, caption, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
 }

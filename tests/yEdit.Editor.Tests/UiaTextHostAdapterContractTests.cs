@@ -12,11 +12,18 @@ public class UiaTextHostAdapterContractTests
 {
     private static readonly string[] UiaFields =
     {
-        "_bufferSnapshot", "_boundsSync", "_bounds",
-        "_clientToScreenX", "_clientToScreenY",
-        "_lastLineSegs", "_hwnd", "_provider",
+        "_bufferSnapshot",
+        "_boundsSync",
+        "_bounds",
+        "_clientToScreenX",
+        "_clientToScreenY",
+        "_lastLineSegs",
+        "_hwnd",
+        "_provider",
         "_testHook_LastGetObjectServed",
-        "_uiaTextChangedCount", "_uiaSelectionChangedCount", "_uiaFocusChangedCount",
+        "_uiaTextChangedCount",
+        "_uiaSelectionChangedCount",
+        "_uiaFocusChangedCount",
     };
 
     [Fact]
@@ -27,7 +34,10 @@ public class UiaTextHostAdapterContractTests
         foreach (var name in UiaFields)
         {
             var f = typeof(EditorControl).GetField(name, editorFlags);
-            Assert.True(f is null, $"EditorControl should no longer own '{name}' (Task 3d は Adapter へ移譲)");
+            Assert.True(
+                f is null,
+                $"EditorControl should no longer own '{name}' (Task 3d は Adapter へ移譲)"
+            );
         }
 
         // (2) UiaTextHostAdapter 型が Editor アセンブリに存在し、12 field を全て持つことを確認
@@ -44,8 +54,10 @@ public class UiaTextHostAdapterContractTests
     [Fact]
     public void EditorControl_HoldsAdapter_ByField()
     {
-        var f = typeof(EditorControl).GetField("_uia",
-            BindingFlags.Instance | BindingFlags.NonPublic);
+        var f = typeof(EditorControl).GetField(
+            "_uia",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
         Assert.NotNull(f);
         // 型も検証: UiaTextHostAdapter でなければならない
         var adapterType = typeof(EditorControl).Assembly.GetType("yEdit.Editor.UiaTextHostAdapter");

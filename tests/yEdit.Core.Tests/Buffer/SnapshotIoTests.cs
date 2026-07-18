@@ -79,9 +79,12 @@ public class SnapshotIoTests
     {
         var b = TextBuffer.FromString(Doc);
         string model = Doc;
-        b.Insert(5, "挿入😀");   model = model[..5] + "挿入😀" + model[5..];
-        b.Delete(2, 4);          model = model[..2] + model[6..];
-        b.Replace(0, 1, "Z");    model = "Z" + model[1..];
+        b.Insert(5, "挿入😀");
+        model = model[..5] + "挿入😀" + model[5..];
+        b.Delete(2, 4);
+        model = model[..2] + model[6..];
+        b.Replace(0, 1, "Z");
+        model = "Z" + model[1..];
 
         using var ms = new MemoryStream();
         b.Current.WriteTo(ms);

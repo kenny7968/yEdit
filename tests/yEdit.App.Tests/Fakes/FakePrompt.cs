@@ -11,7 +11,9 @@ public sealed class FakePrompt : IUserPrompt
     public DialogResult YesNoCancelResult { get; set; } = DialogResult.Cancel;
 
     public void Info(string text, string caption) => Log.Add(("Info", text, caption));
+
     public void Warn(string text, string caption) => Log.Add(("Warn", text, caption));
+
     public void Error(string text, string caption) => Log.Add(("Error", text, caption));
 
     public bool OkCancel(string text, string caption)

@@ -1,5 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <AssemblyName>yEdit</AssemblyName>
@@ -23,5 +22,4 @@
          Core/Editor/Accessibility と同じテスト専用の慣例 -->
     <InternalsVisibleTo Include="yEdit.App.Tests" />
   </ItemGroup>
-
 </Project>

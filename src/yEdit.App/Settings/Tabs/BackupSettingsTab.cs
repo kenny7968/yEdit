@@ -7,14 +7,22 @@ public sealed class BackupSettingsTab : ISettingsTab
 {
     public string Title => "バックアップ";
 
-    private readonly CheckBox _enabled = new() { Text = "文書のバックアップを有効にする(&B)", AutoSize = true };
+    private readonly CheckBox _enabled = new()
+    {
+        Text = "文書のバックアップを有効にする(&B)",
+        AutoSize = true,
+    };
     private readonly NumericUpDown _interval = new()
     {
-        Minimum = 5, Maximum = 3600, Width = 100, AccessibleName = "バックアップ間隔（秒）",
+        Minimum = 5,
+        Maximum = 3600,
+        Width = 100,
+        AccessibleName = "バックアップ間隔（秒）",
     };
     private readonly CheckBox _confirmRestore = new()
     {
-        Text = "起動時にバックアップを復元するか確認する(&C)", AutoSize = true,
+        Text = "起動時にバックアップを復元するか確認する(&C)",
+        AutoSize = true,
     };
 
     public Control BuildPage()
@@ -29,8 +37,19 @@ public sealed class BackupSettingsTab : ISettingsTab
         root.SetColumnSpan(_enabled, 2);
 
         // 2 行目: 「バックアップ間隔（秒）(&I):」ラベル ＋ NumericUpDown。
-        var intervalPanel = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, TabIndex = 1 };
-        var intervalLbl = new Label { Text = "バックアップ間隔（秒）(&I):", AutoSize = true, TabIndex = 1, Anchor = AnchorStyles.Left };
+        var intervalPanel = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            TabIndex = 1,
+        };
+        var intervalLbl = new Label
+        {
+            Text = "バックアップ間隔（秒）(&I):",
+            AutoSize = true,
+            TabIndex = 1,
+            Anchor = AnchorStyles.Left,
+        };
         _interval.TabIndex = 2;
         intervalPanel.Controls.Add(intervalLbl);
         intervalPanel.Controls.Add(_interval);
@@ -48,8 +67,12 @@ public sealed class BackupSettingsTab : ISettingsTab
     public void LoadFrom(AppSettings s)
     {
         _enabled.Checked = s.BackupEnabled;
-        _interval.Value = Math.Clamp(s.BackupIntervalSeconds, (int)_interval.Minimum, (int)_interval.Maximum);
-        _interval.Enabled = _enabled.Checked;   // 初期状態でも ON/OFF を反映
+        _interval.Value = Math.Clamp(
+            s.BackupIntervalSeconds,
+            (int)_interval.Minimum,
+            (int)_interval.Maximum
+        );
+        _interval.Enabled = _enabled.Checked; // 初期状態でも ON/OFF を反映
         _confirmRestore.Checked = s.ConfirmRestoreOnStartup;
     }
 

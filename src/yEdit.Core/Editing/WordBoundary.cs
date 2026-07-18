@@ -11,7 +11,17 @@ namespace yEdit.Core.Editing;
 /// - Hiragana / Katakana / Han: BMP 範囲のみ。拡張漢字 A/B..は Other 扱い。
 /// - Other: 記号・拡張漢字・サロゲート・上記以外。
 /// </summary>
-internal enum CharClass { Whitespace, LineBreak, Latin, Digit, Hiragana, Katakana, Han, Other }
+internal enum CharClass
+{
+    Whitespace,
+    LineBreak,
+    Latin,
+    Digit,
+    Hiragana,
+    Katakana,
+    Han,
+    Other,
+}
 
 /// <summary>
 /// Ctrl+←→(単語ナビ)用の単語境界検出(純ロジック)。
@@ -34,19 +44,28 @@ public static class WordBoundary
     /// </remarks>
     public static int NextWordStart(TextSnapshot snap, int caret)
     {
-        if (caret >= snap.CharLength) return snap.CharLength;
+        if (caret >= snap.CharLength)
+            return snap.CharLength;
         int pos = caret;
         var start = ClassOf(snap, pos);
         if (start == CharClass.Whitespace || start == CharClass.LineBreak)
         {
             // 空白/改行から始まる場合は連続をスキップ → 次の非空白の頭
-            pos = SkipForwardWhile(snap, pos, cls => cls == CharClass.Whitespace || cls == CharClass.LineBreak);
+            pos = SkipForwardWhile(
+                snap,
+                pos,
+                cls => cls == CharClass.Whitespace || cls == CharClass.LineBreak
+            );
         }
         else
         {
             // 非空白 class の連続をスキップ → その先の空白/改行連続もスキップ
             pos = SkipForwardWhile(snap, pos, cls => cls == start);
-            pos = SkipForwardWhile(snap, pos, cls => cls == CharClass.Whitespace || cls == CharClass.LineBreak);
+            pos = SkipForwardWhile(
+                snap,
+                pos,
+                cls => cls == CharClass.Whitespace || cls == CharClass.LineBreak
+            );
         }
         return pos;
     }
@@ -62,13 +81,15 @@ public static class WordBoundary
     /// </remarks>
     public static int PrevWordStart(TextSnapshot snap, int caret)
     {
-        if (caret <= 0) return 0;
+        if (caret <= 0)
+            return 0;
         int pos = MoveLeftCp(snap, caret);
         // 左隣を空白/改行としてスキップ(後方=空白の直前まで)
         while (pos > 0)
         {
             var cls = ClassOf(snap, pos);
-            if (cls != CharClass.Whitespace && cls != CharClass.LineBreak) break;
+            if (cls != CharClass.Whitespace && cls != CharClass.LineBreak)
+                break;
             pos = MoveLeftCp(snap, pos);
         }
         // 位置 pos の class を単語 class として、その連続をさらに左へ
@@ -76,7 +97,8 @@ public static class WordBoundary
         while (pos > 0)
         {
             int prev = MoveLeftCp(snap, pos);
-            if (ClassOf(snap, prev) != wordCls) break;
+            if (ClassOf(snap, prev) != wordCls)
+                break;
             pos = prev;
         }
         return pos;
@@ -86,32 +108,50 @@ public static class WordBoundary
 
     private static CharClass ClassOf(TextSnapshot snap, int pos)
     {
-        if (pos >= snap.CharLength) return CharClass.Other;
+        if (pos >= snap.CharLength)
+            return CharClass.Other;
         char c = snap.GetChar(pos);
-        if (c == '\r' || c == '\n') return CharClass.LineBreak;
-        if (c == ' ' || c == '\t') return CharClass.Whitespace;
-        if (c >= '0' && c <= '9') return CharClass.Digit;
-        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_') return CharClass.Latin;
-        if (c >= 0x3040 && c <= 0x309F) return CharClass.Hiragana;
-        if (c >= 0x30A0 && c <= 0x30FF) return CharClass.Katakana;
-        if (c >= 0x4E00 && c <= 0x9FFF) return CharClass.Han;
+        if (c == '\r' || c == '\n')
+            return CharClass.LineBreak;
+        if (c == ' ' || c == '\t')
+            return CharClass.Whitespace;
+        if (c >= '0' && c <= '9')
+            return CharClass.Digit;
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_')
+            return CharClass.Latin;
+        if (c >= 0x3040 && c <= 0x309F)
+            return CharClass.Hiragana;
+        if (c >= 0x30A0 && c <= 0x30FF)
+            return CharClass.Katakana;
+        if (c >= 0x4E00 && c <= 0x9FFF)
+            return CharClass.Han;
         return CharClass.Other;
     }
 
     private static int MoveLeftCp(TextSnapshot snap, int pos)
     {
-        if (pos <= 0) return 0;
+        if (pos <= 0)
+            return 0;
         int prev = pos - 1;
-        if (prev > 0 && char.IsLowSurrogate(snap.GetChar(prev)) && char.IsHighSurrogate(snap.GetChar(prev - 1)))
+        if (
+            prev > 0
+            && char.IsLowSurrogate(snap.GetChar(prev))
+            && char.IsHighSurrogate(snap.GetChar(prev - 1))
+        )
             return prev - 1;
         return prev;
     }
 
     private static int MoveRightCp(TextSnapshot snap, int pos)
     {
-        if (pos >= snap.CharLength) return snap.CharLength;
+        if (pos >= snap.CharLength)
+            return snap.CharLength;
         char c = snap.GetChar(pos);
-        if (char.IsHighSurrogate(c) && pos + 1 < snap.CharLength && char.IsLowSurrogate(snap.GetChar(pos + 1)))
+        if (
+            char.IsHighSurrogate(c)
+            && pos + 1 < snap.CharLength
+            && char.IsLowSurrogate(snap.GetChar(pos + 1))
+        )
             return pos + 2;
         return pos + 1;
     }

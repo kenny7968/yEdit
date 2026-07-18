@@ -1,5 +1,5 @@
-using yEdit.Core.IO;
 using Xunit;
+using yEdit.Core.IO;
 
 namespace yEdit.Core.Tests.IO;
 
@@ -14,7 +14,11 @@ public class AtomicFileTests
             AtomicFile.Write(path, new byte[] { 1, 2, 3 });
             Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(path));
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -26,9 +30,15 @@ public class AtomicFileTests
             File.WriteAllText(path, "old");
             AtomicFile.Write(path, new byte[] { 0x6E, 0x65, 0x77 }); // "new"
             Assert.Equal("new", File.ReadAllText(path));
-            Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + ".*tmp*"));
+            Assert.Empty(
+                Directory.GetFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + ".*tmp*")
+            );
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -45,12 +55,18 @@ public class AtomicFileTests
             }
             // 原本は不変・tmp 残骸なし。
             Assert.Equal("original", File.ReadAllText(path));
-            Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + ".*tmp*"));
+            Assert.Empty(
+                Directory.GetFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + ".*tmp*")
+            );
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
-    public void IsShareOrLockViolation_is_false_for_generic_io_error()
-        => Assert.False(AtomicFile.IsShareOrLockViolation(new IOException("generic")));
+    public void IsShareOrLockViolation_is_false_for_generic_io_error() =>
+        Assert.False(AtomicFile.IsShareOrLockViolation(new IOException("generic")));
 }

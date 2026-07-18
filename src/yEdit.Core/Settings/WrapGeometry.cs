@@ -10,7 +10,8 @@ public static class WrapGeometry
     public static int TargetWidthPx(int columns, int halfWidthPx) => columns * halfWidthPx;
 
     /// <summary>テキスト領域幅と目標幅から右マージン(px)。広い分だけ空白に充てる（負にしない）。</summary>
-    public static int RightMargin(int textAreaPx, int targetPx) => Math.Max(0, textAreaPx - targetPx);
+    public static int RightMargin(int textAreaPx, int targetPx) =>
+        Math.Max(0, textAreaPx - targetPx);
 
     /// <summary>折り返し桁数を許容範囲（10〜1000）へクランプ。破損設定・範囲外対策。</summary>
     public static int ClampColumns(int columns) => Math.Clamp(columns, 10, 1000);

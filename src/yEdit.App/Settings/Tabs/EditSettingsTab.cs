@@ -8,16 +8,30 @@ public sealed class EditSettingsTab : ISettingsTab
 {
     public string Title => "編集";
 
-    private readonly CheckBox _wrapEnabled = new() { Text = "指定文字数で折り返す(&W)", AutoSize = true };
+    private readonly CheckBox _wrapEnabled = new()
+    {
+        Text = "指定文字数で折り返す(&W)",
+        AutoSize = true,
+    };
     private readonly NumericUpDown _wrapColumn = new()
     {
-        Minimum = 10, Maximum = 1000, Width = 100, AccessibleName = "折り返し桁数",
+        Minimum = 10,
+        Maximum = 1000,
+        Width = 100,
+        AccessibleName = "折り返し桁数",
     };
     private readonly NumericUpDown _tabWidth = new()
     {
-        Minimum = 1, Maximum = 16, Width = 100, AccessibleName = "タブ幅",
+        Minimum = 1,
+        Maximum = 16,
+        Width = 100,
+        AccessibleName = "タブ幅",
     };
-    private readonly CheckBox _tabsToSpaces = new() { Text = "タブをスペースに変換(&S)", AutoSize = true };
+    private readonly CheckBox _tabsToSpaces = new()
+    {
+        Text = "タブをスペースに変換(&S)",
+        AutoSize = true,
+    };
 
     public Control BuildPage()
     {
@@ -30,16 +44,38 @@ public sealed class EditSettingsTab : ISettingsTab
         root.Controls.Add(_wrapEnabled, 0, 0);
 
         // 2 行目: 「折り返し桁数(&K):」ラベル ＋ NumericUpDown。
-        var wrapPanel = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, TabIndex = 1 };
-        var wrapLbl = new Label { Text = "折り返し桁数(&K):", AutoSize = true, TabIndex = 1, Anchor = AnchorStyles.Left };
+        var wrapPanel = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            TabIndex = 1,
+        };
+        var wrapLbl = new Label
+        {
+            Text = "折り返し桁数(&K):",
+            AutoSize = true,
+            TabIndex = 1,
+            Anchor = AnchorStyles.Left,
+        };
         _wrapColumn.TabIndex = 2;
         wrapPanel.Controls.Add(wrapLbl);
         wrapPanel.Controls.Add(_wrapColumn);
         root.Controls.Add(wrapPanel, 1, 0);
 
         // 2 行目: 「タブ幅(&T):」ラベル ＋ NumericUpDown。
-        var tabPanel = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, TabIndex = 3 };
-        var tabLbl = new Label { Text = "タブ幅(&T):", AutoSize = true, TabIndex = 3, Anchor = AnchorStyles.Left };
+        var tabPanel = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            TabIndex = 3,
+        };
+        var tabLbl = new Label
+        {
+            Text = "タブ幅(&T):",
+            AutoSize = true,
+            TabIndex = 3,
+            Anchor = AnchorStyles.Left,
+        };
         _tabWidth.TabIndex = 4;
         tabPanel.Controls.Add(tabLbl);
         tabPanel.Controls.Add(_tabWidth);
@@ -55,8 +91,12 @@ public sealed class EditSettingsTab : ISettingsTab
     public void LoadFrom(AppSettings s)
     {
         _wrapEnabled.Checked = s.WrapColumnEnabled;
-        _wrapColumn.Value = Math.Clamp(s.WrapColumn, (int)_wrapColumn.Minimum, (int)_wrapColumn.Maximum);
-        _wrapColumn.Enabled = _wrapEnabled.Checked;   // 初期状態でも ON/OFF を反映
+        _wrapColumn.Value = Math.Clamp(
+            s.WrapColumn,
+            (int)_wrapColumn.Minimum,
+            (int)_wrapColumn.Maximum
+        );
+        _wrapColumn.Enabled = _wrapEnabled.Checked; // 初期状態でも ON/OFF を反映
         _tabWidth.Value = Math.Clamp(s.TabWidth, (int)_tabWidth.Minimum, (int)_tabWidth.Maximum);
         _tabsToSpaces.Checked = s.TabsToSpaces;
     }

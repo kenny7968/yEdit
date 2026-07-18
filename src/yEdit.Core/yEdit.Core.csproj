@@ -1,5 +1,4 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
   </PropertyGroup>
@@ -16,5 +15,4 @@
          これを直接消費するため本アセンブリの internal を可視化する。 -->
     <InternalsVisibleTo Include="yEdit.Editor" />
   </ItemGroup>
-
 </Project>

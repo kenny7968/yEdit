@@ -32,7 +32,9 @@ public sealed partial class EditorControl
 
     // Task 6 テスト用フック: WndProc 経路と self-served 判定を Editor.Tests から観察する。
     internal static void TestHook_WndProc(EditorControl c, ref Message m) => c.WndProc(ref m);
-    internal static bool TestHook_LastGetObjectServed(EditorControl c) => c._uia.TestHook_LastGetObjectServed;
+
+    internal static bool TestHook_LastGetObjectServed(EditorControl c) =>
+        c._uia.TestHook_LastGetObjectServed;
 
     // P5 Task 10/11: テスト用フック(Editor.Tests から _lastFrame を観察できるように)。
     // _lastFrame は Adapter 移譲対象外 (OnPaint 担当=EditorControl.cs 保持)。
@@ -45,11 +47,13 @@ public sealed partial class EditorControl
     internal static bool TestHook_ForceUiaListen { get; set; }
 
     /// <summary>UIA イベントカウンタ (TextChanged/SelChanged/FocusChanged) をリセット。</summary>
-    internal static void TestHook_ResetUiaEventCounts(EditorControl c) => c._uia.ResetUiaEventCounts();
+    internal static void TestHook_ResetUiaEventCounts(EditorControl c) =>
+        c._uia.ResetUiaEventCounts();
 
     /// <summary>UIA イベントカウンタ (TextChanged/SelChanged/FocusChanged) を返す。</summary>
-    internal static (int textChanged, int selChanged, int focusChanged) TestHook_UiaEventCounts(EditorControl c)
-        => c._uia.UiaEventCounts;
+    internal static (int textChanged, int selChanged, int focusChanged) TestHook_UiaEventCounts(
+        EditorControl c
+    ) => c._uia.UiaEventCounts;
 
     // ==================== IUiaTextHost 22 メンバ (全て Adapter への薄い委譲) ====================
     // EditorControl 側で explicit interface implementation として残置する理由:
@@ -59,31 +63,47 @@ public sealed partial class EditorControl
     //   - Adapter 実装は internal のため直接キャストできない (`(IUiaTextHost)_uia` は internal クロージャ)
     // 実際のロジックは全て UiaTextHostAdapter 側 (bit-perfect 移設済)。
 
-    string IUiaTextHost.GetTextRange(int start, int length) => ((IUiaTextHost)_uia).GetTextRange(start, length);
+    string IUiaTextHost.GetTextRange(int start, int length) =>
+        ((IUiaTextHost)_uia).GetTextRange(start, length);
+
     int IUiaTextHost.TextLength => ((IUiaTextHost)_uia).TextLength;
+
     (int Start, int End) IUiaTextHost.GetSelection() => ((IUiaTextHost)_uia).GetSelection();
-    void IUiaTextHost.SetSelection(int start, int end) => ((IUiaTextHost)_uia).SetSelection(start, end);
+
+    void IUiaTextHost.SetSelection(int start, int end) =>
+        ((IUiaTextHost)_uia).SetSelection(start, end);
 
     int IUiaTextHost.NextChar(int offset) => ((IUiaTextHost)_uia).NextChar(offset);
+
     int IUiaTextHost.PrevChar(int offset) => ((IUiaTextHost)_uia).PrevChar(offset);
 
     int IUiaTextHost.LineStartOf(int offset) => ((IUiaTextHost)_uia).LineStartOf(offset);
+
     int IUiaTextHost.LineEndNoBreakOf(int offset) => ((IUiaTextHost)_uia).LineEndNoBreakOf(offset);
+
     int IUiaTextHost.LineEnd(int offset) => ((IUiaTextHost)_uia).LineEnd(offset);
 
     int IUiaTextHost.WordStart(int offset) => ((IUiaTextHost)_uia).WordStart(offset);
+
     int IUiaTextHost.WordEnd(int offset) => ((IUiaTextHost)_uia).WordEnd(offset);
+
     int IUiaTextHost.NextWordStart(int offset) => ((IUiaTextHost)_uia).NextWordStart(offset);
+
     int IUiaTextHost.PrevWordStart(int offset) => ((IUiaTextHost)_uia).PrevWordStart(offset);
 
     System.Windows.Rect IUiaTextHost.BoundingRectangle => ((IUiaTextHost)_uia).BoundingRectangle;
-    double[] IUiaTextHost.GetBoundingRectangles(int start, int end) => ((IUiaTextHost)_uia).GetBoundingRectangles(start, end);
-    int IUiaTextHost.OffsetFromScreenPoint(double x, double y) => ((IUiaTextHost)_uia).OffsetFromScreenPoint(x, y);
+
+    double[] IUiaTextHost.GetBoundingRectangles(int start, int end) =>
+        ((IUiaTextHost)_uia).GetBoundingRectangles(start, end);
+
+    int IUiaTextHost.OffsetFromScreenPoint(double x, double y) =>
+        ((IUiaTextHost)_uia).OffsetFromScreenPoint(x, y);
 
     nint IUiaTextHost.Handle => ((IUiaTextHost)_uia).Handle;
     bool IUiaTextHost.HasFocus => ((IUiaTextHost)_uia).HasFocus;
     int IUiaTextHost.ControlTypeId => ((IUiaTextHost)_uia).ControlTypeId;
     string IUiaTextHost.Name => ((IUiaTextHost)_uia).Name;
     string IUiaTextHost.AutomationId => ((IUiaTextHost)_uia).AutomationId;
+
     void IUiaTextHost.SetFocus() => ((IUiaTextHost)_uia).SetFocus();
 }

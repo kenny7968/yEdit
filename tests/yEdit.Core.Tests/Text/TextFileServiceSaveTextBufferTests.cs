@@ -1,7 +1,7 @@
 using System.Text;
+using Xunit;
 using yEdit.Core.Buffers;
 using yEdit.Core.Text;
-using Xunit;
 
 namespace yEdit.Core.Tests.Text;
 
@@ -20,7 +20,10 @@ public class TextFileServiceSaveTextBufferTests
             byte[] bytes = File.ReadAllBytes(path);
             Assert.Equal(Encoding.UTF8.GetBytes(Jp), bytes);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -36,7 +39,10 @@ public class TextFileServiceSaveTextBufferTests
             Assert.Equal(0xBB, bytes[1]);
             Assert.Equal(0xBF, bytes[2]);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -51,7 +57,10 @@ public class TextFileServiceSaveTextBufferTests
             byte[] bytes = File.ReadAllBytes(path);
             Assert.Equal(enc.GetBytes(Jp), bytes);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -66,14 +75,17 @@ public class TextFileServiceSaveTextBufferTests
             byte[] bytes = File.ReadAllBytes(path);
             Assert.Equal(enc.GetBytes(Jp), bytes);
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
     public void SaveTextBuffer_Utf8_LargeContent_WritesExactBytes()
     {
         // 5MB(TextBufferBuilder のチャンク境界 4MB を跨ぐ)
-        var body = new string('あ', 5 * 1024 * 1024 / 3);  // UTF-8 で 5MB 近辺
+        var body = new string('あ', 5 * 1024 * 1024 / 3); // UTF-8 で 5MB 近辺
         var buffer = TextBuffer.FromString(body);
         string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
         try
@@ -84,7 +96,11 @@ public class TextFileServiceSaveTextBufferTests
             Assert.Equal(expected.Length, actual.Length);
             Assert.Equal(expected, actual);
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -99,14 +115,18 @@ public class TextFileServiceSaveTextBufferTests
             Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, actual.Take(3).ToArray());
             Assert.Equal("hello", Encoding.UTF8.GetString(actual, 3, actual.Length - 3));
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
     public void SaveTextBuffer_Sjis_LargeContent_WritesExactBytes()
     {
         EncodingCatalog.EnsureRegistered();
-        var body = new string('あ', 100_000);  // SJIS で 200KB
+        var body = new string('あ', 100_000); // SJIS で 200KB
         var buffer = TextBuffer.FromString(body);
         string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
         try
@@ -117,7 +137,11 @@ public class TextFileServiceSaveTextBufferTests
             Assert.Equal(expected.Length, actual.Length);
             Assert.Equal(expected, actual);
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -134,7 +158,11 @@ public class TextFileServiceSaveTextBufferTests
             byte[] expected = Encoding.GetEncoding(51932).GetBytes(body);
             Assert.Equal(expected, actual);
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -147,7 +175,11 @@ public class TextFileServiceSaveTextBufferTests
             TextFileService.Save(path, buffer, Encoding.UTF8, hasBom: false);
             Assert.Equal(0, new FileInfo(path).Length);
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -161,7 +193,11 @@ public class TextFileServiceSaveTextBufferTests
             byte[] actual = File.ReadAllBytes(path);
             Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, actual);
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -183,7 +219,11 @@ public class TextFileServiceSaveTextBufferTests
             byte[] expected = Encoding.UTF8.GetBytes(body);
             Assert.Equal(expected, actual);
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -205,8 +245,12 @@ public class TextFileServiceSaveTextBufferTests
             byte[] actual = File.ReadAllBytes(path);
             // 期待値: 現行 .NET Encoding.GetEncoding(932, EncoderFallback.ReplacementFallback, ...) の
             // string 経路と同一挙動になるはず(Encoder 状態が正しく持ち越されている場合)。
-            byte[] expected = Encoding.GetEncoding(932,
-                EncoderFallback.ReplacementFallback, DecoderFallback.ReplacementFallback)
+            byte[] expected = Encoding
+                .GetEncoding(
+                    932,
+                    EncoderFallback.ReplacementFallback,
+                    DecoderFallback.ReplacementFallback
+                )
                 .GetBytes(body);
             Assert.Equal(expected, actual);
             // 追加保証: '?' の個数が期待値と一致(サロゲート対は 1 個の '?' に融合されるべき)
@@ -214,7 +258,11 @@ public class TextFileServiceSaveTextBufferTests
             int actualQMark = actual.Count(b => b == (byte)'?');
             Assert.Equal(expectedQMark, actualQMark);
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -233,11 +281,16 @@ public class TextFileServiceSaveTextBufferTests
             using (var hold = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
             {
                 Assert.Throws<IOException>(() =>
-                    TextFileService.Save(path, buffer, Encoding.UTF8, hasBom: false));
+                    TextFileService.Save(path, buffer, Encoding.UTF8, hasBom: false)
+                );
             }
             // hold 解放後、原本が変更されていない(fallback も含めて完全に失敗した=原本喪失回避)
             Assert.Equal("old", File.ReadAllText(path));
         }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 }

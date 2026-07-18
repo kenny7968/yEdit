@@ -1,5 +1,5 @@
-using yEdit.Core.Csv;
 using Xunit;
+using yEdit.Core.Csv;
 
 namespace yEdit.Core.Tests.Csv;
 
@@ -106,7 +106,7 @@ public class CsvParserTests
         var expected = CsvParser.Parse(csv);
 
         var buffer = yEdit.Core.Buffers.TextBuffer.FromString(csv);
-        var actual = CsvParser.Parse(buffer.Current);   // 新規オーバーロード
+        var actual = CsvParser.Parse(buffer.Current); // 新規オーバーロード
 
         Assert.Equal(expected.Rows.Count, actual.Rows.Count);
         for (int i = 0; i < expected.Rows.Count; i++)

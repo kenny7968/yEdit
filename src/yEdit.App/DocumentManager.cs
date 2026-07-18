@@ -44,8 +44,8 @@ public sealed class DocumentManager
     public int Count => _docs.Count;
 
     public event EventHandler? ActiveDocumentChanged; // タブ切替
-    public event EventHandler? ActiveDirtyChanged;    // アクティブの変更状態（タイトル更新）
-    public event EventHandler? ActiveCaretChanged;    // アクティブの UpdateUI（行・桁更新）
+    public event EventHandler? ActiveDirtyChanged; // アクティブの変更状態（タイトル更新）
+    public event EventHandler? ActiveCaretChanged; // アクティブの UpdateUI（行・桁更新）
 
     /// <summary>アクティブ Document のエディタが Win32 フォーカスを得た。CSVモード中の
     /// シンク退避判断は上位（MainForm）が行う（_csv.IsEditing を参照できるのが上位のため）。</summary>
@@ -71,19 +71,21 @@ public sealed class DocumentManager
         // キャレット移動はアクティブ分のみ上位へ。
         editor.UpdateUI += (_, _) =>
         {
-            if (ReferenceEquals(doc, Active)) ActiveCaretChanged?.Invoke(this, EventArgs.Empty);
+            if (ReferenceEquals(doc, Active))
+                ActiveCaretChanged?.Invoke(this, EventArgs.Empty);
         };
         editor.GotFocus += (_, _) =>
         {
-            if (ReferenceEquals(doc, Active)) EditorGotFocus?.Invoke(this, doc);
+            if (ReferenceEquals(doc, Active))
+                EditorGotFocus?.Invoke(this, doc);
         };
 
         _docs.Add(doc);
         _tabs.TabPages.Add(page);
         UpdateLabel(doc);
-        BeforeActiveChange?.Invoke();  // 既存タブから切り替わる前に F2 編集等を後始末
-        _tabs.SelectedTab = page;  // 既存タブがあれば Selected 発火→ActiveDocumentChanged
-        FocusActiveEditor();       // 新規/開く直後はエディタで即編集できるようにする
+        BeforeActiveChange?.Invoke(); // 既存タブから切り替わる前に F2 編集等を後始末
+        _tabs.SelectedTab = page; // 既存タブがあれば Selected 発火→ActiveDocumentChanged
+        FocusActiveEditor(); // 新規/開く直後はエディタで即編集できるようにする
         return doc;
     }
 
@@ -99,14 +101,19 @@ public sealed class DocumentManager
 
     public void Activate(Document doc)
     {
-        if (_tabs.SelectedTab != doc.Page) { BeforeActiveChange?.Invoke(); _tabs.SelectedTab = doc.Page; }
+        if (_tabs.SelectedTab != doc.Page)
+        {
+            BeforeActiveChange?.Invoke();
+            _tabs.SelectedTab = doc.Page;
+        }
         doc.FocusTarget.Focus(); // 開いた/呼び出したタブで即編集できるようにする
     }
 
     /// <summary>confirm が続行可を返したら閉じてネイティブ資源を解放する。閉じたら true。</summary>
     public bool TryClose(Document doc, Func<Document, bool> confirm)
     {
-        if (!confirm(doc)) return false;
+        if (!confirm(doc))
+            return false;
         _docs.Remove(doc);
         _tabs.TabPages.Remove(doc.Page);
         doc.Editor.Dispose();
@@ -118,21 +125,23 @@ public sealed class DocumentManager
     public void SelectNext(int dir)
     {
         int n = _tabs.TabPages.Count;
-        if (n == 0) return;
+        if (n == 0)
+            return;
         int prev = _tabs.SelectedIndex;
-        BeforeActiveChange?.Invoke();   // 切替前に F2 編集等を後始末（キーボード経路）
+        BeforeActiveChange?.Invoke(); // 切替前に F2 編集等を後始末（キーボード経路）
         _tabs.SelectedIndex = ((prev + dir) % n + n) % n; // 端は巡回
-        AnnounceThenFocus(prev);        // I-5: 切替が発生した時のみタブ名を発声してからエディタへ遷移
+        AnnounceThenFocus(prev); // I-5: 切替が発生した時のみタブ名を発声してからエディタへ遷移
     }
 
     /// <summary>指定位置のタブを選択し、直接エディタへフォーカス。SR には KeyBasedSwitch でタブ名を読ませる(I-5)。</summary>
     public void SelectAt(int index)
     {
-        if (index < 0 || index >= _tabs.TabPages.Count) return;
+        if (index < 0 || index >= _tabs.TabPages.Count)
+            return;
         int prev = _tabs.SelectedIndex;
-        BeforeActiveChange?.Invoke();   // 切替前に F2 編集等を後始末（キーボード経路）
+        BeforeActiveChange?.Invoke(); // 切替前に F2 編集等を後始末（キーボード経路）
         _tabs.SelectedIndex = index;
-        AnnounceThenFocus(prev);        // I-5: 切替が発生した時のみタブ名を発声してからエディタへ遷移
+        AnnounceThenFocus(prev); // I-5: 切替が発生した時のみタブ名を発声してからエディタへ遷移
     }
 
     // I-5: SelectedIndex が実際に変化した時だけタブ名を能動発声(単一タブや同一 index の no-op で
@@ -140,7 +149,8 @@ public sealed class DocumentManager
     // SR の発声キューを先取りするのを避け、タブ名が確実に先に読まれるようにする。
     private void AnnounceThenFocus(int prevIndex)
     {
-        if (_tabs.SelectedIndex != prevIndex && Active is { } d) KeyBasedSwitch?.Invoke(this, d);
+        if (_tabs.SelectedIndex != prevIndex && Active is { } d)
+            KeyBasedSwitch?.Invoke(this, d);
         FocusActiveEditor();
     }
 
@@ -173,6 +183,7 @@ public sealed class DocumentManager
     private void OnDirtyChanged(Document doc)
     {
         UpdateLabel(doc);
-        if (ReferenceEquals(doc, Active)) ActiveDirtyChanged?.Invoke(this, EventArgs.Empty);
+        if (ReferenceEquals(doc, Active))
+            ActiveDirtyChanged?.Invoke(this, EventArgs.Empty);
     }
 }

@@ -17,6 +17,7 @@ public sealed class TextBuffer
     private readonly UndoHistory _history = new();
     private TextSnapshot _current;
     private PieceTree.Node? _savedRoot;
+
     // 保存点なし状態(MarkUnsaved)。参照比較だけでは fresh バッファ(生成時 _savedRoot=root。
     // 空文書なら両方 null)が常に「未変更」になるため、Modified へ OR するフラグで表す。
     private bool _noSavePoint;
@@ -51,7 +52,8 @@ public sealed class TextBuffer
     public UndoResult? Undo()
     {
         var e = _history.PopUndo();
-        if (e is null) return null;
+        if (e is null)
+            return null;
         _current = new TextSnapshot(e.Value.RootBefore);
         return new UndoResult(e.Value.Pos + e.Value.RemovedLen);
     }
@@ -60,7 +62,8 @@ public sealed class TextBuffer
     public UndoResult? Redo()
     {
         var e = _history.PopRedo();
-        if (e is null) return null;
+        if (e is null)
+            return null;
         _current = new TextSnapshot(e.Value.RootAfter);
         return new UndoResult(e.Value.Pos + e.Value.InsertedLen);
     }
@@ -109,7 +112,8 @@ public sealed class TextBuffer
     /// <summary>全編集の共通経路。範囲 [pos, pos+delLen) を insert で置き換える。</summary>
     private void Splice(int pos, int delLen, string insert)
     {
-        if (delLen == 0 && insert.Length == 0) return;   // 無変化
+        if (delLen == 0 && insert.Length == 0)
+            return; // 無変化
 
         var rootBefore = _current.Root;
 
@@ -119,13 +123,18 @@ public sealed class TextBuffer
         int start = PieceTree.SumOf(l).CharLen;
         var (mid, r) = PieceTree.Split(rest, pos + delLen - start);
         int removed = PieceTree.SumOf(mid).CharLen;
-        if (removed == 0 && insert.Length == 0) return;   // スナップの結果無変化(ルート参照も不変)
+        if (removed == 0 && insert.Length == 0)
+            return; // スナップの結果無変化(ルート参照も不変)
 
         // 文書上限ガード(§0-1)。分割は非破壊なので、ここで throw しても状態は変わらない
-        long newTotalBytes = PieceTree.SumOf(rootBefore).ByteLen - PieceTree.SumOf(mid).ByteLen
-                           + (insert.Length == 0 ? 0 : Encoding.UTF8.GetByteCount(insert));
+        long newTotalBytes =
+            PieceTree.SumOf(rootBefore).ByteLen
+            - PieceTree.SumOf(mid).ByteLen
+            + (insert.Length == 0 ? 0 : Encoding.UTF8.GetByteCount(insert));
         if (newTotalBytes > MaxTotalBytes)
-            throw new InvalidOperationException("文書サイズ上限(int.MaxValueバイト)を超えるため編集できません。");
+            throw new InvalidOperationException(
+                "文書サイズ上限(int.MaxValueバイト)を超えるため編集できません。"
+            );
 
         // 3) 挿入テキストを追記バッファへ
         var newPieces = _append.Append(insert);
@@ -136,13 +145,21 @@ public sealed class TextBuffer
         {
             var (remaining, last) = PieceTree.SplitLast(left);
             var first = newPieces[0];
-            if (ReferenceEquals(last.Chunk, first.Chunk) && last.ByteStart + last.ByteLen == first.ByteStart)
+            if (
+                ReferenceEquals(last.Chunk, first.Chunk)
+                && last.ByteStart + last.ByteLen == first.ByteStart
+            )
             {
-                newPieces[0] = new Piece(last.Chunk, last.ByteStart, last.ByteLen + first.ByteLen,
-                                         PieceStats.Combine(last.Stats, first.Stats));
+                newPieces[0] = new Piece(
+                    last.Chunk,
+                    last.ByteStart,
+                    last.ByteLen + first.ByteLen,
+                    PieceStats.Combine(last.Stats, first.Stats)
+                );
                 left = remaining;
             }
-            else left = PieceTree.Join(remaining, last, null);
+            else
+                left = PieceTree.Join(remaining, last, null);
         }
         // 右側マージ: 現設計では既存ピースが新規追記の直後に位置することはないため通常発火しない
         // (左右対称性の保険として保持。発火しても正しさはモノイド結合で保証される)
@@ -151,23 +168,38 @@ public sealed class TextBuffer
         {
             var (first, remaining) = PieceTree.SplitFirst(right);
             var lastNew = newPieces[^1];
-            if (ReferenceEquals(lastNew.Chunk, first.Chunk) && lastNew.ByteStart + lastNew.ByteLen == first.ByteStart)
+            if (
+                ReferenceEquals(lastNew.Chunk, first.Chunk)
+                && lastNew.ByteStart + lastNew.ByteLen == first.ByteStart
+            )
             {
-                newPieces[^1] = new Piece(first.Chunk, lastNew.ByteStart, lastNew.ByteLen + first.ByteLen,
-                                          PieceStats.Combine(lastNew.Stats, first.Stats));
+                newPieces[^1] = new Piece(
+                    first.Chunk,
+                    lastNew.ByteStart,
+                    lastNew.ByteLen + first.ByteLen,
+                    PieceStats.Combine(lastNew.Stats, first.Stats)
+                );
                 right = remaining;
             }
-            else right = PieceTree.Join(null, first, remaining);
+            else
+                right = PieceTree.Join(null, first, remaining);
         }
 
         // 5) 再結合+Undoログ記録
         var joined = left;
-        foreach (var p in newPieces) joined = PieceTree.Join(joined, p, null);
+        foreach (var p in newPieces)
+            joined = PieceTree.Join(joined, p, null);
         var newRoot = PieceTree.Join2(joined, right);
         _current = new TextSnapshot(newRoot);
         // 挿入のUTF-16長: 孤立サロゲート→U+FFFD 置換は1単位→1単位なので insert.Length と一致
-        _history.Record(rootBefore, newRoot, start, removed, insert.Length,
-                        insert.Contains('\n') || insert.Contains('\r'));
+        _history.Record(
+            rootBefore,
+            newRoot,
+            start,
+            removed,
+            insert.Length,
+            insert.Contains('\n') || insert.Contains('\r')
+        );
     }
 
     private void ValidateRange(int pos, int length)
@@ -175,6 +207,10 @@ public sealed class TextBuffer
         ArgumentOutOfRangeException.ThrowIfNegative(pos);
         ArgumentOutOfRangeException.ThrowIfNegative(length);
         if ((long)pos + length > _current.CharLength)
-            throw new ArgumentOutOfRangeException(nameof(pos), pos, "範囲が文書末尾を超えています。");
+            throw new ArgumentOutOfRangeException(
+                nameof(pos),
+                pos,
+                "範囲が文書末尾を超えています。"
+            );
     }
 }

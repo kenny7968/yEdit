@@ -71,27 +71,38 @@ public sealed class SnapshotSearcher
     /// <summary>snap 全体のヒット件数。無効なら 0。</summary>
     public int Count(TextSnapshot snap)
     {
-        if (!IsValid) return 0;
-        if (!IsLarge(snap)) return _inner.Count(Materialize(snap));
+        if (!IsValid)
+            return 0;
+        if (!IsLarge(snap))
+            return _inner.Count(Materialize(snap));
         return _opts.UseRegex ? CountRegexPerLine(snap) : CountLiteralWindow(snap);
     }
 
     /// <summary>from 以降で最初のヒット(折り返しなし)。無効なら null。</summary>
     public MatchSpan? FindNext(TextSnapshot snap, int from)
     {
-        if (!IsValid) return null;
-        if (!IsLarge(snap)) return _inner.FindNext(Materialize(snap), from);
-        if (from < 0) from = 0;
-        if (from > snap.CharLength) return null;
-        return _opts.UseRegex ? FindNextRegexPerLine(snap, from) : FindNextLiteralWindow(snap, from);
+        if (!IsValid)
+            return null;
+        if (!IsLarge(snap))
+            return _inner.FindNext(Materialize(snap), from);
+        if (from < 0)
+            from = 0;
+        if (from > snap.CharLength)
+            return null;
+        return _opts.UseRegex
+            ? FindNextRegexPerLine(snap, from)
+            : FindNextLiteralWindow(snap, from);
     }
 
     /// <summary>開始位置(Index)が before より厳密に前にある最後のヒットを返す(折り返しなし)。</summary>
     public MatchSpan? FindPrev(TextSnapshot snap, int before)
     {
-        if (!IsValid) return null;
-        if (!IsLarge(snap)) return _inner.FindPrev(Materialize(snap), before);
-        if (before <= 0) return null;
+        if (!IsValid)
+            return null;
+        if (!IsLarge(snap))
+            return _inner.FindPrev(Materialize(snap), before);
+        if (before <= 0)
+            return null;
         int b = Math.Min(before, snap.CharLength);
         return _opts.UseRegex ? FindPrevRegexPerLine(snap, b) : FindPrevLiteralWindow(snap, b);
     }
@@ -99,8 +110,10 @@ public sealed class SnapshotSearcher
     /// <summary>span を全ヒット中の何件目か(1始まり, total)。span がヒットでなければ null。</summary>
     public (int Ordinal, int Total)? Locate(TextSnapshot snap, MatchSpan span)
     {
-        if (!IsValid) return null;
-        if (!IsLarge(snap)) return _inner.Locate(Materialize(snap), span);
+        if (!IsValid)
+            return null;
+        if (!IsLarge(snap))
+            return _inner.Locate(Materialize(snap), span);
         return _opts.UseRegex ? LocateRegexPerLine(snap, span) : LocateLiteralWindow(snap, span);
     }
 
@@ -109,10 +122,13 @@ public sealed class SnapshotSearcher
     /// </summary>
     public string? ReplacementAt(TextSnapshot snap, MatchSpan span, string replacement)
     {
-        if (!IsValid) return null;
-        if (!IsLarge(snap)) return _inner.ReplacementAt(Materialize(snap), span, replacement);
-        return _opts.UseRegex ? ReplacementAtRegexPerLine(snap, span, replacement)
-                              : ReplacementAtLiteralWindow(snap, span, replacement);
+        if (!IsValid)
+            return null;
+        if (!IsLarge(snap))
+            return _inner.ReplacementAt(Materialize(snap), span, replacement);
+        return _opts.UseRegex
+            ? ReplacementAtRegexPerLine(snap, span, replacement)
+            : ReplacementAtLiteralWindow(snap, span, replacement);
     }
 
     /// <summary>
@@ -120,14 +136,22 @@ public sealed class SnapshotSearcher
     /// 範囲外・境界をまたぐヒットは対象外。start/length は snap 範囲へクランプする。
     /// 閾値超でも Fragment を string で組み立てる=大容量 ReplaceAll での真の OOM 回避は P7 送り(設計書§2-8 許容)。
     /// </summary>
-    public (string Fragment, int Count) ReplaceInRange(TextSnapshot snap, int start, int length, string replacement)
+    public (string Fragment, int Count) ReplaceInRange(
+        TextSnapshot snap,
+        int start,
+        int length,
+        string replacement
+    )
     {
         int s = Math.Clamp(start, 0, snap.CharLength);
         int end = Math.Clamp(start + length, s, snap.CharLength);
-        if (!IsValid) return (snap.GetText(s, end - s), 0);
-        if (!IsLarge(snap)) return _inner.ReplaceInRange(Materialize(snap), start, length, replacement);
-        return _opts.UseRegex ? ReplaceInRangeRegexPerLine(snap, s, end, replacement)
-                              : ReplaceInRangeLiteralWindow(snap, s, end, replacement);
+        if (!IsValid)
+            return (snap.GetText(s, end - s), 0);
+        if (!IsLarge(snap))
+            return _inner.ReplaceInRange(Materialize(snap), start, length, replacement);
+        return _opts.UseRegex
+            ? ReplaceInRangeRegexPerLine(snap, s, end, replacement)
+            : ReplaceInRangeLiteralWindow(snap, s, end, replacement);
     }
 
     private bool IsLarge(TextSnapshot snap) => snap.CharLength > _thresholdChars;
@@ -153,10 +177,12 @@ public sealed class SnapshotSearcher
         while (true)
         {
             var hit = FindNextLiteralWindow(snap, pos);
-            if (hit is not { } h) break;
+            if (hit is not { } h)
+                break;
             total++;
             pos = h.Start + Math.Max(1, h.Length);
-            if (pos > snap.CharLength) break;
+            if (pos > snap.CharLength)
+                break;
         }
         return total;
     }
@@ -166,7 +192,8 @@ public sealed class SnapshotSearcher
         int total = snap.CharLength;
         string pattern = _opts.Pattern;
         int plen = pattern.Length;
-        if (plen == 0 || from >= total) return null;
+        if (plen == 0 || from >= total)
+            return null;
 
         var cmp = GetLiteralComparison();
         int windowSize = Math.Max(_windowSize, plen * 2);
@@ -186,10 +213,15 @@ public sealed class SnapshotSearcher
                     return new MatchSpan(absStart, plen);
                 // 次の候補=idx+1 から続けて同ウィンドウ内を探索
                 int nextStart = idx + 1;
-                if (nextStart > chunk.Length - plen) { idx = -1; break; }
+                if (nextStart > chunk.Length - plen)
+                {
+                    idx = -1;
+                    break;
+                }
                 idx = chunk.IndexOf(pattern, nextStart, cmp);
             }
-            if (chunkLen < windowSize) break; // 最終窓
+            if (chunkLen < windowSize)
+                break; // 最終窓
             pos += windowSize - overlap;
         }
         return null;
@@ -199,7 +231,8 @@ public sealed class SnapshotSearcher
     {
         string pattern = _opts.Pattern;
         int plen = pattern.Length;
-        if (plen == 0) return null;
+        if (plen == 0)
+            return null;
 
         var cmp = GetLiteralComparison();
         int windowSize = Math.Max(_windowSize, plen * 2);
@@ -216,12 +249,20 @@ public sealed class SnapshotSearcher
             while (idx >= 0)
             {
                 int absStart = chunkStart + idx;
-                if (absStart < before && (!_opts.WholeWord || IsWordBoundaryMatch(snap, absStart, plen)))
+                if (
+                    absStart < before
+                    && (!_opts.WholeWord || IsWordBoundaryMatch(snap, absStart, plen))
+                )
                     return new MatchSpan(absStart, plen);
-                if (idx == 0) { idx = -1; break; }
+                if (idx == 0)
+                {
+                    idx = -1;
+                    break;
+                }
                 idx = chunk.LastIndexOf(pattern, idx - 1, cmp);
             }
-            if (chunkStart == 0) break;
+            if (chunkStart == 0)
+                break;
             end = chunkStart + overlap;
         }
         return null;
@@ -229,31 +270,52 @@ public sealed class SnapshotSearcher
 
     private (int, int)? LocateLiteralWindow(TextSnapshot snap, MatchSpan span)
     {
-        int total = 0, ordinal = 0; bool found = false;
+        int total = 0,
+            ordinal = 0;
+        bool found = false;
         int pos = 0;
         while (true)
         {
             var hit = FindNextLiteralWindow(snap, pos);
-            if (hit is not { } h) break;
+            if (hit is not { } h)
+                break;
             total++;
-            if (h.Start == span.Start && h.Length == span.Length) { ordinal = total; found = true; }
+            if (h.Start == span.Start && h.Length == span.Length)
+            {
+                ordinal = total;
+                found = true;
+            }
             pos = h.Start + Math.Max(1, h.Length);
-            if (pos > snap.CharLength) break;
+            if (pos > snap.CharLength)
+                break;
         }
         return found ? (ordinal, total) : null;
     }
 
-    private string? ReplacementAtLiteralWindow(TextSnapshot snap, MatchSpan span, string replacement)
+    private string? ReplacementAtLiteralWindow(
+        TextSnapshot snap,
+        MatchSpan span,
+        string replacement
+    )
     {
-        if (span.Start < 0 || span.Start + span.Length > snap.CharLength) return null;
-        if (span.Length != _opts.Pattern.Length) return null;
+        if (span.Start < 0 || span.Start + span.Length > snap.CharLength)
+            return null;
+        if (span.Length != _opts.Pattern.Length)
+            return null;
         string actual = snap.GetText(span.Start, span.Length);
-        if (!actual.Equals(_opts.Pattern, GetLiteralComparison())) return null;
-        if (_opts.WholeWord && !IsWordBoundaryMatch(snap, span.Start, span.Length)) return null;
+        if (!actual.Equals(_opts.Pattern, GetLiteralComparison()))
+            return null;
+        if (_opts.WholeWord && !IsWordBoundaryMatch(snap, span.Start, span.Length))
+            return null;
         return replacement; // リテラル: $ 展開なし
     }
 
-    private (string Fragment, int Count) ReplaceInRangeLiteralWindow(TextSnapshot snap, int start, int end, string replacement)
+    private (string Fragment, int Count) ReplaceInRangeLiteralWindow(
+        TextSnapshot snap,
+        int start,
+        int end,
+        string replacement
+    )
     {
         var sb = new StringBuilder();
         int count = 0;
@@ -261,14 +323,18 @@ public sealed class SnapshotSearcher
         while (pos < end)
         {
             var hit = FindNextLiteralWindow(snap, pos);
-            if (hit is not { } h) break;
-            if (h.Start + h.Length > end) break; // 範囲またぎ・範囲外は除外
-            if (h.Start > pos) sb.Append(snap.GetText(pos, h.Start - pos));
+            if (hit is not { } h)
+                break;
+            if (h.Start + h.Length > end)
+                break; // 範囲またぎ・範囲外は除外
+            if (h.Start > pos)
+                sb.Append(snap.GetText(pos, h.Start - pos));
             sb.Append(replacement);
             pos = h.Start + Math.Max(1, h.Length);
             count++;
         }
-        if (pos < end) sb.Append(snap.GetText(pos, end - pos));
+        if (pos < end)
+            sb.Append(snap.GetText(pos, end - pos));
         return (sb.ToString(), count);
     }
 
@@ -300,7 +366,8 @@ public sealed class SnapshotSearcher
             {
                 string lineText = snap.GetText(ls, lineLen);
                 var h = _inner.FindNext(lineText, offset);
-                if (h is { } m) return new MatchSpan(ls + m.Start, m.Length);
+                if (h is { } m)
+                    return new MatchSpan(ls + m.Start, m.Length);
             }
         }
         for (int line = startLine + 1; line < snap.LineCount; line++)
@@ -309,7 +376,8 @@ public sealed class SnapshotSearcher
             int le = snap.GetLineEnd(line, includeBreak: false);
             string lineText = snap.GetText(ls, le - ls);
             var h = _inner.FindNext(lineText, 0);
-            if (h is { } m) return new MatchSpan(ls + m.Start, m.Length);
+            if (h is { } m)
+                return new MatchSpan(ls + m.Start, m.Length);
         }
         return null;
     }
@@ -327,7 +395,8 @@ public sealed class SnapshotSearcher
             {
                 string lineText = snap.GetText(ls, lineLen);
                 var h = _inner.FindPrev(lineText, limit);
-                if (h is { } m) return new MatchSpan(ls + m.Start, m.Length);
+                if (h is { } m)
+                    return new MatchSpan(ls + m.Start, m.Length);
             }
         }
         for (int line = startLine - 1; line >= 0; line--)
@@ -337,14 +406,17 @@ public sealed class SnapshotSearcher
             int lineLen = le - ls;
             string lineText = snap.GetText(ls, lineLen);
             var h = _inner.FindPrev(lineText, lineLen + 1); // 行内全体を対象
-            if (h is { } m) return new MatchSpan(ls + m.Start, m.Length);
+            if (h is { } m)
+                return new MatchSpan(ls + m.Start, m.Length);
         }
         return null;
     }
 
     private (int, int)? LocateRegexPerLine(TextSnapshot snap, MatchSpan span)
     {
-        int total = 0, ordinal = 0; bool found = false;
+        int total = 0,
+            ordinal = 0;
+        bool found = false;
         for (int line = 0; line < snap.LineCount; line++)
         {
             int ls = snap.GetLineStart(line);
@@ -354,11 +426,17 @@ public sealed class SnapshotSearcher
             while (true)
             {
                 var h = _inner.FindNext(lineText, off);
-                if (h is not { } m) break;
+                if (h is not { } m)
+                    break;
                 total++;
-                if (ls + m.Start == span.Start && m.Length == span.Length) { ordinal = total; found = true; }
+                if (ls + m.Start == span.Start && m.Length == span.Length)
+                {
+                    ordinal = total;
+                    found = true;
+                }
                 off = m.Start + Math.Max(1, m.Length);
-                if (off > lineText.Length) break;
+                if (off > lineText.Length)
+                    break;
             }
         }
         return found ? (ordinal, total) : null;
@@ -366,18 +444,25 @@ public sealed class SnapshotSearcher
 
     private string? ReplacementAtRegexPerLine(TextSnapshot snap, MatchSpan span, string replacement)
     {
-        if (span.Start < 0 || span.Start + span.Length > snap.CharLength) return null;
+        if (span.Start < 0 || span.Start + span.Length > snap.CharLength)
+            return null;
         int line = snap.GetLineIndexOfChar(span.Start);
         int ls = snap.GetLineStart(line);
         int le = snap.GetLineEnd(line, includeBreak: false);
         // 行を跨ぐ span は行単位契約により対象外
-        if (span.Start + span.Length > le) return null;
+        if (span.Start + span.Length > le)
+            return null;
         string lineText = snap.GetText(ls, le - ls);
         var lineSpan = new MatchSpan(span.Start - ls, span.Length);
         return _inner.ReplacementAt(lineText, lineSpan, replacement);
     }
 
-    private (string Fragment, int Count) ReplaceInRangeRegexPerLine(TextSnapshot snap, int start, int end, string replacement)
+    private (string Fragment, int Count) ReplaceInRangeRegexPerLine(
+        TextSnapshot snap,
+        int start,
+        int end,
+        string replacement
+    )
     {
         var sb = new StringBuilder();
         int count = 0;
@@ -397,7 +482,12 @@ public sealed class SnapshotSearcher
             int rangeInLineEnd = Math.Min(lineLen, end - ls);
 
             string lineText = snap.GetText(ls, lineLen);
-            var (frag, cnt) = _inner.ReplaceInRange(lineText, rangeInLineStart, rangeInLineEnd - rangeInLineStart, replacement);
+            var (frag, cnt) = _inner.ReplaceInRange(
+                lineText,
+                rangeInLineStart,
+                rangeInLineEnd - rangeInLineStart,
+                replacement
+            );
             sb.Append(frag);
             count += cnt;
 
@@ -405,7 +495,8 @@ public sealed class SnapshotSearcher
             // 終わるケース(選択終端が CRLF の間など)は end で切り詰める(壊れる契約許容だが安全側)。
             int breakLen = snap.GetLineEnd(line, includeBreak: true) - le;
             int emit = Math.Min(breakLen, Math.Max(0, end - le));
-            if (emit > 0) sb.Append(snap.GetText(le, emit));
+            if (emit > 0)
+                sb.Append(snap.GetText(le, emit));
         }
         return (sb.ToString(), count);
     }
@@ -421,8 +512,8 @@ public sealed class SnapshotSearcher
     // WholeWord 判定(閾値超・素朴 ASCII \w)
     // ==============================
 
-    private static bool IsWordChar(char c)
-        => (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+    private static bool IsWordChar(char c) =>
+        (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
 
     /// <summary>\b と等価の zero-width 判定=前後の "word char" 属性が異なる境界。</summary>
     private static bool IsBoundary(TextSnapshot snap, int pos)
@@ -432,6 +523,6 @@ public sealed class SnapshotSearcher
         return beforeIsWord != atIsWord;
     }
 
-    private static bool IsWordBoundaryMatch(TextSnapshot snap, int start, int len)
-        => IsBoundary(snap, start) && IsBoundary(snap, start + len);
+    private static bool IsWordBoundaryMatch(TextSnapshot snap, int start, int len) =>
+        IsBoundary(snap, start) && IsBoundary(snap, start + len);
 }

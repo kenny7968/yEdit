@@ -18,15 +18,18 @@ public static class EncodingDetector
             return new DetectedEncoding(65001, true);
 
         // 空は UTF-8 既定
-        if (bytes.Length == 0) return new DetectedEncoding(65001, false);
+        if (bytes.Length == 0)
+            return new DetectedEncoding(65001, false);
 
         // ② 厳格 UTF-8 デコード成功なら UTF-8（BOM無し）
-        if (IsStrictUtf8(bytes)) return new DetectedEncoding(65001, false);
+        if (IsStrictUtf8(bytes))
+            return new DetectedEncoding(65001, false);
 
         // ③ UTF.Unknown へ委譲
         var result = CharsetDetector.DetectFromBytes(bytes);
         int? cp = MapCharset(result?.Detected?.EncodingName, result?.Detected?.Confidence ?? 0f);
-        if (cp is int detected) return new DetectedEncoding(detected, false);
+        if (cp is int detected)
+            return new DetectedEncoding(detected, false);
 
         // ④ フォールバック: Shift_JIS
         return new DetectedEncoding(932, false);
@@ -36,11 +39,17 @@ public static class EncodingDetector
     {
         try
         {
-            var strict = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+            var strict = new UTF8Encoding(
+                encoderShouldEmitUTF8Identifier: false,
+                throwOnInvalidBytes: true
+            );
             strict.GetCharCount(bytes);
             return true;
         }
-        catch (DecoderFallbackException) { return false; }
+        catch (DecoderFallbackException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -49,7 +58,8 @@ public static class EncodingDetector
     /// </summary>
     private static int? MapCharset(string? name, float confidence)
     {
-        if (name is null || confidence < 0.5f) return null;
+        if (name is null || confidence < 0.5f)
+            return null;
         return name.ToLowerInvariant() switch
         {
             "utf-8" => 65001,

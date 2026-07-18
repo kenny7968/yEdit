@@ -33,11 +33,19 @@ public sealed class TextSearcher
             return;
         }
         string body = options.UseRegex ? options.Pattern : Regex.Escape(options.Pattern);
-        if (options.WholeWord) body = $@"\b(?:{body})\b";
+        if (options.WholeWord)
+            body = $@"\b(?:{body})\b";
         var opts = RegexOptions.CultureInvariant;
-        if (!options.MatchCase) opts |= RegexOptions.IgnoreCase;
-        try { _regex = new Regex(body, opts, TimeSpan.FromSeconds(1)); }
-        catch (ArgumentException ex) { Error = ex.Message; }
+        if (!options.MatchCase)
+            opts |= RegexOptions.IgnoreCase;
+        try
+        {
+            _regex = new Regex(body, opts, TimeSpan.FromSeconds(1));
+        }
+        catch (ArgumentException ex)
+        {
+            Error = ex.Message;
+        }
     }
 
     /// <summary>
@@ -55,9 +63,12 @@ public sealed class TextSearcher
     /// </summary>
     public MatchSpan? FindNext(string text, int from)
     {
-        if (_regex is null) return null;
-        if (from < 0) from = 0;
-        if (from > text.Length) return null;
+        if (_regex is null)
+            return null;
+        if (from < 0)
+            from = 0;
+        if (from > text.Length)
+            return null;
         var m = _regex.Match(text, from);
         return m.Success ? new MatchSpan(m.Index, m.Length) : null;
     }
@@ -69,11 +80,13 @@ public sealed class TextSearcher
     /// </summary>
     public MatchSpan? FindPrev(string text, int before)
     {
-        if (_regex is null) return null;
+        if (_regex is null)
+            return null;
         MatchSpan? last = null;
         foreach (Match m in _regex.Matches(text))
         {
-            if (m.Index >= before) break;
+            if (m.Index >= before)
+                break;
             last = new MatchSpan(m.Index, m.Length);
         }
         return last;
@@ -85,12 +98,19 @@ public sealed class TextSearcher
     /// </summary>
     public (int Ordinal, int Total)? Locate(string text, MatchSpan span)
     {
-        if (_regex is null) return null;
-        int ordinal = 0, total = 0; bool found = false;
+        if (_regex is null)
+            return null;
+        int ordinal = 0,
+            total = 0;
+        bool found = false;
         foreach (Match m in _regex.Matches(text))
         {
             total++;
-            if (m.Index == span.Start && m.Length == span.Length) { ordinal = total; found = true; }
+            if (m.Index == span.Start && m.Length == span.Length)
+            {
+                ordinal = total;
+                found = true;
+            }
         }
         return found ? (ordinal, total) : null;
     }
@@ -101,10 +121,13 @@ public sealed class TextSearcher
     /// </summary>
     public string? ReplacementAt(string text, MatchSpan span, string replacement)
     {
-        if (_regex is null) return null;
-        if (span.Start < 0 || span.Start > text.Length) return null;
+        if (_regex is null)
+            return null;
+        if (span.Start < 0 || span.Start > text.Length)
+            return null;
         var m = _regex.Match(text, span.Start);
-        if (!m.Success || m.Index != span.Start || m.Length != span.Length) return null;
+        if (!m.Success || m.Index != span.Start || m.Length != span.Length)
+            return null;
         return Expand(m, replacement);
     }
 
@@ -112,8 +135,8 @@ public sealed class TextSearcher
     /// 全文置換。返すのは置換後の全文（=新断片）と件数。
     /// 複雑な正規表現では RegexMatchTimeoutException が送出され得る（1秒）。
     /// </summary>
-    public (string Fragment, int Count) ReplaceAll(string text, string replacement)
-        => ReplaceInRange(text, 0, text.Length, replacement);
+    public (string Fragment, int Count) ReplaceAll(string text, string replacement) =>
+        ReplaceInRange(text, 0, text.Length, replacement);
 
     /// <summary>
     /// [start, start+length) に完全に収まるヒットだけ置換し、その範囲の置換後断片と件数を返す。
@@ -121,18 +144,27 @@ public sealed class TextSearcher
     /// エディタはこの断片で当該文字範囲を差し替える。
     /// 複雑な正規表現では RegexMatchTimeoutException が送出され得る（1秒）。
     /// </summary>
-    public (string Fragment, int Count) ReplaceInRange(string text, int start, int length, string replacement)
+    public (string Fragment, int Count) ReplaceInRange(
+        string text,
+        int start,
+        int length,
+        string replacement
+    )
     {
         int s = Math.Clamp(start, 0, text.Length);
         int end = Math.Clamp(start + length, s, text.Length);
-        if (_regex is null) return (text.Substring(s, end - s), 0);
+        if (_regex is null)
+            return (text.Substring(s, end - s), 0);
 
         var sb = new StringBuilder();
-        int count = 0, pos = s;
+        int count = 0,
+            pos = s;
         foreach (Match m in _regex.Matches(text))
         {
-            if (m.Index < s) continue;
-            if (m.Index + m.Length > end) break;
+            if (m.Index < s)
+                continue;
+            if (m.Index + m.Length > end)
+                break;
             sb.Append(text, pos, m.Index - pos);
             sb.Append(Expand(m, replacement));
             pos = m.Index + m.Length;
@@ -142,5 +174,6 @@ public sealed class TextSearcher
         return (sb.ToString(), count);
     }
 
-    private string Expand(Match m, string replacement) => _expand ? m.Result(replacement) : replacement;
+    private string Expand(Match m, string replacement) =>
+        _expand ? m.Result(replacement) : replacement;
 }

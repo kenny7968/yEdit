@@ -22,6 +22,12 @@ function Invoke-Step {
     }
 }
 
+Invoke-Step 'Local tool restore' {
+    dotnet tool restore
+}
+Invoke-Step 'CSharpier check (format verify)' {
+    dotnet csharpier check $repoRoot
+}
 Invoke-Step 'Release ビルド(警告=エラー)' {
     dotnet build (Join-Path $repoRoot 'yEdit.sln') -c Release -warnaserror
 }

@@ -4,7 +4,13 @@ namespace yEdit.Core.Buffers;
 /// 区分(ピース)ローカルの統計。改行セマンティクス:
 /// Breaks = 区分内のLF数 + 「区分内でLFが直後に続かないCR」の数(末尾CRは単独扱いで数える)。
 /// </summary>
-internal readonly record struct PieceStats(long ByteLen, int CharLen, int Breaks, bool FirstIsLf, bool LastIsCr)
+internal readonly record struct PieceStats(
+    long ByteLen,
+    int CharLen,
+    int Breaks,
+    bool FirstIsLf,
+    bool LastIsCr
+)
 {
     public static readonly PieceStats Empty = default;
 
@@ -14,13 +20,17 @@ internal readonly record struct PieceStats(long ByteLen, int CharLen, int Breaks
     /// </summary>
     public static PieceStats Combine(in PieceStats a, in PieceStats b)
     {
-        if (a.CharLen == 0) return b;
-        if (b.CharLen == 0) return a;
+        if (a.CharLen == 0)
+            return b;
+        if (b.CharLen == 0)
+            return a;
         return new PieceStats(
             a.ByteLen + b.ByteLen,
             a.CharLen + b.CharLen,
             a.Breaks + b.Breaks - (a.LastIsCr && b.FirstIsLf ? 1 : 0),
-            a.FirstIsLf, b.LastIsCr);
+            a.FirstIsLf,
+            b.LastIsCr
+        );
     }
 }
 
@@ -29,6 +39,6 @@ internal readonly record struct Piece(TextChunk Chunk, int ByteStart, int ByteLe
 {
     public int CharLen => Stats.CharLen;
 
-    public static Piece Of(TextChunk chunk, int byteStart, int byteLen)
-        => new(chunk, byteStart, byteLen, chunk.StatsOfRange(byteStart, byteLen));
+    public static Piece Of(TextChunk chunk, int byteStart, int byteLen) =>
+        new(chunk, byteStart, byteLen, chunk.StatsOfRange(byteStart, byteLen));
 }

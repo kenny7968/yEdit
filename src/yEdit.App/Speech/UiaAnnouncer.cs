@@ -8,7 +8,8 @@ namespace yEdit.App.Speech;
 /// </summary>
 internal sealed class UiaAnnouncer : AnnouncerBase
 {
-    public UiaAnnouncer(Label label) : base(label) { }
+    public UiaAnnouncer(Label label)
+        : base(label) { }
 
     /// <summary>Label の UIA プロバイダから通知を上げる。非対応環境では握りつぶし（視覚のみ）。</summary>
     protected override void Speak(string message)
@@ -18,8 +19,11 @@ internal sealed class UiaAnnouncer : AnnouncerBase
             _label.AccessibilityObject.RaiseAutomationNotification(
                 AutomationNotificationKind.ActionCompleted,
                 AutomationNotificationProcessing.MostRecent,
-                message);
+                message
+            );
         }
-        catch { /* 通知非対応環境では視覚表示のみ */ }
+        catch
+        { /* 通知非対応環境では視覚表示のみ */
+        }
     }
 }

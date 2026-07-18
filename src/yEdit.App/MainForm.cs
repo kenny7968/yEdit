@@ -12,32 +12,38 @@ namespace yEdit.App;
 public sealed partial class MainForm : Form
 {
     private readonly DocumentManager _docs;
-    private readonly FileController _file;      // コンストラクタで生成
+    private readonly FileController _file; // コンストラクタで生成
     private readonly SearchController _search; // コンストラクタで生成
-    private readonly GrepController _grep;     // コンストラクタで生成
+    private readonly GrepController _grep; // コンストラクタで生成
     private readonly BackupCoordinator _backup; // コンストラクタで生成
-    private readonly CsvController _csv;        // コンストラクタで生成
+    private readonly CsvController _csv; // コンストラクタで生成
     private readonly KinsokuFormatController _kinsoku; // コンストラクタで生成(FormatWithKinsoku を委譲)
-    private bool _restoreOffered;             // 起動時の復元提案を一度だけ行う
+    private bool _restoreOffered; // 起動時の復元提案を一度だけ行う
     private readonly ToolStripStatusLabel _posLabel = new("行 1, 桁 1");
     private readonly ToolStripStatusLabel _encLabel = new("UTF-8");
     private readonly ToolStripStatusLabel _eolLabel = new("CRLF");
+
     // SR への能動通知用ラベル（底部・最後の通知を視覚表示）。フォーカス不可なので編集を妨げない。
     private readonly Label _announceLabel = new()
     {
-        Dock = DockStyle.Bottom, Height = 22, AutoSize = false,
-        TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "通知",
+        Dock = DockStyle.Bottom,
+        Height = 22,
+        AutoSize = false,
+        TextAlign = ContentAlignment.MiddleLeft,
+        AccessibleName = "通知",
     };
     private readonly IAnnouncer _announcer; // コンストラクタで UiaAnnouncer を直接生成（下記参照）
     private ToolStripMenuItem _recentMenu = null!; // BuildMenu で生成
     private readonly string _settingsPath;
     private AppSettings _settings = new();
+
     // Alt 等でメニューがアクティブな間は CSV の素キー横取りを止め、矢印/文字キーをメニュー操作へ通す。
     // メニューモードに入っても本文(EditorControl)はフォーカスを保持するため ContainsFocus では判別できず、
     // MenuStrip の Activate/Deactivate イベントで明示的に追跡する。
     private bool _menuActive;
 
-    public MainForm(AppSettings settings) : this(settings, SettingsStore.DefaultPath) { }
+    public MainForm(AppSettings settings)
+        : this(settings, SettingsStore.DefaultPath) { }
 
     /// <summary>
     /// テストで実設定ファイルを汚さないため internal 経由で settingsPath を注入可能に
@@ -46,7 +52,7 @@ public sealed partial class MainForm : Form
     internal MainForm(AppSettings settings, string settingsPath)
     {
         _settingsPath = settingsPath;
-        _settings = settings;   // Program.Main が読込済み
+        _settings = settings; // Program.Main が読込済み
 
         Text = "yEdit";
         Width = _settings.WindowWidth;
@@ -57,7 +63,11 @@ public sealed partial class MainForm : Form
         // Announcer は KeyBasedSwitch のラムダで参照されるため、event 購読より前に確定させる
         // (readonly 化に伴い null! 初期化を廃止 → definite assignment を先に済ませる)。
         _announcer = new UiaAnnouncer(_announceLabel);
-        _docs.ActiveDocumentChanged += (_, _) => { UpdateTitle(); UpdateStatus(); };
+        _docs.ActiveDocumentChanged += (_, _) =>
+        {
+            UpdateTitle();
+            UpdateStatus();
+        };
         _docs.KeyBasedSwitch += (_, doc) => _announcer.Say(doc.TabLabel);
         _docs.ActiveDirtyChanged += (_, _) => UpdateTitle();
         _docs.ActiveCaretChanged += (_, _) => UpdateStatus();
@@ -70,10 +80,15 @@ public sealed partial class MainForm : Form
             settings: () => _settings,
             saveSettings: SaveSettingsSafe,
             recentChanged: RebuildRecentMenu,
-            metaChanged: () => { UpdateTitle(); UpdateStatus(); },
+            metaChanged: () =>
+            {
+                UpdateTitle();
+                UpdateStatus();
+            },
             openedFresh: AutoEnterCsvMode,
             prompt: new MessageBoxUserPrompt(),
-            fileDialogs: new WinFormsFileDialogService());
+            fileDialogs: new WinFormsFileDialogService()
+        );
         _search = new SearchController(_docs, this, _announcer, cb => new FindReplaceDialog(cb));
         _grep = new GrepController(
             docs: _docs,
@@ -81,14 +96,26 @@ public sealed partial class MainForm : Form
             // Batch D Task 12: GrepDialog は new UiaAnnouncer(_status) の直生成を廃止し
             // 共有 _announcer(SearchController と同型経路)を注入する。
             viewFactory: cb => new GrepDialog(cb, _announcer),
-            resultsFactory: () => new GrepResultsWindow(
-                new GrepResultsCallbacks(hit => OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength))));
+            resultsFactory: () =>
+                new GrepResultsWindow(
+                    new GrepResultsCallbacks(hit =>
+                        OpenAndSelect(hit.FilePath, hit.AbsoluteOffset, hit.MatchLength)
+                    )
+                )
+        );
         _backup = new BackupCoordinator(
-            _docs, _settings.BackupEnabled, _settings.BackupIntervalSeconds,
+            _docs,
+            _settings.BackupEnabled,
+            _settings.BackupIntervalSeconds,
             TimeProvider.System,
             () => new SerialBackupWriter(BackupStore.DefaultDirectory),
-            new WinFormsRestorePrompt());
-        _csv = new CsvController(docs: _docs, announcer: _announcer, cellPicker: new WinFormsCellPicker());
+            new WinFormsRestorePrompt()
+        );
+        _csv = new CsvController(
+            docs: _docs,
+            announcer: _announcer,
+            cellPicker: new WinFormsCellPicker()
+        );
         _kinsoku = new KinsokuFormatController(_docs, _announcer);
         _docs.BeforeActiveChange = () => _csv.AbortEdit(); // タブ切替直前に F2 編集を中断（焦点の引き戻し防止）
         // P6 で編集エンジンが自作 EditorControl (v2 UIA 単一経路) に統一されたため、
@@ -112,16 +139,24 @@ public sealed partial class MainForm : Form
     private EditorControl CreateEditor()
     {
         var e = new EditorControl { Dock = DockStyle.Fill };
-        EditorAppearance.Apply(e, _settings);  // フォント＋配色テーマ＋表示設定を EditorControl.ApplyAppearance へ委譲
+        EditorAppearance.Apply(e, _settings); // フォント＋配色テーマ＋表示設定を EditorControl.ApplyAppearance へ委譲
         return e;
     }
 
     /// <summary>開く系経路（開く/最近/開き直し）で新規ロードした直後の .csv 自動 CSV モード進入（設定 ON のときのみ）。</summary>
     private void AutoEnterCsvMode(Document doc)
     {
-        if (!_settings.CsvAutoModeOnOpen) return;
-        if (!string.Equals(System.IO.Path.GetExtension(doc.State.Path), ".csv", StringComparison.OrdinalIgnoreCase)) return;
-        _csv.TryEnterMode(doc);   // 解析不可なら TryEnterMode が通知して通常モードのまま
+        if (!_settings.CsvAutoModeOnOpen)
+            return;
+        if (
+            !string.Equals(
+                System.IO.Path.GetExtension(doc.State.Path),
+                ".csv",
+                StringComparison.OrdinalIgnoreCase
+            )
+        )
+            return;
+        _csv.TryEnterMode(doc); // 解析不可なら TryEnterMode が通知して通常モードのまま
     }
 
     protected override void OnShown(EventArgs e)
@@ -135,8 +170,13 @@ public sealed partial class MainForm : Form
         if (!_restoreOffered)
         {
             _restoreOffered = true;
-            int restored = _backup.OfferRestoreOnStartup(this, _file.RestoreFromBackup, _settings.ConfirmRestoreOnStartup);
-            if (restored > 0) _announcer.Say($"バックアップを {restored} 件復元しました");
+            int restored = _backup.OfferRestoreOnStartup(
+                this,
+                _file.RestoreFromBackup,
+                _settings.ConfirmRestoreOnStartup
+            );
+            if (restored > 0)
+                _announcer.Say($"バックアップを {restored} 件復元しました");
         }
     }
 
@@ -153,8 +193,10 @@ public sealed partial class MainForm : Form
         // メニューを閉じてしまわないため。
         BeginInvoke(() =>
         {
-            if (IsDisposed || ActiveForm != this || _menuActive) return;
-            if (_docs.TabHost.ContainsFocus) return;
+            if (IsDisposed || ActiveForm != this || _menuActive)
+                return;
+            if (_docs.TabHost.ContainsFocus)
+                return;
             _docs.Active?.FocusTarget.Focus();
         });
     }
@@ -166,7 +208,8 @@ public sealed partial class MainForm : Form
         // 全タブの未保存を順に確認（どれかでキャンセルなら終了中止）。
         foreach (var doc in _docs.Documents.ToArray())
         {
-            if (!doc.Editor.Modified) continue;
+            if (!doc.Editor.Modified)
+                continue;
             _docs.Activate(doc); // どのファイルの確認かを SR/視覚で示す
             if (!_file.ConfirmDiscardIfDirty(doc))
             {
@@ -195,7 +238,8 @@ public sealed partial class MainForm : Form
     protected override void Dispose(bool disposing)
     {
         // 異常系（OnFormClosed 未経由）でも Timer/背景スレッドを確実に解放する。Shutdown 済みなら冪等で無害。
-        if (disposing) _backup?.Dispose();
+        if (disposing)
+            _backup?.Dispose();
         base.Dispose(disposing);
     }
 
@@ -212,9 +256,13 @@ public sealed partial class MainForm : Form
         // に居るときは矢印/Home/End 等をタブ操作へ通す。メニューがアクティブ（Alt 等）な間は
         // 横取りせず、矢印/文字キーをメニュー操作へ通す。
         var activeDoc = _docs.Active;
-        if (activeDoc?.State.CsvMode == true && !_csv.IsEditing && !_menuActive &&
-            activeDoc.Editor.ContainsFocus &&
-            CsvCommands.ByKey.TryGetValue(keyData, out var csvCmd))
+        if (
+            activeDoc?.State.CsvMode == true
+            && !_csv.IsEditing
+            && !_menuActive
+            && activeDoc.Editor.ContainsFocus
+            && CsvCommands.ByKey.TryGetValue(keyData, out var csvCmd)
+        )
         {
             csvCmd(_csv);
             return true;
@@ -222,21 +270,37 @@ public sealed partial class MainForm : Form
 
         switch (keyData)
         {
-            case Keys.Control | Keys.Tab: _docs.SelectNext(+1); return true;
-            case Keys.Control | Keys.Shift | Keys.Tab: _docs.SelectNext(-1); return true;
-            case Keys.F3: _search.FindNext(); return true;
-            case Keys.Shift | Keys.F3: _search.FindPrev(); return true;
-            case Keys.Control | Keys.Alt | Keys.P: AnnouncePosition(); return true;
-            case Keys.Control | Keys.G: GoToLine(); return true;
-            case Keys.Insert: ToggleOvertype(); return true;
+            case Keys.Control | Keys.Tab:
+                _docs.SelectNext(+1);
+                return true;
+            case Keys.Control | Keys.Shift | Keys.Tab:
+                _docs.SelectNext(-1);
+                return true;
+            case Keys.F3:
+                _search.FindNext();
+                return true;
+            case Keys.Shift | Keys.F3:
+                _search.FindPrev();
+                return true;
+            case Keys.Control | Keys.Alt | Keys.P:
+                AnnouncePosition();
+                return true;
+            case Keys.Control | Keys.G:
+                GoToLine();
+                return true;
+            case Keys.Insert:
+                ToggleOvertype();
+                return true;
         }
         if ((keyData & (Keys.Control | Keys.Alt | Keys.Shift)) == Keys.Control)
         {
             Keys k = keyData & Keys.KeyCode;
             if (k >= Keys.D1 && k <= Keys.D9)
             {
-                if (k == Keys.D9) _docs.SelectAt(_docs.Count - 1); // 9 = 最後のタブ
-                else _docs.SelectAt(k - Keys.D1);
+                if (k == Keys.D9)
+                    _docs.SelectAt(_docs.Count - 1); // 9 = 最後のタブ
+                else
+                    _docs.SelectAt(k - Keys.D1);
                 return true;
             }
         }
@@ -254,29 +318,77 @@ public sealed partial class MainForm : Form
 
         var file = new ToolStripMenuItem("ファイル(&F)");
         AddMenuItem(file, "新規(&N)", (_, _) => _file.NewFile(), Keys.Control | Keys.N);
-        AddMenuItem(file, "開く(&O)...", (_, _) => _file.OpenFileWithDialog(), Keys.Control | Keys.O);
-        AddMenuItem(file, "文字コードを指定して開き直す(&R)...", (_, _) => _file.ReopenWithEncoding());
+        AddMenuItem(
+            file,
+            "開く(&O)...",
+            (_, _) => _file.OpenFileWithDialog(),
+            Keys.Control | Keys.O
+        );
+        AddMenuItem(
+            file,
+            "文字コードを指定して開き直す(&R)...",
+            (_, _) => _file.ReopenWithEncoding()
+        );
         _recentMenu = new ToolStripMenuItem("最近のファイル(&Y)");
         file.DropDownItems.Add(_recentMenu);
         file.DropDownItems.Add(new ToolStripSeparator());
         AddMenuItem(file, "上書き保存(&S)", (_, _) => _file.Save(), Keys.Control | Keys.S);
-        AddMenuItem(file, "名前を付けて保存(&A)...", (_, _) => _file.SaveAs(), Keys.Control | Keys.Shift | Keys.S);
+        AddMenuItem(
+            file,
+            "名前を付けて保存(&A)...",
+            (_, _) => _file.SaveAs(),
+            Keys.Control | Keys.Shift | Keys.S
+        );
         file.DropDownItems.Add(new ToolStripSeparator());
         AddMenuItem(file, "タブを閉じる(&W)", (_, _) => CloseActiveTab(), Keys.Control | Keys.W);
         AddMenuItem(file, "終了(&X)", (_, _) => Close());
         RebuildRecentMenu();
 
         var edit = new ToolStripMenuItem("編集(&E)");
-        AddMenuItem(edit, "元に戻す(&U)", (_, _) => _docs.Active?.Editor.Undo(), Keys.Control | Keys.Z);
-        AddMenuItem(edit, "やり直し(&R)", (_, _) => _docs.Active?.Editor.Redo(), Keys.Control | Keys.Y);
+        AddMenuItem(
+            edit,
+            "元に戻す(&U)",
+            (_, _) => _docs.Active?.Editor.Undo(),
+            Keys.Control | Keys.Z
+        );
+        AddMenuItem(
+            edit,
+            "やり直し(&R)",
+            (_, _) => _docs.Active?.Editor.Redo(),
+            Keys.Control | Keys.Y
+        );
         edit.DropDownItems.Add(new ToolStripSeparator());
-        AddMenuItem(edit, "切り取り(&T)", (_, _) => _docs.Active?.Editor.Cut(), Keys.Control | Keys.X);
-        AddMenuItem(edit, "コピー(&C)", (_, _) => _docs.Active?.Editor.Copy(), Keys.Control | Keys.C);
-        AddMenuItem(edit, "貼り付け(&P)", (_, _) => _docs.Active?.Editor.Paste(), Keys.Control | Keys.V);
-        AddMenuItem(edit, "すべて選択(&A)", (_, _) => _docs.Active?.Editor.SelectAll(), Keys.Control | Keys.A);
+        AddMenuItem(
+            edit,
+            "切り取り(&T)",
+            (_, _) => _docs.Active?.Editor.Cut(),
+            Keys.Control | Keys.X
+        );
+        AddMenuItem(
+            edit,
+            "コピー(&C)",
+            (_, _) => _docs.Active?.Editor.Copy(),
+            Keys.Control | Keys.C
+        );
+        AddMenuItem(
+            edit,
+            "貼り付け(&P)",
+            (_, _) => _docs.Active?.Editor.Paste(),
+            Keys.Control | Keys.V
+        );
+        AddMenuItem(
+            edit,
+            "すべて選択(&A)",
+            (_, _) => _docs.Active?.Editor.SelectAll(),
+            Keys.Control | Keys.A
+        );
         edit.DropDownItems.Add(new ToolStripSeparator());
-        AddMenuItem(edit, "折り返し整形（禁則処理）(&K)", (_, _) => FormatWithKinsoku(),
-            Keys.Control | Keys.Shift | Keys.J);
+        AddMenuItem(
+            edit,
+            "折り返し整形（禁則処理）(&K)",
+            (_, _) => FormatWithKinsoku(),
+            Keys.Control | Keys.Shift | Keys.J
+        );
 
         // 検索系（旧「編集」メニューから分離。挙動・ショートカットは不変）。
         var search = new ToolStripMenuItem("検索(&S)");
@@ -284,26 +396,46 @@ public sealed partial class MainForm : Form
         AddMenuItem(search, "置換(&H)...", (_, _) => _search.OpenReplace(), Keys.Control | Keys.H);
         // F3/Shift+F3 は ProcessCmdKey で処理するため、メニューは表示専用（ShortcutKeys 未登録）にして二重発火を避ける。
         var findNext = new ToolStripMenuItem("次を検索(&N)", null, (_, _) => _search.FindNext())
-        { ShortcutKeyDisplayString = "F3" };
+        {
+            ShortcutKeyDisplayString = "F3",
+        };
         var findPrev = new ToolStripMenuItem("前を検索(&B)", null, (_, _) => _search.FindPrev())
-        { ShortcutKeyDisplayString = "Shift+F3" };
+        {
+            ShortcutKeyDisplayString = "Shift+F3",
+        };
         search.DropDownItems.Add(findNext);
         search.DropDownItems.Add(findPrev);
         search.DropDownItems.Add(new ToolStripSeparator());
-        AddMenuItem(search, "フォルダ検索(grep)(&G)...", (_, _) => _grep.Open(), Keys.Control | Keys.Shift | Keys.F);
+        AddMenuItem(
+            search,
+            "フォルダ検索(grep)(&G)...",
+            (_, _) => _grep.Open(),
+            Keys.Control | Keys.Shift | Keys.F
+        );
 
         // 読み上げ（SR 照会）。キーは ProcessCmdKey で処理し、ここは表示のみ（二重発火回避・M3 同方式）。
         var read = new ToolStripMenuItem("読み上げ(&R)");
-        read.DropDownItems.Add(new ToolStripMenuItem("現在位置(&P)", null, (_, _) => AnnouncePosition())
-        { ShortcutKeyDisplayString = "Ctrl+Alt+P" });
-        read.DropDownItems.Add(new ToolStripMenuItem("行へ移動(&G)...", null, (_, _) => GoToLine())
-        { ShortcutKeyDisplayString = "Ctrl+G" });
+        read.DropDownItems.Add(
+            new ToolStripMenuItem("現在位置(&P)", null, (_, _) => AnnouncePosition())
+            {
+                ShortcutKeyDisplayString = "Ctrl+Alt+P",
+            }
+        );
+        read.DropDownItems.Add(
+            new ToolStripMenuItem("行へ移動(&G)...", null, (_, _) => GoToLine())
+            {
+                ShortcutKeyDisplayString = "Ctrl+G",
+            }
+        );
 
         // モード（マークダウンプレビュー / CSVモード）。CSV 操作系はメニューに出さず
         // キー専用（CsvCommands・キー一覧は将来のヘルプに記載する）。
         var mode = new ToolStripMenuItem("モード(&M)");
         var mdPreview = new ToolStripMenuItem(
-            "マークダウンプレビュー(&P)", null, (_, _) => ShowMarkdownPreview());
+            "マークダウンプレビュー(&P)",
+            null,
+            (_, _) => ShowMarkdownPreview()
+        );
         mode.DropDownItems.Add(mdPreview);
         mode.DropDownItems.Add(new ToolStripSeparator());
         var csvToggle = new ToolStripMenuItem("CSVモード(&C)", null, (_, _) => _csv.ToggleMode());
@@ -320,18 +452,33 @@ public sealed partial class MainForm : Form
         AddMenuItem(options, "設定(&P)...", (_, _) => OpenSettings());
 
         var help = new ToolStripMenuItem("ヘルプ(&H)");
-        help.DropDownItems.Add("バージョン情報(&A)", null, (_, _) =>
-            MessageBox.Show("yEdit v0.1", "バージョン情報", MessageBoxButtons.OK, MessageBoxIcon.Information));
+        help.DropDownItems.Add(
+            "バージョン情報(&A)",
+            null,
+            (_, _) =>
+                MessageBox.Show(
+                    "yEdit v0.1",
+                    "バージョン情報",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information
+                )
+        );
 
         menu.Items.AddRange(new ToolStripItem[] { file, edit, search, read, mode, options, help });
         return menu;
     }
 
     /// <summary>ドロップダウンに ToolStripMenuItem を追加し、任意でショートカットキーを設定する。</summary>
-    private static void AddMenuItem(ToolStripMenuItem parent, string text, EventHandler onClick, Keys shortcut = Keys.None)
+    private static void AddMenuItem(
+        ToolStripMenuItem parent,
+        string text,
+        EventHandler onClick,
+        Keys shortcut = Keys.None
+    )
     {
         var item = new ToolStripMenuItem(text, null, onClick);
-        if (shortcut != Keys.None) item.ShortcutKeys = shortcut;
+        if (shortcut != Keys.None)
+            item.ShortcutKeys = shortcut;
         parent.DropDownItems.Add(item);
     }
 
@@ -347,7 +494,8 @@ public sealed partial class MainForm : Form
     private void UpdateStatus()
     {
         var doc = _docs.Active;
-        if (doc is null) return;
+        if (doc is null)
+            return;
         int line = doc.Editor.CurrentLine + 1;
         int col = doc.Editor.GetColumn(doc.Editor.CurrentPosition) + 1;
         _posLabel.Text = $"行 {line}, 桁 {col}";
@@ -358,7 +506,9 @@ public sealed partial class MainForm : Form
     private void UpdateTitle()
     {
         var doc = _docs.Active;
-        Text = doc is null ? "yEdit" : $"{(doc.Editor.Modified ? "* " : "")}{doc.State.DisplayName} - yEdit";
+        Text = doc is null
+            ? "yEdit"
+            : $"{(doc.Editor.Modified ? "* " : "")}{doc.State.DisplayName} - yEdit";
     }
 
     private static string EncodingDisplayName(System.Text.Encoding enc, bool bom)
@@ -373,7 +523,13 @@ public sealed partial class MainForm : Form
     /// <summary>設定を永続化する（保存失敗は致命でないため握る）。</summary>
     private void SaveSettingsSafe()
     {
-        try { SettingsStore.Save(_settingsPath, _settings); } catch { /* 設定保存失敗は致命でない */ }
+        try
+        {
+            SettingsStore.Save(_settingsPath, _settings);
+        }
+        catch
+        { /* 設定保存失敗は致命でない */
+        }
     }
 
     private void RebuildRecentMenu()
@@ -382,7 +538,8 @@ public sealed partial class MainForm : Form
         var olds = new ToolStripItem[_recentMenu.DropDownItems.Count];
         _recentMenu.DropDownItems.CopyTo(olds, 0);
         _recentMenu.DropDownItems.Clear();
-        foreach (var o in olds) o.Dispose();
+        foreach (var o in olds)
+            o.Dispose();
 
         if (_settings.RecentFiles.Count == 0)
         {
@@ -394,10 +551,17 @@ public sealed partial class MainForm : Form
         {
             string p = path; // クロージャ捕捉
             n++;
-            string body = ($"{System.IO.Path.GetFileName(p)}  〔{System.IO.Path.GetDirectoryName(p)}〕").Replace("&", "&&");
+            string body = (
+                $"{System.IO.Path.GetFileName(p)}  〔{System.IO.Path.GetDirectoryName(p)}〕"
+            ).Replace("&", "&&");
             // 1..9 は &1..&9、10 件目は &0 をアクセスキーに（不揃いを避ける）。
-            string text = n <= 9 ? $"&{n} {body}" : n == 10 ? $"&0 {body}" : body;
-            _recentMenu.DropDownItems.Add(new ToolStripMenuItem(text, null, (_, _) => _file.TryOpenOrActivate(p)));
+            string text =
+                n <= 9 ? $"&{n} {body}"
+                : n == 10 ? $"&0 {body}"
+                : body;
+            _recentMenu.DropDownItems.Add(
+                new ToolStripMenuItem(text, null, (_, _) => _file.TryOpenOrActivate(p))
+            );
         }
     }
 
@@ -406,9 +570,11 @@ public sealed partial class MainForm : Form
     private void OpenSettings()
     {
         using var dlg = new SettingsDialog(_settings);
-        if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        _settings = dlg.Result;   // Result は取得のたびに組み立てるため一度だけ読む
-        foreach (var doc in _docs.Documents) EditorAppearance.Apply(doc.Editor, _settings);
+        if (dlg.ShowDialog(this) != DialogResult.OK)
+            return;
+        _settings = dlg.Result; // Result は取得のたびに組み立てるため一度だけ読む
+        foreach (var doc in _docs.Documents)
+            EditorAppearance.Apply(doc.Editor, _settings);
         _backup.UpdateSettings(_settings.BackupEnabled, _settings.BackupIntervalSeconds);
         SaveSettingsSafe();
         _announcer.Say("設定を適用しました");
@@ -429,7 +595,8 @@ public sealed partial class MainForm : Form
     internal void OpenAndSelect(string path, int offset, int length)
     {
         var doc = _file.TryOpenOrActivate(path, suppressAutoCsv: true);
-        if (doc is null) return;
+        if (doc is null)
+            return;
         doc.Editor.SelectCharRange(offset, length);
         doc.FocusTarget.Focus();
         // ジャンプ先のファイル名と行を明示通知（選択移動の自動読みに加え、別ファイルへ飛んだ文脈を補う）。
@@ -442,24 +609,40 @@ public sealed partial class MainForm : Form
     private void AnnouncePosition()
     {
         var ed = _docs.Active?.Editor;
-        if (ed is null) return;
+        if (ed is null)
+            return;
         int line = ed.CurrentLine + 1;
         int totalLines = ed.LineCount;
         int column = ed.GetColumn(ed.CurrentPosition) + 1;
         var (s, e) = ed.GetSelectionCharRange();
-        _announcer.Say(PositionFormatter.Format(line, totalLines, column, ed.SnapshotText.Length, e - s, ed.Overtype));
+        _announcer.Say(
+            PositionFormatter.Format(
+                line,
+                totalLines,
+                column,
+                ed.SnapshotText.Length,
+                e - s,
+                ed.Overtype
+            )
+        );
     }
 
     /// <summary>行番号を入力して移動する。</summary>
     private void GoToLine()
     {
         // CSVモード中は行ジャンプをセル指定に読み替える（Ctrl+G のキーボード経路と統一）。
-        if (_docs.Active?.State.CsvMode == true) { _csv.GoToCell(); return; }
+        if (_docs.Active?.State.CsvMode == true)
+        {
+            _csv.GoToCell();
+            return;
+        }
         var ed = _docs.Active?.Editor;
-        if (ed is null) return;
+        if (ed is null)
+            return;
         int max = ed.LineCount;
         using var dlg = new GoToLineDialog(ed.CurrentLine + 1, max);
-        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        if (dlg.ShowDialog(this) != DialogResult.OK)
+            return;
         int target = Math.Clamp(dlg.LineNumber, 1, max);
         ed.GoToLine(target - 1);
         ed.Focus();
@@ -470,7 +653,8 @@ public sealed partial class MainForm : Form
     private void ToggleOvertype()
     {
         var ed = _docs.Active?.Editor;
-        if (ed is null) return;
+        if (ed is null)
+            return;
         ed.Overtype = !ed.Overtype;
         _announcer.Say(ed.Overtype ? "上書きモード" : "挿入モード");
     }
@@ -479,15 +663,16 @@ public sealed partial class MainForm : Form
     private void ShowMarkdownPreview()
     {
         var doc = _docs.Active;
-        if (doc is null) return;
+        if (doc is null)
+            return;
 
-        string markdown = doc.Editor.SnapshotText;            // 編集中バッファ（未保存も反映）
+        string markdown = doc.Editor.SnapshotText; // 編集中バッファ（未保存も反映）
         string? dir = System.IO.Path.GetDirectoryName(doc.State.Path);
         string html = MarkdownRenderer.Render(markdown, MarkdownRenderer.PreviewBaseHref);
 
         using var f = new MarkdownPreviewForm(html, dir, doc.State.DisplayName);
         f.ShowDialog(this);
-        _docs.Active?.FocusTarget.Focus();                     // 戻り後は編集領域へフォーカス
+        _docs.Active?.FocusTarget.Focus(); // 戻り後は編集領域へフォーカス
     }
 
     /// <summary>選択範囲（無ければ全文）を WrapColumn 桁で禁則整形する（Stage 8 で <see cref="KinsokuFormatController"/> へ委譲）。
@@ -499,9 +684,15 @@ public sealed partial class MainForm : Form
     {
         _csv.AbortEdit(); // F2 編集中ならタブ破棄前にオーバーレイを除去（IsEditing 固着防止）
         var doc = _docs.Active;
-        if (doc is null) return;
-        if (!_docs.TryClose(doc, _file.ConfirmDiscardIfDirty)) return;
-        if (_docs.Count == 0) { Close(); return; }
+        if (doc is null)
+            return;
+        if (!_docs.TryClose(doc, _file.ConfirmDiscardIfDirty))
+            return;
+        if (_docs.Count == 0)
+        {
+            Close();
+            return;
+        }
         // 選択タブ削除時の TabControl.Selected 発火は WinForms の仕様上保証されないため、
         // クローズ後の新アクティブへフォーカス・タイトル・ステータスを明示更新する
         // （Selected 発火に依存しない唯一の更新源）。

@@ -23,52 +23,58 @@ public class EditorControlCacheTests
     }
 
     [Fact]
-    public void LastLineSegs_HitsAcrossThreeUiaLineCalls() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("Hello, world!", 20);
-        using (f) using (c)
+    public void LastLineSegs_HitsAcrossThreeUiaLineCalls() =>
+        Sta.Run(() =>
         {
-            c.TestHook_ResetLastLineSegsCounters();
-            var host = (IUiaTextHost)c;
-            _ = host.LineStartOf(5);
-            _ = host.LineEndNoBreakOf(5);
-            _ = host.LineEnd(5);
-            Assert.Equal(1, c.TestHook_LastLineSegsMissCount);
-            Assert.Equal(2, c.TestHook_LastLineSegsHitCount);
-        }
-    });
+            var (f, c) = MakeControl("Hello, world!", 20);
+            using (f)
+            using (c)
+            {
+                c.TestHook_ResetLastLineSegsCounters();
+                var host = (IUiaTextHost)c;
+                _ = host.LineStartOf(5);
+                _ = host.LineEndNoBreakOf(5);
+                _ = host.LineEnd(5);
+                Assert.Equal(1, c.TestHook_LastLineSegsMissCount);
+                Assert.Equal(2, c.TestHook_LastLineSegsHitCount);
+            }
+        });
 
     [Fact]
-    public void LastLineSegs_InvalidatesOnEdit() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("Hello, world!", 20);
-        using (f) using (c)
+    public void LastLineSegs_InvalidatesOnEdit() =>
+        Sta.Run(() =>
         {
-            var host = (IUiaTextHost)c;
-            _ = host.LineStartOf(5);
-            _ = host.LineStartOf(5);
-            c.TestHook_ResetLastLineSegsCounters();
-            c.ReplaceCharRange(0, 0, "X");
-            _ = host.LineStartOf(5);
-            Assert.Equal(1, c.TestHook_LastLineSegsMissCount);
-            Assert.Equal(0, c.TestHook_LastLineSegsHitCount);
-        }
-    });
+            var (f, c) = MakeControl("Hello, world!", 20);
+            using (f)
+            using (c)
+            {
+                var host = (IUiaTextHost)c;
+                _ = host.LineStartOf(5);
+                _ = host.LineStartOf(5);
+                c.TestHook_ResetLastLineSegsCounters();
+                c.ReplaceCharRange(0, 0, "X");
+                _ = host.LineStartOf(5);
+                Assert.Equal(1, c.TestHook_LastLineSegsMissCount);
+                Assert.Equal(0, c.TestHook_LastLineSegsHitCount);
+            }
+        });
 
     [Fact]
-    public void LastLineSegs_InvalidatesOnWrapChange() => Sta.Run(() =>
-    {
-        var (f, c) = MakeControl("Hello, world!", 20);
-        using (f) using (c)
+    public void LastLineSegs_InvalidatesOnWrapChange() =>
+        Sta.Run(() =>
         {
-            var host = (IUiaTextHost)c;
-            _ = host.LineStartOf(5);
-            _ = host.LineStartOf(5);
-            c.TestHook_ResetLastLineSegsCounters();
-            c.WrapColumns = 30;
-            _ = host.LineStartOf(5);
-            Assert.Equal(1, c.TestHook_LastLineSegsMissCount);
-            Assert.Equal(0, c.TestHook_LastLineSegsHitCount);
-        }
-    });
+            var (f, c) = MakeControl("Hello, world!", 20);
+            using (f)
+            using (c)
+            {
+                var host = (IUiaTextHost)c;
+                _ = host.LineStartOf(5);
+                _ = host.LineStartOf(5);
+                c.TestHook_ResetLastLineSegsCounters();
+                c.WrapColumns = 30;
+                _ = host.LineStartOf(5);
+                Assert.Equal(1, c.TestHook_LastLineSegsMissCount);
+                Assert.Equal(0, c.TestHook_LastLineSegsHitCount);
+            }
+        });
 }

@@ -9,12 +9,14 @@ namespace yEdit.App.Speech;
 internal abstract class AnnouncerBase : IAnnouncer
 {
     protected readonly Label _label;
+
     protected AnnouncerBase(Label label) => _label = label;
 
     public void Say(string message)
     {
-        _label.Text = message ?? "";                // 視覚フィードバックは無条件（晴眼/弱視も第一級）。空はクリア
-        if (string.IsNullOrEmpty(message)) return;  // 空は視覚クリアのみ（発声なし）
+        _label.Text = message ?? ""; // 視覚フィードバックは無条件（晴眼/弱視も第一級）。空はクリア
+        if (string.IsNullOrEmpty(message))
+            return; // 空は視覚クリアのみ（発声なし）
         Speak(message);
     }
 

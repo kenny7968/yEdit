@@ -11,15 +11,30 @@ internal sealed class WinFormsFileDialogService : IFileDialogService
 {
     public string? PickOpenPath(IWin32Window owner)
     {
-        using var dlg = new OpenFileDialog { Filter = "対応ファイル (*.txt, *.md, *.csv)|*.txt;*.md;*.csv|すべてのファイル (*.*)|*.*" };
+        using var dlg = new OpenFileDialog
+        {
+            Filter =
+                "対応ファイル (*.txt, *.md, *.csv)|*.txt;*.md;*.csv|すべてのファイル (*.*)|*.*",
+        };
         return dlg.ShowDialog(owner) == DialogResult.OK ? dlg.FileName : null;
     }
 
     public SaveAsResult? PickSaveAs(IWin32Window owner, SaveAsRequest current)
     {
-        using var dlg = new SaveAsDialog(current.Path, current.CodePage, current.HasBom, current.LineEnding);
-        if (dlg.ShowDialog(owner) != DialogResult.OK) return null;
-        return new SaveAsResult(dlg.SelectedPath, dlg.SelectedCodePage, dlg.SelectedHasBom, dlg.SelectedLineEnding);
+        using var dlg = new SaveAsDialog(
+            current.Path,
+            current.CodePage,
+            current.HasBom,
+            current.LineEnding
+        );
+        if (dlg.ShowDialog(owner) != DialogResult.OK)
+            return null;
+        return new SaveAsResult(
+            dlg.SelectedPath,
+            dlg.SelectedCodePage,
+            dlg.SelectedHasBom,
+            dlg.SelectedLineEnding
+        );
     }
 
     public int? PickEncoding(IWin32Window owner, int currentCodePage)

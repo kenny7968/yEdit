@@ -34,29 +34,46 @@ public sealed class KinsokuFormatController
     {
         var doc = _docs.Active;
         var ed = doc?.Editor;
-        if (ed is null) return;
+        if (ed is null)
+            return;
         // CSVモード中は本文が読取専用で整形が無反映になるため抑止(誤成功通知を防ぐ)。
-        if (doc!.State.CsvMode) { _announcer.Say(CsvAnnounceFormatter.BlockedInCsvMode); return; }
+        if (doc!.State.CsvMode)
+        {
+            _announcer.Say(CsvAnnounceFormatter.BlockedInCsvMode);
+            return;
+        }
 
         string text = ed.SnapshotText;
         var (selStart, selEnd) = ed.GetSelectionCharRange();
         bool whole = selStart == selEnd;
         int start = whole ? 0 : selStart;
         int len = whole ? text.Length : selEnd - selStart;
-        if (len <= 0) return;
+        if (len <= 0)
+            return;
 
         string target = text.Substring(start, len);
         string eol = doc!.State.LineEnding.ToEolString();
         string formatted = KinsokuFormatter.Format(
-            target, settings.WrapColumn,
-            settings.KinsokuLineStartChars, settings.KinsokuLineEndChars, settings.KinsokuHangChars,
-            eol, settings.TabWidth);   // タブ幅は表示設定と連動(画面の見た目どおりに整形する)
+            target,
+            settings.WrapColumn,
+            settings.KinsokuLineStartChars,
+            settings.KinsokuLineEndChars,
+            settings.KinsokuHangChars,
+            eol,
+            settings.TabWidth
+        ); // タブ幅は表示設定と連動(画面の見た目どおりに整形する)
 
-        if (formatted == target) { _announcer.Say("変更なし"); return; }
-        ed.ReplaceCharRange(start, len, formatted);   // 1 Undo で置換
+        if (formatted == target)
+        {
+            _announcer.Say("変更なし");
+            return;
+        }
+        ed.ReplaceCharRange(start, len, formatted); // 1 Undo で置換
         // 部分選択なら変化箇所を選択して提示。全文整形では全選択を避け、先頭へキャレットを置く。
-        if (whole) ed.SelectCharRange(0, 0);
-        else ed.SelectCharRange(start, formatted.Length);
+        if (whole)
+            ed.SelectCharRange(0, 0);
+        else
+            ed.SelectCharRange(start, formatted.Length);
         ed.Focus();
         _announcer.Say("整形しました");
     }

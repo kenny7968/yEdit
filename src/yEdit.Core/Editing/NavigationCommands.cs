@@ -20,9 +20,14 @@ public static class NavigationCommands
     /// <summary>左に1文字移動。サロゲートペアは1文字として扱う。先頭では動かない。</summary>
     public static int MoveLeftChar(TextSnapshot s, int caret)
     {
-        if (caret <= 0) return 0;
+        if (caret <= 0)
+            return 0;
         int prev = caret - 1;
-        if (prev > 0 && char.IsLowSurrogate(s.GetChar(prev)) && char.IsHighSurrogate(s.GetChar(prev - 1)))
+        if (
+            prev > 0
+            && char.IsLowSurrogate(s.GetChar(prev))
+            && char.IsHighSurrogate(s.GetChar(prev - 1))
+        )
             return prev - 1;
         return prev;
     }
@@ -30,9 +35,14 @@ public static class NavigationCommands
     /// <summary>右に1文字移動。サロゲートペアは1文字として扱う。末尾では動かない。</summary>
     public static int MoveRightChar(TextSnapshot s, int caret)
     {
-        if (caret >= s.CharLength) return s.CharLength;
+        if (caret >= s.CharLength)
+            return s.CharLength;
         char c = s.GetChar(caret);
-        if (char.IsHighSurrogate(c) && caret + 1 < s.CharLength && char.IsLowSurrogate(s.GetChar(caret + 1)))
+        if (
+            char.IsHighSurrogate(c)
+            && caret + 1 < s.CharLength
+            && char.IsLowSurrogate(s.GetChar(caret + 1))
+        )
             return caret + 2;
         return caret + 1;
     }
@@ -69,11 +79,13 @@ public static class NavigationCommands
         while (firstNonWs < lineEnd)
         {
             char c = s.GetChar(firstNonWs);
-            if (c != ' ' && c != '\t') break;
+            if (c != ' ' && c != '\t')
+                break;
             firstNonWs++;
         }
         // すでに firstNonWs にいる → lineStart。それ以外 → firstNonWs
-        if (caret == firstNonWs) return lineStart;
+        if (caret == firstNonWs)
+            return lineStart;
         return firstNonWs;
     }
 
@@ -92,17 +104,24 @@ public static class NavigationCommands
     /// <item>空行は視覚セグメントも [(0,0)] 1 個(<see cref="LineLayout.Wrap"/> 契約)=lineStart を返す。</item>
     /// </list>
     /// </remarks>
-    public static int MoveHomeSmart(TextSnapshot s, int caret, int wrapColumns, ICharMetrics metrics)
+    public static int MoveHomeSmart(
+        TextSnapshot s,
+        int caret,
+        int wrapColumns,
+        ICharMetrics metrics
+    )
     {
         // wrap OFF は既存論理行挙動へ委譲
-        if (wrapColumns <= 0) return MoveHomeSmart(s, caret);
+        if (wrapColumns <= 0)
+            return MoveHomeSmart(s, caret);
 
         int line = s.GetLineIndexOfChar(caret);
         int lineStart = s.GetLineStart(line);
         int lineEnd = s.GetLineEnd(line, includeBreak: false);
 
         // 空行: 論理版と同じ挙動(lineStart 相当・視覚 seg も 1 個)
-        if (lineStart == lineEnd) return lineStart;
+        if (lineStart == lineEnd)
+            return lineStart;
 
         string lineText = s.GetText(lineStart, lineEnd - lineStart);
         int maxWidthPx = wrapColumns * metrics.MeasureRun("0".AsSpan());
@@ -115,17 +134,20 @@ public static class NavigationCommands
         int visualEnd = lineStart + seg.OffsetInLine + seg.Length;
 
         // 継続セグメント: 視覚 seg 先頭固定(トグルなし)
-        if (segIdx > 0) return visualStart;
+        if (segIdx > 0)
+            return visualStart;
 
         // 第 1 セグメント: 既存 smart トグル(視覚 seg 内の firstNonWs ⇔ 視覚 seg 先頭)
         int firstNonWs = visualStart;
         while (firstNonWs < visualEnd)
         {
             char c = s.GetChar(firstNonWs);
-            if (c != ' ' && c != '\t') break;
+            if (c != ' ' && c != '\t')
+                break;
             firstNonWs++;
         }
-        if (caret == firstNonWs) return visualStart;
+        if (caret == firstNonWs)
+            return visualStart;
         return firstNonWs;
     }
 }

@@ -1,6 +1,6 @@
 using System.Text;
-using yEdit.Core.Text;
 using Xunit;
+using yEdit.Core.Text;
 
 namespace yEdit.Core.Tests.Text;
 
@@ -11,7 +11,9 @@ public class EncodingDetectorTests
     [Fact]
     public void Detects_utf8_bom()
     {
-        var bytes = new byte[] { 0xEF, 0xBB, 0xBF }.Concat(Encoding.UTF8.GetBytes(Jp)).ToArray();
+        var bytes = new byte[] { 0xEF, 0xBB, 0xBF }
+            .Concat(Encoding.UTF8.GetBytes(Jp))
+            .ToArray();
         var r = EncodingDetector.Detect(bytes);
         Assert.Equal(65001, r.CodePage);
         Assert.True(r.HasBom);
@@ -45,7 +47,9 @@ public class EncodingDetectorTests
     public void Utf16_le_bom_no_longer_detected_as_utf16()
     {
         // P6 Task 6: UTF-16 は非対応=BOM も検出しない。fallback 経路(UTF-8 strict → charset detect → SJIS)へ落ちる。
-        var r = EncodingDetector.Detect(Encoding.Unicode.GetPreamble().Concat(Encoding.Unicode.GetBytes(Jp)).ToArray());
+        var r = EncodingDetector.Detect(
+            Encoding.Unicode.GetPreamble().Concat(Encoding.Unicode.GetBytes(Jp)).ToArray()
+        );
         Assert.Equal(932, r.CodePage); // fallback = SJIS(§P6 Task 6 レビュー M-3)
     }
 
@@ -53,7 +57,12 @@ public class EncodingDetectorTests
     public void Utf16_be_bom_no_longer_detected_as_utf16()
     {
         // P6 Task 6: UTF-16 BE も検出しない=fallback 経路(strict UTF-8 失敗→charset detect→SJIS)へ落ちる。
-        var r = EncodingDetector.Detect(Encoding.BigEndianUnicode.GetPreamble().Concat(Encoding.BigEndianUnicode.GetBytes(Jp)).ToArray());
+        var r = EncodingDetector.Detect(
+            Encoding
+                .BigEndianUnicode.GetPreamble()
+                .Concat(Encoding.BigEndianUnicode.GetBytes(Jp))
+                .ToArray()
+        );
         Assert.Equal(932, r.CodePage); // fallback = SJIS(§P6 Task 6 レビュー M-3)
     }
 

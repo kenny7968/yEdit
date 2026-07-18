@@ -7,9 +7,31 @@ public class PieceTreeTests
 {
     // CRLF跨ぎピース("a\r"+"\nb")を必ず含む素材プール
     private static readonly string[] MixedPool =
-        ["a\r", "\nb", "hello world", "あいう漢字", "😀🈴", "\r\n", "x\ry\n", "line1\nline2", "\r", "\n", "t"];
+    [
+        "a\r",
+        "\nb",
+        "hello world",
+        "あいう漢字",
+        "😀🈴",
+        "\r\n",
+        "x\ry\n",
+        "line1\nline2",
+        "\r",
+        "\n",
+        "t",
+    ];
     private static readonly string[] AsciiPool =
-        ["abc", "d", "ef\n", "ghij\r\n", "k\r", "\nmn", "op q rs", "\n", "tuv"];
+    [
+        "abc",
+        "d",
+        "ef\n",
+        "ghij\r\n",
+        "k\r",
+        "\nmn",
+        "op q rs",
+        "\n",
+        "tuv",
+    ];
 
     private static Piece P(string s)
     {
@@ -17,8 +39,8 @@ public class PieceTreeTests
         return Piece.Of(new TextChunk(bytes, gridBytes: 8), 0, bytes.Length);
     }
 
-    private static PieceTree.Node? Build(IEnumerable<string> parts)
-        => PieceTree.BuildBalanced(parts.Select(P).ToArray());
+    private static PieceTree.Node? Build(IEnumerable<string> parts) =>
+        PieceTree.BuildBalanced(parts.Select(P).ToArray());
 
     private static string Text(PieceTree.Node? t)
     {
@@ -34,7 +56,8 @@ public class PieceTreeTests
     {
         var list = new List<int>();
         for (int i = 0; i <= s.Length; i++)
-            if (i == s.Length || !char.IsLowSurrogate(s[i])) list.Add(i);
+            if (i == s.Length || !char.IsLowSurrogate(s[i]))
+                list.Add(i);
         return list;
     }
 
@@ -52,11 +75,16 @@ public class PieceTreeTests
     /// <summary>AVL不変条件(平衡・高さ・統計集約)を全ノードで検証し高さを返す。</summary>
     private static int CheckInvariants(PieceTree.Node? n)
     {
-        if (n is null) return 0;
-        int hl = CheckInvariants(n.Left), hr = CheckInvariants(n.Right);
+        if (n is null)
+            return 0;
+        int hl = CheckInvariants(n.Left),
+            hr = CheckInvariants(n.Right);
         Assert.True(Math.Abs(hl - hr) <= 1, $"unbalanced: |{hl}-{hr}| > 1");
         Assert.Equal(1 + Math.Max(hl, hr), n.Height);
-        var sum = PieceStats.Combine(PieceStats.Combine(SumOf(n.Left), n.Piece.Stats), SumOf(n.Right));
+        var sum = PieceStats.Combine(
+            PieceStats.Combine(SumOf(n.Left), n.Piece.Stats),
+            SumOf(n.Right)
+        );
         Assert.Equal(sum, n.Sum);
         return n.Height;
     }
@@ -86,8 +114,10 @@ public class PieceTreeTests
         var rnd = new Random(20260705);
         for (int trial = 0; trial < 30; trial++)
         {
-            var parts = Enumerable.Range(0, rnd.Next(1, 201))
-                .Select(_ => AsciiPool[rnd.Next(AsciiPool.Length)]).ToList();
+            var parts = Enumerable
+                .Range(0, rnd.Next(1, 201))
+                .Select(_ => AsciiPool[rnd.Next(AsciiPool.Length)])
+                .ToList();
             string all = string.Concat(parts);
             var root = Build(parts);
             for (int q = 0; q < 10; q++)
@@ -108,12 +138,17 @@ public class PieceTreeTests
         var rnd = new Random(42);
         for (int trial = 0; trial < 30; trial++)
         {
-            var parts = Enumerable.Range(0, rnd.Next(1, 201))
-                .Select(_ => MixedPool[rnd.Next(MixedPool.Length)]).ToList();
+            var parts = Enumerable
+                .Range(0, rnd.Next(1, 201))
+                .Select(_ => MixedPool[rnd.Next(MixedPool.Length)])
+                .ToList();
             string all = string.Concat(parts);
             var root = Build(parts);
             // Sum = 全ピース統計の逐次Combine と一致
-            var seq = parts.Aggregate(PieceStats.Empty, (acc, x) => PieceStats.Combine(acc, P(x).Stats));
+            var seq = parts.Aggregate(
+                PieceStats.Empty,
+                (acc, x) => PieceStats.Combine(acc, P(x).Stats)
+            );
             Assert.Equal(seq, SumOf(root));
             AssertStatsMatch(all, SumOf(root));
             var bounds = Boundaries(all);
@@ -135,7 +170,10 @@ public class PieceTreeTests
     public void Height_stays_within_avl_bound_after_repeated_split_join()
     {
         var rnd = new Random(7);
-        var parts = Enumerable.Range(0, 200).Select(_ => AsciiPool[rnd.Next(AsciiPool.Length)]).ToList();
+        var parts = Enumerable
+            .Range(0, 200)
+            .Select(_ => AsciiPool[rnd.Next(AsciiPool.Length)])
+            .ToList();
         var current = Build(parts)!;
         string all = string.Concat(parts);
         for (int i = 0; i < 100; i++)
@@ -146,8 +184,10 @@ public class PieceTreeTests
         }
         Assert.Equal(all, Text(current));
         int count = PieceTree.Enumerate(current).Count();
-        Assert.True(current.Height <= 1.45 * Math.Log2(count + 2) + 2,
-            $"height {current.Height} exceeds AVL bound for {count} pieces");
+        Assert.True(
+            current.Height <= 1.45 * Math.Log2(count + 2) + 2,
+            $"height {current.Height} exceeds AVL bound for {count} pieces"
+        );
         CheckInvariants(current);
     }
 

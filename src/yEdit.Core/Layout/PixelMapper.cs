@@ -13,13 +13,17 @@ internal static class PixelMapper
     /// </summary>
     public static int OffsetToPx(ReadOnlySpan<char> segment, int charOffset, ICharMetrics metrics)
     {
-        if (charOffset <= 0) return 0;
-        if (charOffset > segment.Length) charOffset = segment.Length;
+        if (charOffset <= 0)
+            return 0;
+        if (charOffset > segment.Length)
+            charOffset = segment.Length;
 
         // low サロゲート位置なら pair 先頭へ前方スナップ
-        if (charOffset < segment.Length
+        if (
+            charOffset < segment.Length
             && char.IsLowSurrogate(segment[charOffset])
-            && char.IsHighSurrogate(segment[charOffset - 1]))
+            && char.IsHighSurrogate(segment[charOffset - 1])
+        )
         {
             charOffset -= 1;
         }
@@ -36,11 +40,14 @@ internal static class PixelMapper
     /// </summary>
     public static int PxToOffset(ReadOnlySpan<char> segment, int px, ICharMetrics metrics)
     {
-        if (segment.IsEmpty) return 0;
-        if (px <= 0) return 0;
+        if (segment.IsEmpty)
+            return 0;
+        if (px <= 0)
+            return 0;
 
         int total = metrics.MeasureRun(segment);
-        if (px >= total) return segment.Length;
+        if (px >= total)
+            return segment.Length;
 
         int i = 0;
         int accumulated = 0;
@@ -49,7 +56,11 @@ internal static class PixelMapper
             // 次の code-point を切り出す(サロゲートペアは 2 code-unit 分)
             int cpLen;
             char c = segment[i];
-            if (char.IsHighSurrogate(c) && i + 1 < segment.Length && char.IsLowSurrogate(segment[i + 1]))
+            if (
+                char.IsHighSurrogate(c)
+                && i + 1 < segment.Length
+                && char.IsLowSurrogate(segment[i + 1])
+            )
                 cpLen = 2;
             else
                 cpLen = 1;

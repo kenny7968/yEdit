@@ -4,11 +4,11 @@ namespace yEdit.Core.Layout;
 
 /// <summary>1 本の視覚行の情報(絶対 char offset + クライアント座標 Y)。</summary>
 public readonly record struct VisualRow(
-    int LogicalLine,       // 論理行(0 始まり)
-    int SegmentIndex,      // その論理行内の視覚行インデックス(0=論理行の先頭視覚行)
-    int SegmentStartChar,  // その視覚行が担う開始 char offset(絶対・文書先頭から)
-    int SegmentLength,     // その視覚行の char 長(改行は含まない)
-    int YPx                // クライアント座標 Y(TopLine の先頭視覚行が Y=0)
+    int LogicalLine, // 論理行(0 始まり)
+    int SegmentIndex, // その論理行内の視覚行インデックス(0=論理行の先頭視覚行)
+    int SegmentStartChar, // その視覚行が担う開始 char offset(絶対・文書先頭から)
+    int SegmentLength, // その視覚行の char 長(改行は含まない)
+    int YPx // クライアント座標 Y(TopLine の先頭視覚行が Y=0)
 );
 
 /// <summary>
@@ -25,7 +25,12 @@ internal static class ViewportLayout
     /// - topLine が LineCount 以上なら空リスト
     /// </summary>
     public static IReadOnlyList<VisualRow> Build(
-        TextSnapshot snapshot, int topLine, int heightPx, int wrapColumns, ICharMetrics metrics)
+        TextSnapshot snapshot,
+        int topLine,
+        int heightPx,
+        int wrapColumns,
+        ICharMetrics metrics
+    )
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(metrics);
@@ -50,14 +55,18 @@ internal static class ViewportLayout
             var segments = LineLayout.Wrap(lineText, maxWidthPx, metrics);
             for (int si = 0; si < segments.Count; si++)
             {
-                if (y >= heightPx) return result;
+                if (y >= heightPx)
+                    return result;
                 var seg = segments[si];
-                result.Add(new VisualRow(
-                    LogicalLine: line,
-                    SegmentIndex: si,
-                    SegmentStartChar: lineStart + seg.OffsetInLine,
-                    SegmentLength: seg.Length,
-                    YPx: y));
+                result.Add(
+                    new VisualRow(
+                        LogicalLine: line,
+                        SegmentIndex: si,
+                        SegmentStartChar: lineStart + seg.OffsetInLine,
+                        SegmentLength: seg.Length,
+                        YPx: y
+                    )
+                );
                 y += lineHeight;
             }
         }

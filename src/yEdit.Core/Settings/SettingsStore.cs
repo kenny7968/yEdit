@@ -10,18 +10,26 @@ public static class SettingsStore
 
     /// <summary>既定の設定ファイルパス（%APPDATA%\yEdit\settings.json）。</summary>
     public static string DefaultPath =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "yEdit", "settings.json");
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "yEdit",
+            "settings.json"
+        );
 
     public static AppSettings Load(string path)
     {
         try
         {
-            if (!File.Exists(path)) return new AppSettings();
+            if (!File.Exists(path))
+                return new AppSettings();
             string json = File.ReadAllText(path);
             var s = JsonSerializer.Deserialize<AppSettings>(json, Options) ?? new AppSettings();
             return Normalize(s);
         }
-        catch { return new AppSettings(); }
+        catch
+        {
+            return new AppSettings();
+        }
     }
 
     /// <summary>
@@ -32,31 +40,45 @@ public static class SettingsStore
     {
         var def = new AppSettings();
         s.RecentFiles ??= def.RecentFiles;
-        if (string.IsNullOrEmpty(s.Theme)) s.Theme = def.Theme;
-        if (string.IsNullOrEmpty(s.FontName)) s.FontName = def.FontName;
+        if (string.IsNullOrEmpty(s.Theme))
+            s.Theme = def.Theme;
+        if (string.IsNullOrEmpty(s.FontName))
+            s.FontName = def.FontName;
 
         // 禁則文字セットは明示 null のみ既定へ補正する。空文字 "" は「そのルール無効」の意図なので保持する。
-        if (s.KinsokuLineStartChars is null) s.KinsokuLineStartChars = def.KinsokuLineStartChars;
-        if (s.KinsokuLineEndChars is null) s.KinsokuLineEndChars = def.KinsokuLineEndChars;
-        if (s.KinsokuHangChars is null) s.KinsokuHangChars = def.KinsokuHangChars;
+        if (s.KinsokuLineStartChars is null)
+            s.KinsokuLineStartChars = def.KinsokuLineStartChars;
+        if (s.KinsokuLineEndChars is null)
+            s.KinsokuLineEndChars = def.KinsokuLineEndChars;
+        if (s.KinsokuHangChars is null)
+            s.KinsokuHangChars = def.KinsokuHangChars;
 
         // 数値の健全化（手編集等で壊れた設定が起動時クラッシュ／不可視を招かないように）。
-        if (!IsSelectableCodePage(s.DefaultCodePage)) s.DefaultCodePage = def.DefaultCodePage;
-        if (s.DefaultLineEnding is < 0 or > 2) s.DefaultLineEnding = def.DefaultLineEnding;
-        if (s.FontSize <= 0f) s.FontSize = def.FontSize;
-        if (s.WindowWidth < 200) s.WindowWidth = def.WindowWidth;
-        if (s.WindowHeight < 150) s.WindowHeight = def.WindowHeight;
-        if (s.BackupIntervalSeconds < 5) s.BackupIntervalSeconds = def.BackupIntervalSeconds;
-        if (s.TabWidth is < 1 or > 16) s.TabWidth = def.TabWidth;
-        if (s.CaretWidth is < 1 or > 5) s.CaretWidth = def.CaretWidth;
-        s.WrapColumn = WrapGeometry.ClampColumns(s.WrapColumn);  // 範囲外/破損値を 10〜1000 へ
+        if (!IsSelectableCodePage(s.DefaultCodePage))
+            s.DefaultCodePage = def.DefaultCodePage;
+        if (s.DefaultLineEnding is < 0 or > 2)
+            s.DefaultLineEnding = def.DefaultLineEnding;
+        if (s.FontSize <= 0f)
+            s.FontSize = def.FontSize;
+        if (s.WindowWidth < 200)
+            s.WindowWidth = def.WindowWidth;
+        if (s.WindowHeight < 150)
+            s.WindowHeight = def.WindowHeight;
+        if (s.BackupIntervalSeconds < 5)
+            s.BackupIntervalSeconds = def.BackupIntervalSeconds;
+        if (s.TabWidth is < 1 or > 16)
+            s.TabWidth = def.TabWidth;
+        if (s.CaretWidth is < 1 or > 5)
+            s.CaretWidth = def.CaretWidth;
+        s.WrapColumn = WrapGeometry.ClampColumns(s.WrapColumn); // 範囲外/破損値を 10〜1000 へ
         return s;
     }
 
     private static bool IsSelectableCodePage(int codePage)
     {
         foreach (var e in EncodingCatalog.SelectableEncodings)
-            if (e.CodePage == codePage) return true;
+            if (e.CodePage == codePage)
+                return true;
         return false;
     }
 

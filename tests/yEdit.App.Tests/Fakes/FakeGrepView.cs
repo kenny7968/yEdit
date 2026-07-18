@@ -26,9 +26,21 @@ public sealed class FakeGrepView : IGrepView
 
     public string? Status => StatusLog.Count == 0 ? null : StatusLog[^1];
 
-    public void SetFolder(string path) { Folder = path; FolderLog.Add(path); }
+    public void SetFolder(string path)
+    {
+        Folder = path;
+        FolderLog.Add(path);
+    }
+
     public void SetRunning(bool running) => RunningLog.Add(running);
+
     public void SetStatus(string text) => StatusLog.Add(text);
+
     public void RaiseNotification(string message) => Notifications.Add(message);
-    public void ShowAndFocus(IWin32Window owner) { ShowAndFocusCount++; Visible = true; }
+
+    public void ShowAndFocus(IWin32Window owner)
+    {
+        ShowAndFocusCount++;
+        Visible = true;
+    }
 }

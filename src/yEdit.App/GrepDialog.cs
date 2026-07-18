@@ -16,14 +16,33 @@ public sealed class GrepDialog : Form, IGrepView
     private readonly TextBox _folder = new() { Width = 320 };
     private readonly Button _browse = new() { Text = "参照(&B)...", AutoSize = true };
     private readonly TextBox _filter = new() { Width = 320, Text = "*.*" };
-    private readonly CheckBox _recursive = new() { Text = "サブフォルダを含む(&S)", AutoSize = true, Checked = true };
-    private readonly CheckBox _matchCase = new() { Text = "大文字と小文字を区別(&C)", AutoSize = true };
+    private readonly CheckBox _recursive = new()
+    {
+        Text = "サブフォルダを含む(&S)",
+        AutoSize = true,
+        Checked = true,
+    };
+    private readonly CheckBox _matchCase = new()
+    {
+        Text = "大文字と小文字を区別(&C)",
+        AutoSize = true,
+    };
     private readonly CheckBox _wholeWord = new() { Text = "単語単位(&W)", AutoSize = true };
     private readonly CheckBox _useRegex = new() { Text = "正規表現(&E)", AutoSize = true };
     private readonly Button _run = new() { Text = "検索(&F)", AutoSize = true };
-    private readonly Button _stop = new() { Text = "中止(&T)", AutoSize = true, Enabled = false };
+    private readonly Button _stop = new()
+    {
+        Text = "中止(&T)",
+        AutoSize = true,
+        Enabled = false,
+    };
     private readonly Button _close = new() { Text = "閉じる(&X)", AutoSize = true };
-    private readonly Label _status = new() { AutoSize = true, Text = "", AccessibleName = "状態" };
+    private readonly Label _status = new()
+    {
+        AutoSize = true,
+        Text = "",
+        AccessibleName = "状態",
+    };
     private readonly IAnnouncer _announcer;
 
     public GrepDialog(GrepCallbacks callbacks, IAnnouncer announcer)
@@ -41,7 +60,7 @@ public sealed class GrepDialog : Form, IGrepView
         BuildLayout();
 
         _browse.Click += (_, _) => BrowseFolder();
-        _run.Click += async (_, _) => await _cb.RunAsync();  // fire-and-forget=UI 都合(戻り値は捨てる・例外は Controller 内で処理済み)
+        _run.Click += async (_, _) => await _cb.RunAsync(); // fire-and-forget=UI 都合(戻り値は捨てる・例外は Controller 内で処理済み)
         _stop.Click += (_, _) => _cb.Cancel();
         _close.Click += (_, _) => HideAndCancel();
         AcceptButton = _run;
@@ -57,12 +76,17 @@ public sealed class GrepDialog : Form, IGrepView
 
     public void SetFolder(string path) => _folder.Text = path;
 
-    private void FocusPattern() { _pattern.Focus(); _pattern.SelectAll(); }
+    private void FocusPattern()
+    {
+        _pattern.Focus();
+        _pattern.SelectAll();
+    }
 
     /// <summary>従来 Open 側で行っていた表示手順(非表示なら Show→Activate→検索語フォーカス)の集約。順序を変えない(Stage 4 と同型)。</summary>
     public void ShowAndFocus(IWin32Window owner)
     {
-        if (!Visible) Show(owner);
+        if (!Visible)
+            Show(owner);
         Activate();
         FocusPattern();
     }
@@ -72,8 +96,15 @@ public sealed class GrepDialog : Form, IGrepView
     {
         _run.Enabled = !running;
         _stop.Enabled = running;
-        _pattern.Enabled = _folder.Enabled = _browse.Enabled = _filter.Enabled =
-            _recursive.Enabled = _matchCase.Enabled = _wholeWord.Enabled = _useRegex.Enabled = !running;
+        _pattern.Enabled =
+            _folder.Enabled =
+            _browse.Enabled =
+            _filter.Enabled =
+            _recursive.Enabled =
+            _matchCase.Enabled =
+            _wholeWord.Enabled =
+            _useRegex.Enabled =
+                !running;
     }
 
     public void SetStatus(string text) => _status.Text = text;
@@ -92,8 +123,10 @@ public sealed class GrepDialog : Form, IGrepView
     private void BrowseFolder()
     {
         using var dlg = new FolderBrowserDialog();
-        if (Directory.Exists(_folder.Text)) dlg.SelectedPath = _folder.Text;
-        if (dlg.ShowDialog(this) == DialogResult.OK) _folder.Text = dlg.SelectedPath;
+        if (Directory.Exists(_folder.Text))
+            dlg.SelectedPath = _folder.Text;
+        if (dlg.ShowDialog(this) == DialogResult.OK)
+            _folder.Text = dlg.SelectedPath;
     }
 
     /// <summary>ダイアログを隠す際は実行中の grep も中止する（隠れたまま走り続けるのを防ぐ）。</summary>
@@ -105,13 +138,22 @@ public sealed class GrepDialog : Form, IGrepView
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
-        if (keyData == Keys.Escape) { HideAndCancel(); return true; }
+        if (keyData == Keys.Escape)
+        {
+            HideAndCancel();
+            return true;
+        }
         return base.ProcessCmdKey(ref msg, keyData);
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; HideAndCancel(); return; }
+        if (e.CloseReason == CloseReason.UserClosing)
+        {
+            e.Cancel = true;
+            HideAndCancel();
+            return;
+        }
         base.OnFormClosing(e);
     }
 
@@ -137,12 +179,20 @@ public sealed class GrepDialog : Form, IGrepView
         root.Controls.Add(_filter, 1, 2);
         root.SetColumnSpan(_filter, 2);
 
-        var opts = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
+        var opts = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+        };
         opts.Controls.AddRange(new Control[] { _recursive, _matchCase, _wholeWord, _useRegex });
         root.Controls.Add(opts, 0, 3);
         root.SetColumnSpan(opts, 3);
 
-        var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
+        var buttons = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+        };
         buttons.Controls.AddRange(new Control[] { _run, _stop, _close });
         root.Controls.Add(buttons, 0, 4);
         root.SetColumnSpan(buttons, 3);

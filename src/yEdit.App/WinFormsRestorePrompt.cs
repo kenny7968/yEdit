@@ -15,9 +15,15 @@ public sealed class WinFormsRestorePrompt : IRestorePrompt
         dlg.ShowDialog(owner);
         return dlg.Action switch
         {
-            RestoreDialog.RestoreAction.Restore    => new RestoreOutcome(RestoreAction.Restore, dlg.Checked),
-            RestoreDialog.RestoreAction.DiscardAll => new RestoreOutcome(RestoreAction.DiscardAll, Array.Empty<BackupRecord>()),
-            _                                      => RestoreOutcome.LaterEmpty,
+            RestoreDialog.RestoreAction.Restore => new RestoreOutcome(
+                RestoreAction.Restore,
+                dlg.Checked
+            ),
+            RestoreDialog.RestoreAction.DiscardAll => new RestoreOutcome(
+                RestoreAction.DiscardAll,
+                Array.Empty<BackupRecord>()
+            ),
+            _ => RestoreOutcome.LaterEmpty,
         };
     }
 }

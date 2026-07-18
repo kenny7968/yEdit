@@ -92,8 +92,8 @@ public class CaretControllerTests
         Assert.Equal(4, c.Caret);
         Assert.Equal(1, c.Anchor);
         c.ClearSelection();
-        Assert.Equal(4, c.Caret);   // caret は保持
-        Assert.Equal(4, c.Anchor);  // anchor は caret に揃う
+        Assert.Equal(4, c.Caret); // caret は保持
+        Assert.Equal(4, c.Anchor); // anchor は caret に揃う
         Assert.False(c.HasSelection);
     }
 
@@ -106,7 +106,7 @@ public class CaretControllerTests
         c.SetSelection(anchor: 4, caret: 1, snap);
         Assert.Equal(1, c.Caret);
         Assert.Equal(4, c.Anchor);
-        Assert.Equal((1, 4), c.Selection);   // Start <= End で正規化
+        Assert.Equal((1, 4), c.Selection); // Start <= End で正規化
         Assert.True(c.HasSelection);
     }
 
@@ -114,7 +114,7 @@ public class CaretControllerTests
     public void DesiredXpx_RoundTrip()
     {
         var c = new CaretController();
-        Assert.Equal(-1, c.DesiredXpx);   // 初期値
+        Assert.Equal(-1, c.DesiredXpx); // 初期値
         c.DesiredXpx = 42;
         Assert.Equal(42, c.DesiredXpx);
         c.DesiredXpx = -1;

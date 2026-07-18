@@ -1,5 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFramework>net9.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
@@ -21,5 +20,4 @@
     <!-- P3 Task 8: テストから internal 診断 API (GetText) を叩けるようにする -->
     <InternalsVisibleTo Include="yEdit.Editor.Tests" />
   </ItemGroup>
-
 </Project>

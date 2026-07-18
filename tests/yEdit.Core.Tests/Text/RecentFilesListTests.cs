@@ -1,5 +1,5 @@
-using yEdit.Core.Text;
 using Xunit;
+using yEdit.Core.Text;
 
 namespace yEdit.Core.Tests.Text;
 
@@ -15,14 +15,22 @@ public class RecentFilesListTests
     [Fact]
     public void Existing_path_moves_to_front_without_duplicate()
     {
-        var r = RecentFilesList.Add(new[] { @"C:\a.txt", @"C:\b.txt", @"C:\c.txt" }, @"C:\b.txt", 10);
+        var r = RecentFilesList.Add(
+            new[] { @"C:\a.txt", @"C:\b.txt", @"C:\c.txt" },
+            @"C:\b.txt",
+            10
+        );
         Assert.Equal(new[] { @"C:\b.txt", @"C:\a.txt", @"C:\c.txt" }, r);
     }
 
     [Fact]
     public void Caps_at_max()
     {
-        var r = RecentFilesList.Add(new[] { @"C:\a.txt", @"C:\b.txt", @"C:\c.txt" }, @"C:\d.txt", 2);
+        var r = RecentFilesList.Add(
+            new[] { @"C:\a.txt", @"C:\b.txt", @"C:\c.txt" },
+            @"C:\d.txt",
+            2
+        );
         Assert.Equal(new[] { @"C:\d.txt", @"C:\a.txt" }, r);
     }
 
@@ -50,6 +58,9 @@ public class RecentFilesListTests
     }
 
     [Fact]
-    public void Empty_current_yields_single()
-        => Assert.Equal(new[] { @"C:\a.txt" }, RecentFilesList.Add(System.Array.Empty<string>(), @"C:\a.txt", 10));
+    public void Empty_current_yields_single() =>
+        Assert.Equal(
+            new[] { @"C:\a.txt" },
+            RecentFilesList.Add(System.Array.Empty<string>(), @"C:\a.txt", 10)
+        );
 }

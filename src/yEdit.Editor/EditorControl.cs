@@ -22,9 +22,11 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     // Task 13 で ApplyAppearance によりフォント差し替え/GdiCharMetrics 再構築/ViewportStyle 差し替えを
     // 行うため readonly を外した(Font 差し替え時は明示的に古い Font.Dispose を呼ぶ責務)。
     private Font _font;
+
     // Task 9 レビュー I-1: IME overlay 用の下線フォントは打鍵毎の OnPaint で使う=
     // 毎回 new すると GDI HFONT 割当が積む。_font と寿命同期でキャッシュ(ApplyAppearance で再構築)。
     private Font _underlineFontCache;
+
     // Task 10: 変換対象節(TargetConverted)用の Underline|Bold フォント。_underlineFontCache と対称に
     // ctor/ApplyAppearance で寿命同期する(GDI HFONT リーク回避=§0-6 リソース管理)。
     private Font _targetFontCache;
@@ -127,15 +129,19 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     public EditorControl()
     {
         SetStyle(
-            ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
-            ControlStyles.ResizeRedraw | ControlStyles.UserPaint | ControlStyles.Selectable,
-            true);
+            ControlStyles.AllPaintingInWmPaint
+                | ControlStyles.OptimizedDoubleBuffer
+                | ControlStyles.ResizeRedraw
+                | ControlStyles.UserPaint
+                | ControlStyles.Selectable,
+            true
+        );
         TabStop = true;
         BackColor = Color.White;
         ForeColor = Color.Black;
         _font = new Font("MS ゴシック", 12f);
         _underlineFontCache = new Font(_font, _font.Style | FontStyle.Underline);
-        _targetFontCache = new Font(_font, _font.Style | FontStyle.Underline | FontStyle.Bold);   // Task 10
+        _targetFontCache = new Font(_font, _font.Style | FontStyle.Underline | FontStyle.Bold); // Task 10
         _metrics = new GdiCharMetrics(_font);
         _style = DefaultStyle();
         Cursor = Cursors.IBeam;
@@ -152,11 +158,21 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         //   - HScrollBar が下端の残り幅(VScroll の左まで)
         // となる。ここを逆順にすると HScrollBar が下端全幅を取ってしまい、右下の角に
         // VScroll が張り付かない見た目になる。
-        _hscroll = new HScrollBar { Dock = DockStyle.Bottom, SmallChange = 10, Visible = false };
+        _hscroll = new HScrollBar
+        {
+            Dock = DockStyle.Bottom,
+            SmallChange = 10,
+            Visible = false,
+        };
         _hscroll.Scroll += (_, e) => ScrollX = e.NewValue;
         Controls.Add(_hscroll);
 
-        _vscroll = new VScrollBar { Dock = DockStyle.Right, SmallChange = 1, Enabled = false };
+        _vscroll = new VScrollBar
+        {
+            Dock = DockStyle.Right,
+            SmallChange = 1,
+            Enabled = false,
+        };
         _vscroll.Scroll += (_, e) => TopLine = e.NewValue;
         Controls.Add(_vscroll);
 
@@ -172,7 +188,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
             contextFactory: () => new WinImeContext(Handle),
             caret: _caretCtrl,
             host: this,
-            insertConfirmedText: InsertConfirmedText);
+            insertConfirmedText: InsertConfirmedText
+        );
 
         // Task 3d: UiaTextHostAdapter (IUiaTextHost 22 メンバ実装 + Uia 系 12 field 所有)。
         // this を UI thread 側 host として渡す (RectangleToScreen / PointToScreen / InvokeRequired /
@@ -249,15 +266,16 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     {
         ArgumentNullException.ThrowIfNull(buffer);
         // §4-6: 他の状態変異 API と同じく IME 未確定はまず確定キャンセルする
-        if (IsComposing) CancelCompositionAndDefault();
+        if (IsComposing)
+            CancelCompositionAndDefault();
         _buffer = buffer;
         _caretCtrl.SetTo(0, _buffer.Current);
         _topLine = 0;
         _scrollX = 0;
         _caretCtrl.DesiredXpx = -1;
-        _cellHighlight = null;      // 旧バッファのオフセット由来のセル強調は無効化
-        _mouseDragging = false;     // ドラッグ選択の途中状態を破棄
-        _wheelAccum = 0;            // ホイール蓄積(1 tick = 120)をリセット
+        _cellHighlight = null; // 旧バッファのオフセット由来のセル強調は無効化
+        _mouseDragging = false; // ドラッグ選択の途中状態を破棄
+        _wheelAccum = 0; // ホイール蓄積(1 tick = 120)をリセット
         UpdateVerticalScrollbar();
         UpdateHorizontalScrollbar();
         if (_hasFocus)
@@ -285,7 +303,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// 大容量ファイルでは 64MB 閾値二層化(<see cref="SearchController"/>)で回避されるが、
     /// 呼び出し側でメモリ配慮が必要な場面もある(App 層側で判定=§設計 §2-8)。
     /// </summary>
-    public string SnapshotText => _buffer?.Current.GetText(0, _buffer.Current.CharLength) ?? string.Empty;
+    public string SnapshotText =>
+        _buffer?.Current.GetText(0, _buffer.Current.CharLength) ?? string.Empty;
 
     /// <summary>
     /// P6 Task 10: <see cref="TextBuffer"/> を差し込む(初回は <see cref="SetSource"/>・
@@ -303,8 +322,10 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     public void SetOrReplaceSource(TextBuffer buffer)
     {
         ArgumentNullException.ThrowIfNull(buffer);
-        if (_buffer is null) SetSource(buffer);
-        else ReplaceSource(buffer);
+        if (_buffer is null)
+            SetSource(buffer);
+        else
+            ReplaceSource(buffer);
     }
 
     /// <summary>
@@ -336,11 +357,16 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     // internal accessor を露出する。既存フィールド _mouseDragging はそのまま(所有権は EditorControl)。
     // WFO1000(Designer プロパティのシリアライゼーション警告)回避のため属性で明示的に非公開化する。
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    internal bool MouseDragging { get => _mouseDragging; set => _mouseDragging = value; }
+    internal bool MouseDragging
+    {
+        get => _mouseDragging;
+        set => _mouseDragging = value;
+    }
 
     // Task 3d: UiaTextHostAdapter が ComputeBoundingRectangles から ComputeCaretPoint を呼ぶための
     // named accessor (直接 internal 化した ComputeCaretPoint を呼ぶ薄いラッパ・分かりやすさのため)。
-    internal (int X, int Y, bool Visible) ComputeCaretPointForUia(int offset) => ComputeCaretPoint(offset);
+    internal (int X, int Y, bool Visible) ComputeCaretPointForUia(int offset) =>
+        ComputeCaretPoint(offset);
 
     // Task 3d: UiaTextHostAdapter が IUiaTextHost.HasFocus 実装で _hasFocus を返すための named accessor。
     // WinForms Control には ContainsFocus が居るため名前衝突しない別名で露出する
@@ -367,7 +393,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// </remarks>
     public void ConvertEols(LineEnding eol)
     {
-        if (_buffer is null) return;
+        if (_buffer is null)
+            return;
         byte[] targetBytes = eol switch
         {
             LineEnding.Crlf => new byte[] { 0x0D, 0x0A },
@@ -375,7 +402,7 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
             LineEnding.Cr => new byte[] { 0x0D },
             _ => new byte[] { 0x0A },
         };
-        int targetCharLen = targetBytes.Length;  // ASCII のみ=byte 数 = char 数
+        int targetCharLen = targetBytes.Length; // ASCII のみ=byte 数 = char 数
         var snap = _buffer.Current;
 
         // P7 I-3 Task 3: SnapshotText 全文化を撤廃=byte スキャンで fast-path 判定。
@@ -448,13 +475,16 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
                     // Check-before-write: 直前 EmitEol が outLen==outBuf.Length のまま抜けたケース
                     // (EmitEol の flush 判定は `outLen + eol.Length > outBuf.Length` で = のときは flush しない)
                     // に備えて先に flush する=安全側に統一。
-                    if (outLen == outBuf.Length) FlushBuf(ref outBuf, ref outLen, builder);
+                    if (outLen == outBuf.Length)
+                        FlushBuf(ref outBuf, ref outLen, builder);
                     outBuf[outLen++] = b;
                 }
             }
         }
-        if (pendingCr) EmitEol(targetBytes, ref outBuf, ref outLen, builder);
-        if (outLen > 0) FlushBuf(ref outBuf, ref outLen, builder);
+        if (pendingCr)
+            EmitEol(targetBytes, ref outBuf, ref outLen, builder);
+        if (outLen > 0)
+            FlushBuf(ref outBuf, ref outLen, builder);
 
         ReplaceSource(builder.Build());
         int total = _buffer!.Current.CharLength;
@@ -463,14 +493,16 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         _caretCtrl.SetSelection(
             Math.Min(anchorM + anchorK * targetCharLen, total),
             Math.Min(caretM + caretK * targetCharLen, total),
-            _buffer.Current);
-        TopLine = savedTopLine;    // setter でクランプ+VScrollBar 同期
-        ScrollX = savedScrollX;    // 同上
+            _buffer.Current
+        );
+        TopLine = savedTopLine; // setter でクランプ+VScrollBar 同期
+        ScrollX = savedScrollX; // 同上
         // P7 別エージェント最終レビュー Important-2: TopLine/ScrollX の値が不変(小文書で先頭表示中)
         // だと setter が no-op で PositionCaret 再発火されず、Win32 system caret(SetCaretPos)が
         // 復元前の pos 0 に残る。UIA v2 単一経路に統一した P7 以降は SR の system caret 追跡依存度が
         // 上がるため、Save 直後の system caret 位置ずれを避けるべく明示的に再配置する。
-        if (_hasFocus) PositionCaret();
+        if (_hasFocus)
+            PositionCaret();
         EolMode = eol;
     }
 
@@ -478,10 +510,17 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// P7 I-3 Task 3: <paramref name="eol"/> バイト列を出力バッファへ書き足す。バッファ溢れ時は
     /// TextBufferBuilder へフラッシュしてから追記する(bare append より 1 分岐多いだけの hot path)。
     /// </summary>
-    private static void EmitEol(byte[] eol, ref byte[] outBuf, ref int outLen, TextBufferBuilder builder)
+    private static void EmitEol(
+        byte[] eol,
+        ref byte[] outBuf,
+        ref int outLen,
+        TextBufferBuilder builder
+    )
     {
-        if (outLen + eol.Length > outBuf.Length) FlushBuf(ref outBuf, ref outLen, builder);
-        for (int i = 0; i < eol.Length; i++) outBuf[outLen++] = eol[i];
+        if (outLen + eol.Length > outBuf.Length)
+            FlushBuf(ref outBuf, ref outLen, builder);
+        for (int i = 0; i < eol.Length; i++)
+            outBuf[outLen++] = eol[i];
     }
 
     /// <summary>
@@ -489,7 +528,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// </summary>
     private static void FlushBuf(ref byte[] outBuf, ref int outLen, TextBufferBuilder builder)
     {
-        if (outLen == 0) return;
+        if (outLen == 0)
+            return;
         builder.Add(new ReadOnlySpan<byte>(outBuf, 0, outLen));
         outLen = 0;
     }
@@ -515,35 +555,54 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
                     if (b == 0x0A)
                     {
                         // 前ピース末尾 CR + 当ピース先頭 LF=CRLF。target が CRLF でなければ NG。
-                        if (!(targetBytes.Length == 2 && targetBytes[0] == 0x0D && targetBytes[1] == 0x0A)) return false;
+                        if (
+                            !(
+                                targetBytes.Length == 2
+                                && targetBytes[0] == 0x0D
+                                && targetBytes[1] == 0x0A
+                            )
+                        )
+                            return false;
                         continue;
                     }
                     // CR 単独。target が CR でなければ NG。今の byte は落とさず後段で処理継続。
-                    if (!(targetBytes.Length == 1 && targetBytes[0] == 0x0D)) return false;
+                    if (!(targetBytes.Length == 1 && targetBytes[0] == 0x0D))
+                        return false;
                 }
                 if (b == 0x0D)
                 {
                     if (i + 1 < span.Length && span[i + 1] == 0x0A)
                     {
-                        if (!(targetBytes.Length == 2 && targetBytes[0] == 0x0D && targetBytes[1] == 0x0A)) return false;
+                        if (
+                            !(
+                                targetBytes.Length == 2
+                                && targetBytes[0] == 0x0D
+                                && targetBytes[1] == 0x0A
+                            )
+                        )
+                            return false;
                         i++;
                     }
                     else if (i + 1 < span.Length)
                     {
-                        if (!(targetBytes.Length == 1 && targetBytes[0] == 0x0D)) return false;
+                        if (!(targetBytes.Length == 1 && targetBytes[0] == 0x0D))
+                            return false;
                     }
-                    else pendingCr = true;
+                    else
+                        pendingCr = true;
                 }
                 else if (b == 0x0A)
                 {
-                    if (!(targetBytes.Length == 1 && targetBytes[0] == 0x0A)) return false;
+                    if (!(targetBytes.Length == 1 && targetBytes[0] == 0x0A))
+                        return false;
                 }
             }
         }
         if (pendingCr)
         {
             // 全 span 走査後に残った CR は文書末尾の単独 CR。target が CR でなければ NG。
-            if (!(targetBytes.Length == 1 && targetBytes[0] == 0x0D)) return false;
+            if (!(targetBytes.Length == 1 && targetBytes[0] == 0x0D))
+                return false;
         }
         return true;
     }
@@ -555,11 +614,16 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// 変換前後にマップし直すために使う。8192 char バッファ境界で '\r' が末尾に来るケースは carry で持ち越す。
     /// pos が CRLF の LF を指す(=接頭辞末尾が CR)ケースは \r 単独として 1 改行を計上(境界を跨がない安全側)。
     /// </summary>
-    private static (int NonBreakChars, int Breaks) CountNonBreakAndBreaksInSnapshot(TextSnapshot snap, int pos)
+    private static (int NonBreakChars, int Breaks) CountNonBreakAndBreaksInSnapshot(
+        TextSnapshot snap,
+        int pos
+    )
     {
-        int m = 0, k = 0;
+        int m = 0,
+            k = 0;
         int p = Math.Min(pos, snap.CharLength);
-        if (p == 0) return (0, 0);
+        if (p == 0)
+            return (0, 0);
         using var reader = snap.CreateReader();
         char[] buf = new char[8192];
         int consumed = 0;
@@ -568,27 +632,57 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         {
             int want = Math.Min(buf.Length, p - consumed);
             int n = reader.Read(buf, 0, want);
-            if (n == 0) break;
+            if (n == 0)
+                break;
             for (int j = 0; j < n; j++)
             {
                 char c = buf[j];
                 if (carry >= 0)
                 {
                     // 前ブロック末尾の CR。今の char が LF なら CRLF=1 改行、そうでなければ CR 単独=1 改行。
-                    if (c == '\n') { k++; consumed++; carry = -1; continue; }
-                    k++; carry = -1;
+                    if (c == '\n')
+                    {
+                        k++;
+                        consumed++;
+                        carry = -1;
+                        continue;
+                    }
+                    k++;
+                    carry = -1;
                 }
                 if (c == '\r')
                 {
-                    if (j + 1 < n && buf[j + 1] == '\n') { k++; j++; consumed += 2; }
-                    else if (j + 1 == n) { carry = '\r'; consumed++; }
-                    else { k++; consumed++; }
+                    if (j + 1 < n && buf[j + 1] == '\n')
+                    {
+                        k++;
+                        j++;
+                        consumed += 2;
+                    }
+                    else if (j + 1 == n)
+                    {
+                        carry = '\r';
+                        consumed++;
+                    }
+                    else
+                    {
+                        k++;
+                        consumed++;
+                    }
                 }
-                else if (c == '\n') { k++; consumed++; }
-                else { m++; consumed++; }
+                else if (c == '\n')
+                {
+                    k++;
+                    consumed++;
+                }
+                else
+                {
+                    m++;
+                    consumed++;
+                }
             }
         }
-        if (carry >= 0) k++;
+        if (carry >= 0)
+            k++;
         return (m, k);
     }
 
@@ -611,13 +705,16 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         set
         {
             int clamped = ClampTopLine(value);
-            if (clamped == _topLine) return;
+            if (clamped == _topLine)
+                return;
             _topLine = clamped;
-            if (_vscroll.Value != clamped) _vscroll.Value = clamped;
+            if (_vscroll.Value != clamped)
+                _vscroll.Value = clamped;
             PositionCaret();
             Invalidate();
         }
     }
+
     /// <summary>
     /// 折り返し桁数(半角換算)。0 以下で折り返し OFF。負値は 0 に丸める。
     /// ON: 水平スクロールバー非表示・視覚行を <c>WrapColumns × 半角1文字幅</c> で折り返す。
@@ -631,7 +728,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         set
         {
             int clamped = Math.Max(0, value);
-            if (_wrapColumns == clamped) return;
+            if (_wrapColumns == clamped)
+                return;
             _wrapColumns = clamped;
             // P8 Minor-5 / Task 3d: wrap 値変化で Adapter の _lastLineSegs キャッシュ破棄。
             _uia.InvalidateLastLineSegs();
@@ -660,16 +758,21 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         get => _scrollX;
         set
         {
-            if (_wrapColumns > 0) return;   // 折り返し ON では水平スクロール無効
-            if (!_hscroll.Visible) return;  // HScroll 非表示時は水平スクロール意味なし
+            if (_wrapColumns > 0)
+                return; // 折り返し ON では水平スクロール無効
+            if (!_hscroll.Visible)
+                return; // HScroll 非表示時は水平スクロール意味なし
             int clamped = ClampScrollX(value);
-            if (clamped == _scrollX) return;
+            if (clamped == _scrollX)
+                return;
             _scrollX = clamped;
-            if (_hscroll.Value != clamped) _hscroll.Value = clamped;
+            if (_hscroll.Value != clamped)
+                _hscroll.Value = clamped;
             PositionCaret();
             Invalidate();
         }
     }
+
     /// <summary>
     /// 行番号マージンを表示するか。true にすると <see cref="MeasureLineNumberWidth"/> 幅のマージンを確保し、
     /// FrameBuilder が右寄せで行番号を発行する(現在行のみ <see cref="ViewportStyle.Foreground"/> で強調)。
@@ -681,7 +784,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         get => _showLineNumbers;
         set
         {
-            if (_showLineNumbers == value) return;
+            if (_showLineNumbers == value)
+                return;
             _showLineNumbers = value;
             // 行番号マージン幅は本文 X の起点(bodyX)を変えるためシステムキャレット位置と
             // 水平スクロールの content 幅にも効く。TopLine/WrapColumns setter と同じく
@@ -691,6 +795,7 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
             Invalidate();
         }
     }
+
     /// <summary>
     /// 空白/タブ/EOL の可視化グリフ(中点/矢印)を <see cref="ViewportStyle.WhitespaceGlyph"/> 色で
     /// 本文の上から重ね塗りするか。FrameBuilder は本文とは別 op として個別 DrawText を発行し、
@@ -702,7 +807,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         get => _showWhitespace;
         set
         {
-            if (_showWhitespace == value) return;
+            if (_showWhitespace == value)
+                return;
             _showWhitespace = value;
             Invalidate();
         }
@@ -719,7 +825,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// <param name="length">長さ(UTF-16 コード単位)。負値は 0 として扱う。</param>
     public void HighlightCharRange(int start, int length)
     {
-        if (_buffer is null) return;
+        if (_buffer is null)
+            return;
         int s = SnapAndClamp(start);
         // start + length は int 加算だとオーバーフローで負値になり s > e = SelectionRange 例外の
         // 経路が残る(実運用の CharLength は int.MaxValue 未満だが公開 API の契約防御として長型経由)。
@@ -731,7 +838,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         // Math.Max(0, length) と上記オーバーフロー処理で e >= s が数学的に保証される
         // (SelectionRange invariant Start <= End にも合致)。
         var range = new SelectionRange(s, e);
-        if (_cellHighlight == range) return;
+        if (_cellHighlight == range)
+            return;
         _cellHighlight = range;
         Invalidate();
     }
@@ -741,7 +849,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// </summary>
     public void ClearHighlight()
     {
-        if (_cellHighlight is null) return;
+        if (_cellHighlight is null)
+            return;
         _cellHighlight = null;
         Invalidate();
     }
@@ -757,7 +866,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         get => _highlightCurrentLine;
         set
         {
-            if (_highlightCurrentLine == value) return;
+            if (_highlightCurrentLine == value)
+                return;
             _highlightCurrentLine = value;
             Invalidate();
         }
@@ -788,9 +898,11 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         get => _readOnly;
         set
         {
-            if (_readOnly == value) return;
+            if (_readOnly == value)
+                return;
             _readOnly = value;
-            if (value) CancelCompositionAndDefault();
+            if (value)
+                CancelCompositionAndDefault();
         }
     }
     private bool _readOnly;
@@ -857,8 +969,10 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// </remarks>
     public void ReplaceCharRange(int start, int length, string replacement)
     {
-        if (IsComposing) CancelCompositionAndDefault();
-        if (_buffer is null || ReadOnly) return;
+        if (IsComposing)
+            CancelCompositionAndDefault();
+        if (_buffer is null || ReadOnly)
+            return;
         ArgumentNullException.ThrowIfNull(replacement);
         int s = SnapAndClamp(start);
         // start + length は int 加算だとオーバーフローで負値になり得るため long 経由(EnsureVisibleCharRange
@@ -875,8 +989,10 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     private int ClampTopLine(int value)
     {
         int max = _buffer is null ? 0 : Math.Max(0, _buffer.Current.LineCount - 1);
-        if (value < 0) return 0;
-        if (value > max) return max;
+        if (value < 0)
+            return 0;
+        if (value > max)
+            return max;
         return value;
     }
 
@@ -889,7 +1005,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// </summary>
     private void UpdateVerticalScrollbar()
     {
-        if (_buffer is null) return;
+        if (_buffer is null)
+            return;
         var snap = _buffer.Current;
         int maxLine = Math.Max(0, snap.LineCount - 1);
         // 編集経路(Undo/Delete)で buffer が縮んだ結果 _topLine が新 maxLine を超えて
@@ -897,7 +1014,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         // 前にクランプ済みだが、AfterEdit→UpdateVerticalScrollbar の順で来ると
         // 直前の buffer 縮小分が _topLine に反映されていないためここで補正する必要がある
         // (Task 13 EmptyLineNavigationTests の Enter→Undo 経路で顕在化した既存潜在バグ)。
-        if (_topLine > maxLine) _topLine = maxLine;
+        if (_topLine > maxLine)
+            _topLine = maxLine;
         int visibleLines = Math.Max(1, ClientSize.Height / Math.Max(1, _metrics.LineHeightPx));
         _vscroll.Maximum = maxLine + Math.Max(0, visibleLines - 1);
         _vscroll.LargeChange = visibleLines;
@@ -917,7 +1035,11 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// </summary>
     private void UpdateHorizontalScrollbar()
     {
-        if (_buffer is null || _wrapColumns > 0) { HideAndResetHScroll(); return; }
+        if (_buffer is null || _wrapColumns > 0)
+        {
+            HideAndResetHScroll();
+            return;
+        }
         var snap = _buffer.Current;
         int paintWidth = Math.Max(0, ClientSize.Width - _vscroll.Width);
         // HScroll 表示可否を決めるための計算では、まだ表示していない前提で高さいっぱいを見る
@@ -928,13 +1050,19 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         int maxLineWidthPx = 0;
         foreach (var row in rows)
         {
-            if (row.SegmentLength == 0) continue;
+            if (row.SegmentLength == 0)
+                continue;
             string lineText = snap.GetText(row.SegmentStartChar, row.SegmentLength);
             int width = _metrics.MeasureRun(lineText.AsSpan());
-            if (width > maxLineWidthPx) maxLineWidthPx = width;
+            if (width > maxLineWidthPx)
+                maxLineWidthPx = width;
         }
         int contentWidth = lnWidth + maxLineWidthPx;
-        if (contentWidth <= paintWidth) { HideAndResetHScroll(); return; }
+        if (contentWidth <= paintWidth)
+        {
+            HideAndResetHScroll();
+            return;
+        }
 
         // 表示に必要
         int largeChange = Math.Max(1, paintWidth);
@@ -944,8 +1072,10 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         _hscroll.LargeChange = largeChange;
         _hscroll.SmallChange = Math.Max(1, _metrics.MeasureRun("0"));
         int maxScrollX = _hscroll.Maximum - Math.Max(0, largeChange - 1);
-        if (_scrollX > maxScrollX) _scrollX = Math.Max(0, maxScrollX);
-        if (_scrollX < 0) _scrollX = 0;
+        if (_scrollX > maxScrollX)
+            _scrollX = Math.Max(0, maxScrollX);
+        if (_scrollX < 0)
+            _scrollX = 0;
         _hscroll.Value = _scrollX;
         _hscroll.Visible = true;
     }
@@ -964,15 +1094,19 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         _hscroll.LargeChange = 1;
         _hscroll.Maximum = 0;
         _scrollX = 0;
-        if (_hscroll.Value != 0) _hscroll.Value = 0;
+        if (_hscroll.Value != 0)
+            _hscroll.Value = 0;
     }
 
     private int ClampScrollX(int value)
     {
         int max = _hscroll.Maximum - Math.Max(0, _hscroll.LargeChange - 1);
-        if (max < 0) max = 0;
-        if (value < 0) return 0;
-        if (value > max) return max;
+        if (max < 0)
+            max = 0;
+        if (value < 0)
+            return 0;
+        if (value > max)
+            return max;
         return value;
     }
 
@@ -1018,11 +1152,13 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         // でも二重発火させない(§0 設計)。Undo で保存点へ戻る経路も本メソッドが呼ばれるため、
         // SavePointReached を対称に発火しないとタブラベル「*」が消えない実挙動退行(P6 レビュー I-1)。
         bool nowModified = Modified;
-        bool shouldFireLeft    = !_wasModified && nowModified;
-        bool shouldFireReached =  _wasModified && !nowModified;
+        bool shouldFireLeft = !_wasModified && nowModified;
+        bool shouldFireReached = _wasModified && !nowModified;
         _wasModified = nowModified;
-        if (shouldFireLeft)    SavePointLeft?.Invoke(this, EventArgs.Empty);
-        if (shouldFireReached) SavePointReached?.Invoke(this, EventArgs.Empty);
+        if (shouldFireLeft)
+            SavePointLeft?.Invoke(this, EventArgs.Empty);
+        if (shouldFireReached)
+            SavePointReached?.Invoke(this, EventArgs.Empty);
         UpdateUI?.Invoke(this, EventArgs.Empty);
     }
 
@@ -1046,10 +1182,13 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// </remarks>
     public void Undo()
     {
-        if (IsComposing) CancelCompositionAndDefault();   // §4-6(Task 13 レビュー I-1)
-        if (_buffer is null || ReadOnly) return;
+        if (IsComposing)
+            CancelCompositionAndDefault(); // §4-6(Task 13 レビュー I-1)
+        if (_buffer is null || ReadOnly)
+            return;
         var r = _buffer.Undo();
-        if (r is null) return;
+        if (r is null)
+            return;
         int pos = Math.Clamp(r.Value.CaretPos, 0, _buffer.Current.CharLength);
         _caretCtrl.SetTo(pos, _buffer.Current);
         _caretCtrl.DesiredXpx = -1;
@@ -1064,10 +1203,13 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// </summary>
     public void Redo()
     {
-        if (IsComposing) CancelCompositionAndDefault();   // §4-6(Task 13 レビュー I-1)
-        if (_buffer is null || ReadOnly) return;
+        if (IsComposing)
+            CancelCompositionAndDefault(); // §4-6(Task 13 レビュー I-1)
+        if (_buffer is null || ReadOnly)
+            return;
         var r = _buffer.Redo();
-        if (r is null) return;
+        if (r is null)
+            return;
         int pos = Math.Clamp(r.Value.CaretPos, 0, _buffer.Current.CharLength);
         _caretCtrl.SetTo(pos, _buffer.Current);
         _caretCtrl.DesiredXpx = -1;
@@ -1096,7 +1238,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// </summary>
     public void ClearSavePoint()
     {
-        if (_buffer is null) return;
+        if (_buffer is null)
+            return;
         _buffer.MarkUnsaved();
         // SetSavePoint と対称: _wasModified を同期し(次の AfterEdit が false→true 遷移を誤検出して
         // SavePointLeft を二重発火しないように)、App 層(タブ「*」/タイトルバー)へは SavePointLeft で
@@ -1126,9 +1269,11 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// </remarks>
     public void Copy()
     {
-        if (_buffer is null) return;
+        if (_buffer is null)
+            return;
         var (s, en) = GetSelectionCharRange();
-        if (s == en) return;
+        if (s == en)
+            return;
         string text = _buffer.Current.GetText(s, en - s);
         Clipboard.SetText(text, TextDataFormat.UnicodeText);
     }
@@ -1146,10 +1291,13 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// </remarks>
     public void Cut()
     {
-        if (IsComposing) CancelCompositionAndDefault();   // §4-6(Task 13 レビュー I-1)
-        if (_buffer is null || ReadOnly) return;
+        if (IsComposing)
+            CancelCompositionAndDefault(); // §4-6(Task 13 レビュー I-1)
+        if (_buffer is null || ReadOnly)
+            return;
         var (s, en) = GetSelectionCharRange();
-        if (s == en) return;
+        if (s == en)
+            return;
         Copy();
         _buffer.Replace(s, en - s, "");
         _caretCtrl.SetTo(s, _buffer.Current);
@@ -1170,11 +1318,15 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// </remarks>
     public void Paste()
     {
-        if (IsComposing) CancelCompositionAndDefault();   // §4-6(Task 13 レビュー I-1)
-        if (_buffer is null || ReadOnly) return;
-        if (!Clipboard.ContainsText(TextDataFormat.UnicodeText)) return;
+        if (IsComposing)
+            CancelCompositionAndDefault(); // §4-6(Task 13 レビュー I-1)
+        if (_buffer is null || ReadOnly)
+            return;
+        if (!Clipboard.ContainsText(TextDataFormat.UnicodeText))
+            return;
         string text = Clipboard.GetText(TextDataFormat.UnicodeText);
-        if (string.IsNullOrEmpty(text)) return;
+        if (string.IsNullOrEmpty(text))
+            return;
         var (s, en) = GetSelectionCharRange();
         _buffer.Replace(s, en - s, text);
         _caretCtrl.SetTo(s + text.Length, _buffer.Current);
@@ -1194,11 +1346,11 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// (Task 6)は <see cref="SetSelectionAnchored(int, int)"/> を直接呼んでいるため
     /// 本メソッド経由ではないが、App 層メニュー "すべて選択" などから直接呼ばれることを想定。
     /// </remarks>
-    public void SelectAll()
-        => SetSelectionAnchored(0, _buffer?.Current.CharLength ?? 0);
+    public void SelectAll() => SetSelectionAnchored(0, _buffer?.Current.CharLength ?? 0);
 
     /// <summary>診断用(テストで文書全体を取得)。SetSource 前は空文字列。</summary>
-    internal string GetText() => _buffer?.Current.GetText(0, _buffer.Current.CharLength) ?? string.Empty;
+    internal string GetText() =>
+        _buffer?.Current.GetText(0, _buffer.Current.CharLength) ?? string.Empty;
 
     protected override void OnResize(EventArgs e)
     {
@@ -1220,7 +1372,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         // SetSource 前は buffer が無く PositionCaret が SetCaretPos を呼ばないため、
         // ShowCaret のみ走ると未定義位置(実装依存)にキャレットが出る。SetSource 前は
         // キャレットを生成しない(次に focus を得るときに再セットアップされる)。
-        if (_buffer is null) return;
+        if (_buffer is null)
+            return;
         NativeMethods.CreateCaret(Handle, nint.Zero, _caretWidthPx, _metrics.LineHeightPx);
         PositionCaret();
         NativeMethods.ShowCaret(Handle);
@@ -1335,12 +1488,14 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     // IImeOverlayHost.ComputeCaretPoint) は引き続き同一アセンブリから呼ぶため可視性拡張のみで影響なし。
     internal (int X, int Y, bool Visible) ComputeCaretPoint(int offset)
     {
-        if (_buffer is null) return (0, 0, false);
+        if (_buffer is null)
+            return (0, 0, false);
         var snap = _buffer.Current;
         int logicalLine = snap.GetLineIndexOfChar(offset);
 
         // TopLine 未到達なら不可視(スクロールで対象行が上にはみ出している)
-        if (logicalLine < _topLine) return (0, 0, false);
+        if (logicalLine < _topLine)
+            return (0, 0, false);
 
         int lineStart = snap.GetLineStart(logicalLine);
         int lineEnd = snap.GetLineEnd(logicalLine, includeBreak: false);
@@ -1394,7 +1549,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         int y = totalVisualRow * lineHeight;
 
         // 下端超過(paint 領域の高さ以上)なら不可視
-        if (y >= paintHeight) return (0, 0, false);
+        if (y >= paintHeight)
+            return (0, 0, false);
 
         return (x, y, true);
     }
@@ -1418,7 +1574,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     /// </summary>
     private void PositionCaret()
     {
-        if (!_hasFocus || _buffer is null) return;
+        if (!_hasFocus || _buffer is null)
+            return;
 
         // P4 Task 11: 未確定中は IME 内カーソル位置 (_ime.Start + _ime.CursorPos) に SetCaretPos。
         // 非 IME 経路の前に分岐させる(視覚的にキャレット位置を反映する、というセマンティクスは同じ)。
@@ -1438,9 +1595,13 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
             int cur = Math.Clamp(ime.CursorPos, 0, ime.Text.Length);
             string prefix = ime.Text[..cur];
             using var g = CreateGraphics();
-            Size sz = TextRenderer.MeasureText(g, prefix, _underlineFontCache,
+            Size sz = TextRenderer.MeasureText(
+                g,
+                prefix,
+                _underlineFontCache,
                 new Size(int.MaxValue, int.MaxValue),
-                TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+                TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix
+            );
             NativeMethods.SetCaretPos(x - _scrollX + sz.Width, y);
             // Task 12: スクロール変更等で IME 行の client 座標が動いた=候補窓も追従させる。
             // NotifyCandidateWindow は自前で ComputeCaretPoint を呼び直すため、visible 分岐は
@@ -1450,8 +1611,10 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         }
 
         var (cx, cy, cvisible) = ComputeCaretPoint(_caretCtrl.Caret);
-        if (cvisible) NativeMethods.SetCaretPos(cx - _scrollX, cy);
-        else NativeMethods.SetCaretPos(-1000, -1000);
+        if (cvisible)
+            NativeMethods.SetCaretPos(cx - _scrollX, cy);
+        else
+            NativeMethods.SetCaretPos(-1000, -1000);
     }
 
     /// <summary>
@@ -1482,7 +1645,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         // (旧 _font / _metrics は生きたまま=次回 OnPaint も従前の高さで安全に描画できる)。
         var newFont = new Font(
             string.IsNullOrEmpty(settings.FontName) ? "ＭＳ ゴシック" : settings.FontName,
-            settings.FontSize > 0 ? settings.FontSize : 12f);
+            settings.FontSize > 0 ? settings.FontSize : 12f
+        );
         GdiCharMetrics newMetrics;
         try
         {
@@ -1495,10 +1659,10 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         }
         _font.Dispose();
         _underlineFontCache.Dispose();
-        _targetFontCache.Dispose();       // Task 10
+        _targetFontCache.Dispose(); // Task 10
         _font = newFont;
         _underlineFontCache = new Font(_font, _font.Style | FontStyle.Underline);
-        _targetFontCache = new Font(_font, _font.Style | FontStyle.Underline | FontStyle.Bold);   // Task 10
+        _targetFontCache = new Font(_font, _font.Style | FontStyle.Underline | FontStyle.Bold); // Task 10
         _metrics = newMetrics;
 
         // テーマから ViewportStyle 算出 + Graphics.Clear 用 BackColor 同期
@@ -1518,7 +1682,8 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
         // ここでも先に落としておくことで PositionCaret が過渡的な旧 _scrollX を参照するのを防ぐ。
         int oldWrapColumns = _wrapColumns;
         _wrapColumns = Math.Max(0, settings.WrapColumnEnabled ? settings.WrapColumn : 0);
-        if (_wrapColumns != oldWrapColumns) _scrollX = 0;
+        if (_wrapColumns != oldWrapColumns)
+            _scrollX = 0;
 
         // LineHeightPx / 折り返し設定が変わった可能性があるので両スクロールバーを再計算 →
         // キャレット再配置。

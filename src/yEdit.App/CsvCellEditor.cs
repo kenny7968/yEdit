@@ -24,19 +24,29 @@ internal sealed class CsvCellEditor
     internal bool IsEditing => _box is not null;
 
     /// <summary>セル編集を開始する。onCommit は確定値（改行は \n 正規化済み）、onCancel は取消で呼ぶ。</summary>
-    internal void Begin(EditorControl ed, CsvField field, Control refocusTarget, Action<string> onCommit, Action onCancel)
+    internal void Begin(
+        EditorControl ed,
+        CsvField field,
+        Control refocusTarget,
+        Action<string> onCommit,
+        Action onCancel
+    )
     {
-        if (IsEditing) return;
-        _refocus = refocusTarget; _onCommit = onCommit; _onCancel = onCancel; _closing = false;
+        if (IsEditing)
+            return;
+        _refocus = refocusTarget;
+        _onCommit = onCommit;
+        _onCancel = onCancel;
+        _closing = false;
 
-        var host = (Control?)ed.Parent ?? ed;                 // 親(TabPage 等)に重ねる
-        var clientPt = ed.PointFromCharOffset(field.Start);   // EditorControl クライアント座標
+        var host = (Control?)ed.Parent ?? ed; // 親(TabPage 等)に重ねる
+        var clientPt = ed.PointFromCharOffset(field.Start); // EditorControl クライアント座標
         var local = host.PointToClient(ed.PointToScreen(clientPt));
 
         _box = new TextBox
         {
             Multiline = true,
-            AcceptsReturn = true,        // Enter は KeyDown で自前処理
+            AcceptsReturn = true, // Enter は KeyDown で自前処理
             AcceptsTab = false,
             WordWrap = false,
             ScrollBars = ScrollBars.Vertical,
@@ -54,14 +64,16 @@ internal sealed class CsvCellEditor
         host.Controls.Add(_box);
         _box.BringToFront();
         _box.Focus();
-        _box.SelectAll();                 // 全選択（即上書きしやすく）
+        _box.SelectAll(); // 全選択（即上書きしやすく）
     }
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
-        if (_box is null) return;
-        if (e.KeyCode == Keys.ProcessKey) return;   // IME 変換確定の Enter 等は無視（誤コミット防止）
-        if (e.KeyCode == Keys.Return && e.Alt)          // Alt+Enter → セル内改行
+        if (_box is null)
+            return;
+        if (e.KeyCode == Keys.ProcessKey)
+            return; // IME 変換確定の Enter 等は無視（誤コミット防止）
+        if (e.KeyCode == Keys.Return && e.Alt) // Alt+Enter → セル内改行
         {
             int at = _box.SelectionStart;
             _box.Text = _box.Text.Remove(at, _box.SelectionLength).Insert(at, "\r\n");
@@ -70,13 +82,13 @@ internal sealed class CsvCellEditor
             e.SuppressKeyPress = true;
             return;
         }
-        if (e.KeyCode == Keys.Return)                   // Enter → 確定
+        if (e.KeyCode == Keys.Return) // Enter → 確定
         {
             e.SuppressKeyPress = true;
             Commit();
             return;
         }
-        if (e.KeyCode == Keys.Escape)                   // Esc → 取消
+        if (e.KeyCode == Keys.Escape) // Esc → 取消
         {
             e.SuppressKeyPress = true;
             CancelEdit();
@@ -86,7 +98,8 @@ internal sealed class CsvCellEditor
     // フォーカス喪失は取消扱い（誤変更を避ける）。確定/取消処理中は無視。
     private void OnLostFocus(object? sender, EventArgs e)
     {
-        if (!_closing) CancelEdit();
+        if (!_closing)
+            CancelEdit();
     }
 
     /// <summary>Enter 相当=編集内容を確定する。<see cref="_box"/> の現在テキストを
@@ -94,7 +107,8 @@ internal sealed class CsvCellEditor
     /// Task 7 でテストからも呼べるよう internal 化(F2 経路の観測ポイント)。</summary>
     internal void Commit()
     {
-        if (_box is null || _closing) return;
+        if (_box is null || _closing)
+            return;
         string text = _box.Text.Replace("\r\n", "\n").Replace("\r", "\n");
         var cb = _onCommit;
         Close();
@@ -105,7 +119,8 @@ internal sealed class CsvCellEditor
     /// Task 7 でテストからも呼べるよう internal 化(F2 経路の観測ポイント)。</summary>
     internal void CancelEdit()
     {
-        if (_box is null || _closing) return;
+        if (_box is null || _closing)
+            return;
         var cb = _onCancel;
         Close();
         cb?.Invoke();
@@ -117,7 +132,8 @@ internal sealed class CsvCellEditor
     /// フォーカスも戻さない純粋な破棄。編集していなければ何もしない（冪等）。</summary>
     internal void Abort()
     {
-        if (!IsEditing) return;
+        if (!IsEditing)
+            return;
         Teardown(refocus: false);
     }
 
@@ -126,7 +142,8 @@ internal sealed class CsvCellEditor
     private void Teardown(bool refocus)
     {
         _closing = true;
-        var box = _box; _box = null;
+        var box = _box;
+        _box = null;
         if (box is not null)
         {
             box.KeyDown -= OnKeyDown;
@@ -134,7 +151,8 @@ internal sealed class CsvCellEditor
             box.Parent?.Controls.Remove(box);
             box.Dispose();
         }
-        if (refocus) _refocus?.Focus();
+        if (refocus)
+            _refocus?.Focus();
         _onCommit = null;
         _onCancel = null;
         _refocus = null;

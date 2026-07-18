@@ -13,14 +13,17 @@ public static class RecentFilesList
     public static List<string> Add(IEnumerable<string> current, string path, int max)
     {
         var result = new List<string>();
-        if (max <= 0) return result;
+        if (max <= 0)
+            return result;
 
         result.Add(path);
         string key = PathKey.For(path);
         foreach (string p in current)
         {
-            if (result.Count >= max) break;          // 追加前に上限判定（max==1 の超過を防ぐ）
-            if (PathKey.For(p) == key) continue;      // 同一ファイルは先頭の 1 件に集約
+            if (result.Count >= max)
+                break; // 追加前に上限判定（max==1 の超過を防ぐ）
+            if (PathKey.For(p) == key)
+                continue; // 同一ファイルは先頭の 1 件に集約
             result.Add(p);
         }
         return result;

@@ -1,5 +1,5 @@
-using yEdit.Core.Csv;
 using Xunit;
+using yEdit.Core.Csv;
 
 namespace yEdit.Core.Tests.Csv;
 
@@ -13,6 +13,6 @@ public class CsvFileTests
     [InlineData("data", false)]
     [InlineData(null, false)]
     [InlineData("", false)]
-    public void IsCsvPath_detects_csv_extension(string? path, bool expected)
-        => Assert.Equal(expected, CsvFile.IsCsvPath(path));
+    public void IsCsvPath_detects_csv_extension(string? path, bool expected) =>
+        Assert.Equal(expected, CsvFile.IsCsvPath(path));
 }

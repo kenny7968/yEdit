@@ -121,7 +121,7 @@ public class TextBufferBuilderTests
         Array.Fill(payload, (byte)'a');
 
         builder.Add(payload); // 例外なし
-        Assert.NotNull(builder.Build());
+        Assert.Equal(1024, builder.Build().Current.CharLength);
     }
 
     [Fact]

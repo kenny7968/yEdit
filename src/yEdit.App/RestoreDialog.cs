@@ -53,10 +53,26 @@ public sealed class RestoreDialog : Form
 
     private static string Describe(BackupRecord r)
     {
-        string name = r.OriginalPath is not null
-            ? Path.GetFileName(r.OriginalPath)
-            : (r.UntitledNumber > 0 ? $"無題 {r.UntitledNumber}" : "無題");
-        return $"{name}（{r.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm}）";
+        string timestamp = $"（{r.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm}）";
+        if (r.OriginalPath is null)
+        {
+            string untitled = r.UntitledNumber > 0 ? $"無題 {r.UntitledNumber}" : "無題";
+            return $"{untitled}{timestamp}";
+        }
+        var fileName = Path.GetFileName(r.OriginalPath);
+        var dir = Path.GetDirectoryName(r.OriginalPath) ?? string.Empty;
+        // HIGH-2 視認性強化: フルパスを 1 行に併記し、復元先ディレクトリを利用者が識別できるようにする。
+        // SR 互換のため OwnerDraw で 2 段化はせず、" — " 区切りの 1 行に留める(header 冒頭コメント準拠)。
+        return $"{fileName} — {ElideMiddle(dir, maxLen: 60)}{timestamp}";
+    }
+
+    /// <summary>長すぎるディレクトリパスを「先頭…末尾」に省略する。maxLen 以下ならそのまま返す。</summary>
+    private static string ElideMiddle(string s, int maxLen)
+    {
+        if (s.Length <= maxLen)
+            return s;
+        int keep = (maxLen - 3) / 2;
+        return s[..keep] + "..." + s[^keep..];
     }
 
     private void BuildLayout()

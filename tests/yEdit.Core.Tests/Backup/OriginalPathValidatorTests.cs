@@ -77,4 +77,35 @@ public class OriginalPathValidatorTests
         var status = OriginalPathValidator.Check("C:\\x\0y.txt", out _);
         Assert.Equal(PathValidation.Rejected, status);
     }
+
+    // ---- I-2: DOS device path プレフィックス経由のバイパス回帰ガード ----
+
+    [Fact]
+    public void Check_Rejects_ExtendedPathToSystem32()
+    {
+        // \\?\C:\Windows\System32\... は .NET 9 の Path.GetFullPath でも \\?\ が残り、
+        // 素の StartsWith("C:\\Windows\\") 判定を素通りする。stripping で塞ぐ。
+        var status = OriginalPathValidator.Check(
+            @"\\?\C:\Windows\System32\drivers\etc\hosts",
+            out _
+        );
+        Assert.Equal(PathValidation.Rejected, status);
+    }
+
+    [Fact]
+    public void Check_Rejects_DosDevicePathToWindowsRoot()
+    {
+        // \\.\ プレフィックス版も同様に BlockedRoots を素通りするため塞ぐ。
+        var status = OriginalPathValidator.Check(@"\\.\C:\Windows\win.ini", out _);
+        Assert.Equal(PathValidation.Rejected, status);
+    }
+
+    [Fact]
+    public void Check_ReturnsOk_ForExtendedUncPath()
+    {
+        // \\?\UNC\server\share\file.txt は「本物の UNC を長パスで表現」した安全な形式。
+        // 判定は先頭 \\?\UNC\ を剥がし \\server\share\ に戻して評価する=Ok に落ちる。
+        var status = OriginalPathValidator.Check(@"\\?\UNC\server\share\legit.txt", out _);
+        Assert.Equal(PathValidation.Ok, status);
+    }
 }

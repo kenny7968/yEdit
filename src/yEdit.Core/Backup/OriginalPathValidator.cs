@@ -37,12 +37,27 @@ public static class OriginalPathValidator
             if (!Path.IsPathFullyQualified(path))
                 return PathValidation.Rejected;
             normalized = Path.GetFullPath(path);
-#pragma warning disable S3267 // foreach を LINQ Where に置換しない: out パラメータ normalized は lambda キャプチャ不可で、
-            // Where 化すると別ローカルへの再コピーが必要。plan Step 1.8 に従い可読性を優先する。
+
+            // DOS device path プレフィックス(\\?\C:\..., \\.\C:\...)は .NET 9 の Path.GetFullPath 後も
+            // 剥がされずに残るため、そのまま BlockedRoots (C:\Windows\... 等)との StartsWith 判定に流すと
+            // 素通りしてしまう(実証: 攻撃者 JSON に `\\?\C:\Windows\System32\drivers\etc\hosts` を植えると
+            // Ok が返る)。判定用にコピーを 1 本作り、そこから 4 文字プレフィックスを剥がして評価する。
+            // \\?\UNC\server\share\... は「本物の UNC を長パス表現した安全な形式」なので、
+            // \\server\share\... に戻したうえで既存の UNC 経路と同じ扱い(BlockedRoots に非該当=Ok)にする。
+            string forCheck = normalized;
+            if (forCheck.StartsWith(@"\\?\UNC\", StringComparison.Ordinal))
+                forCheck = @"\\" + forCheck[8..];
+            else if (
+                forCheck.StartsWith(@"\\?\", StringComparison.Ordinal)
+                || forCheck.StartsWith(@"\\.\", StringComparison.Ordinal)
+            )
+                forCheck = forCheck[4..];
+
+#pragma warning disable S3267 // foreach を LINQ Where に置換しない: plan Step 1.8 に従い可読性を優先する。
             foreach (var root in BlockedRoots)
             {
                 if (
-                    normalized.StartsWith(
+                    forCheck.StartsWith(
                         root + Path.DirectorySeparatorChar,
                         StringComparison.OrdinalIgnoreCase
                     )

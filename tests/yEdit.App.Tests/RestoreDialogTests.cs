@@ -8,10 +8,13 @@ namespace yEdit.App.Tests;
 /// 実 UI(CheckedListBox/Form)には触れずヘルパの戻り値のみを検証する(App.Tests の
 /// SmokeTests 以外での慣例)。
 ///
-/// 制御文字はソースの line terminator として解釈されないよう <c>\uXXXX</c> エスケープで
-/// 記述する(Task 1 SanitizeForDisplayTests と同じ流儀)。また U+202E は UnicodeCategory.Format
-/// のため culture-sensitive な Contains/IndexOf では常に "見つかる" 側に倒れる。RLO の実在
-/// 有無を厳密に問うために <c>StringComparison.Ordinal</c> を明示する。
+/// 制御文字はソース line terminator 解釈(U+2028 等)と csharpier の意図せぬ再整形の
+/// 双方を避けるため <c>\uXXXX</c> エスケープで統一する(Task 1 SanitizeForDisplayTests は
+/// RLO のみインライン直書き=Task 4 は一段厳しめで RLO も含めて全制御文字をエスケープに
+/// 寄せる)。
+/// また U+202E は UnicodeCategory.Format のため culture-sensitive な Contains/IndexOf では
+/// 常に "見つかる" 側に倒れる。RLO の実在有無を厳密に問うために
+/// <c>StringComparison.Ordinal</c> を明示する。
 /// </summary>
 public class RestoreDialogTests
 {

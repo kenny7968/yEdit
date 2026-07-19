@@ -52,8 +52,15 @@ public sealed class RestoreDialog : Form
         }
     }
 
-    // internal: BackupRecord → 表示文字列変換を単体テスト可能にする(実 UI を経由しない
-    // App.Tests の RestoreDialogTests 用)。csproj の InternalsVisibleTo yEdit.App.Tests で公開。
+    /// <summary>
+    /// <see cref="BackupRecord"/> をダイアログの 1 行表示文字列へ変換する。
+    /// 攻撃者 JSON 由来の BiDi/format 制御(U+202E RLO 等)と CR/LF を
+    /// <see cref="SanitizeForDisplay.OneLine(string?, int)"/> で除去し、ファイル名スプーフィング
+    /// と改行注入によるダイアログ表示崩しを塞ぐ(BK-L-4)。path traversal 側面は HIGH-2 側で
+    /// 塞ぎ済みという前提で組み立てる。
+    /// テストの都合で <c>internal</c>(<c>App.Tests</c> から Form を作らずに戻り値を検証する
+    /// ため。<c>InternalsVisibleTo yEdit.App.Tests</c> で公開)。
+    /// </summary>
     internal static string Describe(BackupRecord r)
     {
         string timestamp = $"（{r.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm}）";
@@ -62,10 +69,6 @@ public sealed class RestoreDialog : Form
             string untitled = r.UntitledNumber > 0 ? $"無題 {r.UntitledNumber}" : "無題";
             return $"{untitled}{timestamp}";
         }
-        // BK-L-4: OriginalPath は攻撃者 JSON 経由で U+202E RLO 等の BiDi 制御文字や CR/LF を含む
-        // 可能性があるため、表示前に SanitizeForDisplay.OneLine で無害化する
-        // (ファイル名スプーフィング + 改行注入によるダイアログ表示崩し対策)。
-        // Path.GetFileName / GetDirectoryName の path traversal 側面は HIGH-2 で塞ぎ済み。
         var fileName = SanitizeForDisplay.OneLine(Path.GetFileName(r.OriginalPath));
         var dir = SanitizeForDisplay.OneLine(Path.GetDirectoryName(r.OriginalPath) ?? string.Empty);
         // HIGH-2 視認性強化: フルパスを 1 行に併記し、復元先ディレクトリを利用者が識別できるようにする。

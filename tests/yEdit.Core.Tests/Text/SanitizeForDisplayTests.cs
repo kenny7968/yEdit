@@ -72,6 +72,21 @@ public class SanitizeForDisplayTests
         Assert.Equal("hello", SanitizeForDisplay.OneLine("﻿hello"));
     }
 
+    [Fact]
+    public void OneLine_RemovesLineSeparator_U2028()
+    {
+        // M-1: U+2028 (Zl / LINE SEPARATOR) は Format 相当扱いで drop
+        // (空白畳みではなく完全除去。改行意図があれば呼び出し側が CR/LF を直接使う)
+        Assert.Equal("ab", SanitizeForDisplay.OneLine("a\u2028b"));
+    }
+
+    [Fact]
+    public void OneLine_RemovesParagraphSeparator_U2029()
+    {
+        // M-1: U+2029 (Zp / PARAGRAPH SEPARATOR) も drop
+        Assert.Equal("ab", SanitizeForDisplay.OneLine("a\u2029b"));
+    }
+
     // ---------- OneLine: C0 / C1 / DEL → 空白 + 連続畳み ----------
 
     [Fact]
@@ -140,7 +155,14 @@ public class SanitizeForDisplayTests
         Assert.Equal("a b", SanitizeForDisplay.OneLine("a\u001Fb"));
     }
 
-    // ---------- OneLine: 末尾 trim ----------
+    // ---------- OneLine: 末尾 trim / 先頭は残す ----------
+
+    [Fact]
+    public void OneLine_LeadingWhitespace_Preserved()
+    {
+        // M-2: 先頭空白は仕様上 trim しない(実装 line 66 / XML doc line 25 の意図宣言を lock in)
+        Assert.Equal(" hello", SanitizeForDisplay.OneLine(" hello"));
+    }
 
     [Fact]
     public void OneLine_TrailingSpaces_Trimmed()
@@ -214,6 +236,13 @@ public class SanitizeForDisplayTests
     {
         // 定義域外の防御。最小 1 未満は空文字。
         Assert.Equal(string.Empty, SanitizeForDisplay.OneLine("hello", maxLength: 0));
+    }
+
+    [Fact]
+    public void OneLine_MaxLength_One_ReturnsEllipsisOnly()
+    {
+        // M-4: corner - maxLength=1 は "…" 単独(cutTo=0 で本体は空、末尾 "…" のみ)
+        Assert.Equal("…", SanitizeForDisplay.OneLine("abc", maxLength: 1));
     }
 
     // ---------- OneLine: surrogate pair ----------
@@ -334,6 +363,13 @@ public class SanitizeForDisplayTests
     {
         // "line1\r\nline{RLO}2\tend" → "line1\r\nline2\tend"
         Assert.Equal("line1\r\nline2\tend", SanitizeForDisplay.MultiLine("line1\r\nline‮2\tend"));
+    }
+
+    [Fact]
+    public void MultiLine_RemovesLineAndParagraphSeparators()
+    {
+        // M-1: U+2028 (Zl) と U+2029 (Zp) は「CR/LF/TAB のみ通す」invariant を守るため drop
+        Assert.Equal("abc", SanitizeForDisplay.MultiLine("a\u2028b\u2029c"));
     }
 
     // ---------- MultiLine: surrogate pair ----------

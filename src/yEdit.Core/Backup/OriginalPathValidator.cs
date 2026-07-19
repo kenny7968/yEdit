@@ -37,14 +37,20 @@ public static class OriginalPathValidator
             if (!Path.IsPathFullyQualified(path))
                 return PathValidation.Rejected;
             normalized = Path.GetFullPath(path);
-            string full = normalized;
-            bool blocked = BlockedRoots.Any(root =>
-                full.StartsWith(
-                    root + Path.DirectorySeparatorChar,
-                    StringComparison.OrdinalIgnoreCase
+#pragma warning disable S3267 // foreach を LINQ Where に置換しない: out パラメータ normalized は lambda キャプチャ不可で、
+            // Where 化すると別ローカルへの再コピーが必要。plan Step 1.8 に従い可読性を優先する。
+            foreach (var root in BlockedRoots)
+            {
+                if (
+                    normalized.StartsWith(
+                        root + Path.DirectorySeparatorChar,
+                        StringComparison.OrdinalIgnoreCase
+                    )
                 )
-            );
-            return blocked ? PathValidation.Rejected : PathValidation.Ok;
+                    return PathValidation.Rejected;
+            }
+#pragma warning restore S3267
+            return PathValidation.Ok;
         }
         catch
         {

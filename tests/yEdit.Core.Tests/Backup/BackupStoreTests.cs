@@ -179,16 +179,19 @@ public class BackupStoreTests
 
     [Theory]
     [InlineData("")] // 空
+    [InlineData(null!)] // M-3: null(実行時到達は理論のみだが JSON デシリアライズ/将来の new 経路で入り得る=Id 契約として lock in・HIGH-1 BackupIdValidatorTests 対称)
     [InlineData("abcdef0123456789abcdef012345678")] // 31 文字
     [InlineData("abcdef0123456789abcdef01234567890")] // 33 文字
     [InlineData("abcdef01-2345-6789-abcd-ef0123456789")] // ハイフン形式(GUID N ではない)
     [InlineData(@"..\..\..\Windows\Temp\evil")] // パストラバーサル
     [InlineData("xyz injection")] // 制御文字類 / space
-    public void Write_ThrowsArgumentException_ForInvalidId(string invalidId)
+    public void Write_ThrowsArgumentException_ForInvalidId(string? invalidId)
     {
         using var t = new TempDir();
         var rec = new BackupRecord(
-            Id: invalidId,
+            // null は BackupRecord.Id が非 nullable string である契約を跨いだ「実行時到達は理論のみ」ケース。
+            // BackupIdValidator.IsValid(null) は false=Write 冒頭の validation で ArgumentException として即座に弾かれる。
+            Id: invalidId!,
             OriginalPath: null,
             UntitledNumber: 1,
             CodePage: 65001,
@@ -213,8 +216,26 @@ public class BackupStoreTests
     public void Delete_ThrowsArgumentException_ForInvalidId(string invalidId)
     {
         using var t = new TempDir();
+        // M-2: 事前に妥当な GUID N の record を 1 個置く=Delete が invalid Id を早期リジェクトし
+        // 実ファイルを削除しないことを invariant として lock in する(Write 側の Assert.Empty と対称)。
+        // validation が Path.Combine + TryDelete の前段で発火するため、妥当ファイルは無傷のはず。
+        var canonical = Guid.NewGuid().ToString("N");
+        var seed = new BackupRecord(
+            Id: canonical,
+            OriginalPath: null,
+            UntitledNumber: 1,
+            CodePage: 65001,
+            HasBom: false,
+            LineEndingId: 0,
+            Content: "seed",
+            TimestampUtc: DateTime.UtcNow
+        );
+        BackupStore.Write(t.Root, seed);
+        var before = Directory.GetFiles(t.Root, "*.json");
+
         var ex = Assert.Throws<ArgumentException>(() => BackupStore.Delete(t.Root, invalidId));
         Assert.Equal("id", ex.ParamName);
+        Assert.Equal(before, Directory.GetFiles(t.Root, "*.json")); // 副作用ゼロ
     }
 
     [Fact]

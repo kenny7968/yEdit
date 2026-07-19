@@ -29,6 +29,7 @@ public class FileControllerTests
         public AppSettings Settings = new();
         public FakePrompt Prompt { get; } = new();
         public FakeFileDialogService Dialogs { get; } = new();
+        public FakeReachabilityProbe Probe { get; } = new();
         public int SaveSettingsCount;
         public int RecentChangedCount;
         public int MetaChangedCount;
@@ -48,11 +49,28 @@ public class FileControllerTests
                 metaChanged: () => MetaChangedCount++,
                 openedFresh: d => OpenedFresh.Add(d),
                 prompt: Prompt,
-                fileDialogs: Dialogs
+                fileDialogs: Dialogs,
+                reachabilityProbe: Probe
             );
         }
 
         public void Dispose() => Form.Dispose();
+    }
+
+    /// <summary>
+    /// <see cref="IReachabilityProbe"/> のテスト用フェイク。既定は Result=true(ローカル/正常 UNC は通過)。
+    /// HIGH-6 の UNC プローブ経路(<c>ProbeWithTimeout</c>)呼び出しと結果を可観測にする。
+    /// </summary>
+    private sealed class FakeReachabilityProbe : IReachabilityProbe
+    {
+        public bool Result { get; set; } = true;
+        public int CallCount { get; private set; }
+
+        public bool ProbeWithTimeout(string path, TimeSpan timeout)
+        {
+            CallCount++;
+            return Result;
+        }
     }
 
     /// <summary>テスト毎に使い捨ての一時フォルダ(実ファイル I/O 用)。</summary>
@@ -421,6 +439,46 @@ public class FileControllerTests
 
             Assert.NotNull(doc);
             Assert.Empty(host.OpenedFresh); // 選択+エディタフォーカスを機能させるため自動 CSV を抑止
+        });
+
+    // ===== HIGH-6: UNC ロードの短タイムアウトプローブ(LoadInto 冒頭) =====
+
+    [Fact]
+    public void LoadInto_ShowsErrorPrompt_WhenRemoteUncUnreachable() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            host.Probe.Result = false; // プローブがタイムアウト/到達不可を返す
+
+            // 存在しない UNC パス。プローブが false を返すため TextFileService には到達しない。
+            var doc = host.File.TryOpenOrActivate(@"\\nonexistent-host-42\share\x.txt");
+
+            Assert.Null(doc);
+            Assert.Equal(1, host.Probe.CallCount); // UNC は必ずプローブを通す
+            Assert.Contains(
+                host.Prompt.Log,
+                e =>
+                    e.Kind == "Error"
+                    && e.Text.StartsWith(
+                        "ネットワークパスに到達できません",
+                        System.StringComparison.Ordinal
+                    )
+            );
+        });
+
+    [Fact]
+    public void LoadInto_SkipsProbe_ForLocalPath() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            using var tmp = new TempDir();
+            string path = tmp.File("local.txt");
+            File2.WriteAllText(path, "abc");
+
+            var doc = host.File.TryOpenOrActivate(path);
+
+            Assert.NotNull(doc); // ローカルは通常経路で開ける
+            Assert.Equal(0, host.Probe.CallCount); // ローカルパスはプローブを回さない(挙動不変)
         });
 
     [Fact]

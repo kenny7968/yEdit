@@ -24,6 +24,7 @@ public sealed class FileController
     private readonly Action<Document> _openedFresh; // 開く系で新規ロード成功した直後（.csv 自動モードの判定は MainForm 側）
     private readonly IUserPrompt _prompt; // 確認・警告の注入点（テストでは FakePrompt）
     private readonly IFileDialogService _fileDialogs; // ファイル系ダイアログの注入点（テストでは FakeFileDialogService）
+    private readonly IReachabilityProbe _reachabilityProbe; // HIGH-6: UNC ロードの短タイムアウトプローブ(テストでは Fake)
     private int _untitledSeq; // 無題タブの連番（新規作成毎に増加・セッション内で再利用しない）
 
     public FileController(
@@ -35,7 +36,8 @@ public sealed class FileController
         Action metaChanged,
         Action<Document> openedFresh,
         IUserPrompt prompt,
-        IFileDialogService fileDialogs
+        IFileDialogService fileDialogs,
+        IReachabilityProbe reachabilityProbe
     )
     {
         _docs = docs;
@@ -47,6 +49,7 @@ public sealed class FileController
         _openedFresh = openedFresh;
         _prompt = prompt;
         _fileDialogs = fileDialogs;
+        _reachabilityProbe = reachabilityProbe;
     }
 
     // ==================== 新規 / 開く ====================
@@ -144,6 +147,17 @@ public sealed class FileController
     {
         try
         {
+            // HIGH-6: UNC パスは 5 秒プローブで到達不能なら即エラー(現状 60 秒 UI 凍結を回避)。
+            // ローカルパスは判定を skip(挙動不変)。UNC 正常経路は reachable=true で通過(挙動不変)。
+            if (
+                yEdit.Core.IO.UncPathDetector.IsUnc(path)
+                && !_reachabilityProbe.ProbeWithTimeout(path, TimeSpan.FromSeconds(5))
+            )
+            {
+                _prompt.Error($"ネットワークパスに到達できません: {path}", "エラー");
+                return false;
+            }
+
             // P6 Task 10: Stream I/O 経路で TextBuffer に直接読み込む(1GB 級 UTF-8 の OOM 回避)。
             // 従来の TextFileService.Load(=byte 全読み + string 全文化)は選択肢から外し、
             // LoadAsBufferAuto で prefix 検出 → LoadAsBuffer(chunk stream) → LineEnding 検出。

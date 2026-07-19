@@ -57,22 +57,6 @@ public class FileControllerTests
         public void Dispose() => Form.Dispose();
     }
 
-    /// <summary>
-    /// <see cref="IReachabilityProbe"/> のテスト用フェイク。既定は Result=true(ローカル/正常 UNC は通過)。
-    /// HIGH-6 の UNC プローブ経路(<c>ProbeWithTimeout</c>)呼び出しと結果を可観測にする。
-    /// </summary>
-    private sealed class FakeReachabilityProbe : IReachabilityProbe
-    {
-        public bool Result { get; set; } = true;
-        public int CallCount { get; private set; }
-
-        public bool ProbeWithTimeout(string path, TimeSpan timeout)
-        {
-            CallCount++;
-            return Result;
-        }
-    }
-
     /// <summary>テスト毎に使い捨ての一時フォルダ(実ファイル I/O 用)。</summary>
     private sealed class TempDir : IDisposable
     {
@@ -455,6 +439,8 @@ public class FileControllerTests
 
             Assert.Null(doc);
             Assert.Equal(1, host.Probe.CallCount); // UNC は必ずプローブを通す
+            // FileController が渡すタイムアウトを pin(5s → 5min のような mutation を kill)。
+            Assert.Equal(TimeSpan.FromSeconds(5), host.Probe.LastTimeout);
             Assert.Contains(
                 host.Prompt.Log,
                 e =>

@@ -189,6 +189,7 @@ public sealed class FileController
                         or UnauthorizedAccessException
                         or System.Security.SecurityException
                         or NotSupportedException
+                        or DocumentTooLargeException
             )
         {
             // 想定内の入出力エラーのみ握る。NullReference 等のロジックバグは伝播させる。

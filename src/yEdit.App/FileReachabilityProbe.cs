@@ -6,8 +6,8 @@ namespace yEdit.App;
 /// <see cref="IReachabilityProbe"/> の本番実装。<see cref="System.IO.File.Exists"/> を
 /// <see cref="Task.Run(Func{bool})"/> でバックグラウンドスレッドに退避し、
 /// <see cref="Task.Wait(TimeSpan)"/> の短タイムアウトで UI スレッドをブロックしない。
-/// UNC 未到達時は 60 秒の SMB タイムアウトが走るスレッドが 1 本 leak するが、まれ
-/// なケースで許容(設計書 PR-5 §許容事項)。
+/// UNC 未到達時は 60 秒の SMB タイムアウトが走るスレッドが 1 本 leak するが、
+/// まれなケースのため許容(設計書 PR-5 節)。
 /// </summary>
 public sealed class FileReachabilityProbe : IReachabilityProbe
 {

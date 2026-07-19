@@ -1,7 +1,8 @@
 namespace yEdit.Core.IO;
 
 /// <summary>
-/// パスが UNC 形式(\\server\share\...)か否かの純粋述語。
+/// パスが UNC 形式または DOS デバイスパス(\\ で始まる)かの純粋述語。
+/// \\server\share, \\?\UNC\server\share, \\.\PhysicalDrive0 いずれも true。
 /// マップドネットワークドライブ経由の判定は含まない(将来の MEDIUM リリースで扱う)。
 /// </summary>
 public static class UncPathDetector

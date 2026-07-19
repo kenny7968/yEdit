@@ -1,6 +1,7 @@
 using System.Text;
 using yEdit.Core.Backup;
 using yEdit.Core.Buffers;
+using yEdit.Core.IO;
 using yEdit.Core.Settings;
 using yEdit.Core.Text;
 
@@ -150,7 +151,7 @@ public sealed class FileController
             // HIGH-6: UNC パスは 5 秒プローブで到達不能なら即エラー(現状 60 秒 UI 凍結を回避)。
             // ローカルパスは判定を skip(挙動不変)。UNC 正常経路は reachable=true で通過(挙動不変)。
             if (
-                yEdit.Core.IO.UncPathDetector.IsUnc(path)
+                UncPathDetector.IsUnc(path)
                 && !_reachabilityProbe.ProbeWithTimeout(path, TimeSpan.FromSeconds(5))
             )
             {

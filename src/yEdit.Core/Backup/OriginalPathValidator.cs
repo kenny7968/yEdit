@@ -10,6 +10,11 @@ public enum PathValidation
 /// BackupRecord.OriginalPath が復元先として安全か検証する。
 /// Windows のシステム/プログラム系ルート配下は Rejected(攻撃者 JSON からの
 /// 任意ファイル上書きを塞ぐ)。ユーザ配下は Ok。UNC は Ok(実運用サポート)。
+///
+/// 現状の許容(次リリース以降で再検討):
+/// - UNC 側の admin share (\\host\C$\Windows\... 等)経由の pivot は許容
+///   (実運用の UNC を潰さない優先)。閉じる場合は BlockedRoots とは別の
+///   UNC 用フィルタ(\\host\&lt;drive&gt;$\... を拒絶)で判定する。
 /// </summary>
 public static class OriginalPathValidator
 {

@@ -168,7 +168,7 @@ public sealed class BackupCoordinator : IDisposable
                 catch (Exception ex)
                 {
                     // 1 件の不正レコードで全復元を巻き添えにしない。失敗分はバックアップを残し再挑戦可能に。
-                    _trace.Warn("restore-item-later", rec.Id, ex);
+                    _trace.Warn("restore-item-later", SafeIdForLog(rec.Id), ex);
                 }
             }
             return restored;
@@ -194,7 +194,7 @@ public sealed class BackupCoordinator : IDisposable
                     catch (Exception ex)
                     {
                         // 1 件の不正レコードで全復元を巻き添えにしない。失敗分はバックアップを残し再挑戦可能に。
-                        _trace.Warn("restore-item", rec.Id, ex);
+                        _trace.Warn("restore-item", SafeIdForLog(rec.Id), ex);
                     }
                 }
                 // チェックしなかった項目は削除しない(SR 誤操作での消失を避け、次回再提案)。
@@ -338,5 +338,22 @@ public sealed class BackupCoordinator : IDisposable
         _timer.Stop();
         _timer.Dispose();
         _writer?.Dispose();
+    }
+
+    /// <summary>
+    /// HIGH-1: trace ログへ流す BackupRecord.Id を無害化する。
+    /// 攻撃者が植えた JSON の Id は制御文字/ANSI エスケープを仕込める(壊れたログで
+    /// 隠蔽・端末破壊)ため、32 桁上限で切り、制御文字を '?' に置換する。
+    /// 正当な GUID N (32 桁 hex) は不変。
+    /// </summary>
+    private static string SafeIdForLog(string? id)
+    {
+        if (string.IsNullOrEmpty(id))
+            return "<empty>";
+        var truncated = id.Length > 32 ? id[..32] : id;
+        var sb = new System.Text.StringBuilder(truncated.Length);
+        foreach (var c in truncated)
+            sb.Append(char.IsControl(c) ? '?' : c);
+        return sb.ToString();
     }
 }

@@ -63,4 +63,46 @@ public class MarkdownRendererTests
         Assert.Contains("Content-Security-Policy", html);
         Assert.Contains("default-src 'none'", html);
     }
+
+    [Fact]
+    public void Render_EscapesRawScriptTag()
+    {
+        var html = MarkdownRenderer.Render("<script>alert(1)</script>", "");
+        Assert.DoesNotContain("<script>alert(1)</script>", html);
+        Assert.Contains("&lt;script&gt;", html);
+    }
+
+    [Fact]
+    public void Render_EscapesRawIframeTag()
+    {
+        var html = MarkdownRenderer.Render("<iframe src=\"evil\"></iframe>", "");
+        Assert.DoesNotContain("<iframe", html);
+    }
+
+    [Fact]
+    public void Render_EscapesInlineEventHandler()
+    {
+        var html = MarkdownRenderer.Render("<a href=\"x\" onclick=\"evil()\">y</a>", "");
+        // <a> tag itself is escaped, so onclick can never reach the DOM as an attribute
+        Assert.Contains("&lt;a href=", html);
+        Assert.DoesNotContain("<a href=\"x\"", html);
+    }
+
+    [Fact]
+    public void Render_PreservesMarkdownGeneratedTable()
+    {
+        var md = "| a | b |\n|---|---|\n| 1 | 2 |";
+        var html = MarkdownRenderer.Render(md, "");
+        Assert.Contains("<table", html);
+        Assert.Matches(@"<td[^>]*>\s*1\s*</td>", html);
+    }
+
+    [Fact]
+    public void Render_PreservesCodeBlock()
+    {
+        var md = "```csharp\nvar x = 1;\n```";
+        var html = MarkdownRenderer.Render(md, "");
+        Assert.Contains("<code", html);
+        Assert.Contains("var x = 1;", html);
+    }
 }

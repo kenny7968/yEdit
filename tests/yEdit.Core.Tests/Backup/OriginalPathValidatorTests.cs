@@ -108,4 +108,111 @@ public class OriginalPathValidatorTests
         var status = OriginalPathValidator.Check(@"\\?\UNC\server\share\legit.txt", out _);
         Assert.Equal(PathValidation.Ok, status);
     }
+
+    // ---- BK-M-1: NTFS reparse point (junction / symlink) 経由バイパスの回帰ガード ----
+
+    [Fact]
+    public void Check_ReturnsOk_ForNonexistentUserPath()
+    {
+        // BK-M-1: バックアップは元ファイル削除後でも復元可能=存在しないパス自体は
+        // Rejected の理由にならない。reparse 検査ループが「leaf 不在」を握って通す契約を固定。
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            "yedit_nonexistent_" + Guid.NewGuid().ToString("N") + ".txt"
+        );
+        var status = OriginalPathValidator.Check(path, out var normalized);
+        Assert.Equal(PathValidation.Ok, status);
+        Assert.Equal(Path.GetFullPath(path), normalized);
+    }
+
+    [Fact]
+    public void Check_ReturnsOk_ForDeepNonexistentPath()
+    {
+        // reparse 検査で親ディレクトリを root まで遡る際、不在パスに対して I/O 例外を握って
+        // continue する契約を固定(NRE / InvalidOperationException を投げないこと)。
+        var path =
+            @"C:\yedit_no_such_dir_"
+            + Guid.NewGuid().ToString("N")
+            + @"\a\b\c\d\e\f\g\h\i\j\file.txt";
+        var status = OriginalPathValidator.Check(path, out _);
+        Assert.Equal(PathValidation.Ok, status);
+    }
+
+    [Fact]
+    public void Check_Rejects_PathThroughJunction()
+    {
+        // BK-M-1 メイン回帰ガード: 親ディレクトリが directory junction のとき、
+        // 見た目のパス (%TEMP%\<link>\innocent.txt) が BlockedRoots に非該当でも
+        // Rejected を返すこと。
+        //
+        // junction は無権限 (elevated 不要) で mklink /J で作成できる。ただし CI や
+        // 非 NTFS ボリューム / cmd 不可環境では作成失敗するので、その場合は既存の
+        // 環境依存スキップと同じく early return して pass 扱いにする
+        // (テストは 1 件 skip 相当だが green のまま通る)。
+        var guid = Guid.NewGuid().ToString("N");
+        var target = Path.Combine(Path.GetTempPath(), $"yedit_junc_target_{guid}");
+        var link = Path.Combine(Path.GetTempPath(), $"yedit_junc_link_{guid}");
+
+        Directory.CreateDirectory(target);
+        bool linkCreated = false;
+        try
+        {
+            int exitCode;
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo(
+                    "cmd",
+                    $"/c mklink /J \"{link}\" \"{target}\""
+                )
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                };
+                using var proc = System.Diagnostics.Process.Start(psi)!;
+                if (!proc.WaitForExit(5000))
+                {
+                    proc.Kill();
+                    return; // Skip: cmd がハング
+                }
+                exitCode = proc.ExitCode;
+            }
+            catch
+            {
+                return; // Skip: cmd を起動できない環境
+            }
+            if (exitCode != 0)
+                return; // Skip: junction 作成不能 (非 NTFS / 権限不足)
+            linkCreated = true;
+
+            var pathViaJunction = Path.Combine(link, "innocent.txt");
+            var status = OriginalPathValidator.Check(pathViaJunction, out _);
+            Assert.Equal(PathValidation.Rejected, status);
+        }
+        finally
+        {
+            // 順序重要: junction を先に外す (Directory.Delete non-recursive は
+            // reparse point だけ剥がし target contents は触らない)。target を先に
+            // 消してから junction を消すと空 target への junction が残るだけで安全だが、
+            // 明示的に junction → target の順で片付ける。
+            if (linkCreated)
+            {
+                try
+                {
+                    Directory.Delete(link);
+                }
+                catch
+                { /* best effort */
+                }
+            }
+            try
+            {
+                Directory.Delete(target, recursive: true);
+            }
+            catch
+            { /* best effort */
+            }
+        }
+    }
 }

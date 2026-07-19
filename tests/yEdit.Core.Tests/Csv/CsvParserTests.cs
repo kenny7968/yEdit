@@ -172,6 +172,33 @@ public class CsvParserTests
     }
 
     [Fact]
+    public void Parse_ReturnsOkTrue_AtExactCellsBoundary()
+    {
+        var text = new string(',', 100); // 100 コンマ = totalCells++ 100 回でちょうど上限
+        var limits = new CsvParser.ParseLimits(
+            MaxFieldChars: 1024,
+            MaxTotalCells: 100,
+            MaxTotalRows: 100
+        );
+        var csv = CsvParser.ParseForTest(text, limits);
+        Assert.True(csv.Ok);
+    }
+
+    [Fact]
+    public void Parse_ReturnsOkTrue_AtExactRowsBoundary()
+    {
+        var text = string.Concat(Enumerable.Repeat("a\n", 100)); // 100 行でちょうど上限
+        var limits = new CsvParser.ParseLimits(
+            MaxFieldChars: 1024,
+            MaxTotalCells: 10_000,
+            MaxTotalRows: 100
+        );
+        var csv = CsvParser.ParseForTest(text, limits);
+        Assert.True(csv.Ok);
+        Assert.Equal(100, csv.Rows.Count);
+    }
+
+    [Fact]
     public void Parse_TextSnapshotOverload_HandlesQuotedFieldAcrossPieceBoundary()
     {
         // SnapshotReader は piece 境界を Read/Peek で透過的に跨ぐ(Ensure() 経由)。

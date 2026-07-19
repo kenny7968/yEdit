@@ -1,3 +1,5 @@
+using yEdit.Core.Text;
+
 namespace yEdit.Core.Buffers;
 
 /// <summary>
@@ -79,7 +81,10 @@ public sealed class TextBufferBuilder
         // 上限は実格納バイトで判定(U+FFFD置換による膨張も含む)
         _totalBytes += clean.Length;
         if (_totalBytes > MaxTotalBytes)
-            throw new InvalidOperationException("文書サイズ上限(int.MaxValueバイト)を超えました。");
+            throw new DocumentTooLargeException(
+                _totalBytes,
+                "文書サイズ上限(int.MaxValue バイト)を超えました。"
+            );
         var chunk = new TextChunk(clean);
         _pieces.Add(Piece.Of(chunk, 0, chunk.ByteLength));
     }

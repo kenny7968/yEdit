@@ -1,5 +1,6 @@
 using System.Text;
 using yEdit.Core.Buffers;
+using yEdit.Core.Text;
 
 namespace yEdit.Core.Tests.Buffers;
 
@@ -11,7 +12,7 @@ public class SizeLimitTests
     {
         var builder = new TextBufferBuilder { MaxTotalBytes = 10 };
         builder.Add("12345"u8);
-        Assert.Throws<InvalidOperationException>(() => builder.Add("6789ab"u8)); // 5+6=11 > 10
+        Assert.Throws<DocumentTooLargeException>(() => builder.Add("6789ab"u8)); // 5+6=11 > 10
     }
 
     [Fact]
@@ -28,7 +29,7 @@ public class SizeLimitTests
     {
         // 不正バイト1個 → U+FFFD(3バイト)に膨張して上限超過
         var builder = new TextBufferBuilder { MaxTotalBytes = 4 };
-        Assert.Throws<InvalidOperationException>(() => builder.Add([(byte)'a', (byte)'b', 0x80]));
+        Assert.Throws<DocumentTooLargeException>(() => builder.Add([(byte)'a', (byte)'b', 0x80]));
     }
 
     [Fact]

@@ -14,6 +14,7 @@ public static class MarkdownRenderer
     // CommonMark + GFM 拡張（表・チェックリスト・自動リンク等）。スレッドセーフなので使い回す。
     private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
         .UseAdvancedExtensions()
+        .DisableHtml() // CSP との二重防御: raw HTML をパーサ段で無効化(script/iframe/on* 等)
         .Build();
 
     /// <summary>

@@ -1,5 +1,6 @@
 using System.IO;
 using yEdit.Core.Backup;
+using yEdit.Core.Text;
 
 namespace yEdit.App;
 
@@ -51,7 +52,9 @@ public sealed class RestoreDialog : Form
         }
     }
 
-    private static string Describe(BackupRecord r)
+    // internal: BackupRecord → 表示文字列変換を単体テスト可能にする(実 UI を経由しない
+    // App.Tests の RestoreDialogTests 用)。csproj の InternalsVisibleTo yEdit.App.Tests で公開。
+    internal static string Describe(BackupRecord r)
     {
         string timestamp = $"（{r.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm}）";
         if (r.OriginalPath is null)
@@ -59,8 +62,12 @@ public sealed class RestoreDialog : Form
             string untitled = r.UntitledNumber > 0 ? $"無題 {r.UntitledNumber}" : "無題";
             return $"{untitled}{timestamp}";
         }
-        var fileName = Path.GetFileName(r.OriginalPath);
-        var dir = Path.GetDirectoryName(r.OriginalPath) ?? string.Empty;
+        // BK-L-4: OriginalPath は攻撃者 JSON 経由で U+202E RLO 等の BiDi 制御文字や CR/LF を含む
+        // 可能性があるため、表示前に SanitizeForDisplay.OneLine で無害化する
+        // (ファイル名スプーフィング + 改行注入によるダイアログ表示崩し対策)。
+        // Path.GetFileName / GetDirectoryName の path traversal 側面は HIGH-2 で塞ぎ済み。
+        var fileName = SanitizeForDisplay.OneLine(Path.GetFileName(r.OriginalPath));
+        var dir = SanitizeForDisplay.OneLine(Path.GetDirectoryName(r.OriginalPath) ?? string.Empty);
         // HIGH-2 視認性強化: フルパスを 1 行に併記し、復元先ディレクトリを利用者が識別できるようにする。
         // SR 互換のため OwnerDraw で 2 段化はせず、" — " 区切りの 1 行に留める(header 冒頭コメント準拠)。
         return $"{fileName} — {ElideMiddle(dir, maxLen: 60)}{timestamp}";

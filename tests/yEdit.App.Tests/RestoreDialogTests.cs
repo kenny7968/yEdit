@@ -9,7 +9,9 @@ namespace yEdit.App.Tests;
 /// SmokeTests 以外での慣例)。
 ///
 /// 制御文字はソースの line terminator として解釈されないよう <c>\uXXXX</c> エスケープで
-/// 記述する(Task 1 SanitizeForDisplayTests と同じ流儀)。
+/// 記述する(Task 1 SanitizeForDisplayTests と同じ流儀)。また U+202E は UnicodeCategory.Format
+/// のため culture-sensitive な Contains/IndexOf では常に "見つかる" 側に倒れる。RLO の実在
+/// 有無を厳密に問うために <c>StringComparison.Ordinal</c> を明示する。
 /// </summary>
 public class RestoreDialogTests
 {
@@ -63,11 +65,11 @@ public class RestoreDialogTests
         // 攻撃者 JSON に U+202E RLO を含むファイル名を植えた場合:
         //   実体: evil-{RLO}txt.exe(表示上 evil-exe.txt に化ける)
         //   → Describe は RLO を drop して "evil-txt.exe" として 1 行表示する
-        // csharpier 落とし穴回避で raw ではなく \u202E エスケープで書く。
         var rec = Rec("C:\\docs\\evil-\u202Etxt.exe");
         var d = RestoreDialog.Describe(rec);
-        Assert.DoesNotContain("\u202E", d); // 生の RLO はダイアログテキストに載らない
-        Assert.Contains("evil-txt.exe", d); // RLO が drop された結果として本来の並びで表示
+        // Ordinal 明示の理由はクラス header 参照。生の RLO がダイアログテキストに載らない。
+        Assert.DoesNotContain("\u202E", d, StringComparison.Ordinal);
+        Assert.Contains("evil-txt.exe", d, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -75,8 +77,8 @@ public class RestoreDialogTests
     {
         var rec = Rec("C:\\\u202Emalicious\\file.txt");
         var d = RestoreDialog.Describe(rec);
-        Assert.DoesNotContain("\u202E", d);
-        Assert.Contains("file.txt", d);
+        Assert.DoesNotContain("\u202E", d, StringComparison.Ordinal);
+        Assert.Contains("file.txt", d, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -85,8 +87,8 @@ public class RestoreDialogTests
         // OneLine は CR/LF を単一空白へ置換する(BK-L-5 と同族の防御)
         var rec = Rec("C:\\docs\\evil\r\ninjected\\file.txt");
         var d = RestoreDialog.Describe(rec);
-        Assert.DoesNotContain("\r", d);
-        Assert.DoesNotContain("\n", d);
+        Assert.DoesNotContain("\r", d, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", d, StringComparison.Ordinal);
         // 内容は 1 行として存在(改行崩壊しない)
         Assert.Single(d.Split('\n'));
     }

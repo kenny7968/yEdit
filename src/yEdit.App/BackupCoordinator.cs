@@ -342,8 +342,10 @@ public sealed class BackupCoordinator : IDisposable
 
     /// <summary>
     /// HIGH-1: trace ログへ流す BackupRecord.Id を無害化する。
-    /// 攻撃者が植えた JSON の Id は制御文字/ANSI エスケープを仕込める(壊れたログで
-    /// 隠蔽・端末破壊)ため、32 桁上限で切り、制御文字を '?' に置換する。
+    /// 攻撃者が植えた JSON の Id は制御文字/ANSI エスケープ/双方向 override 等を
+    /// 仕込める(壊れたログで隠蔽・端末破壊)ため、32 桁上限で切り、GUID N の hex
+    /// 文字以外は '?' に置換して trace ログを無害化する(bidi/format 文字含む全非 hex
+    /// を掃除する=whitelist 方式で char.IsControl の見落としを塞ぐ)。
     /// 正当な GUID N (32 桁 hex) は不変。
     /// </summary>
     private static string SafeIdForLog(string? id)
@@ -353,7 +355,7 @@ public sealed class BackupCoordinator : IDisposable
         var truncated = id.Length > 32 ? id[..32] : id;
         var sb = new System.Text.StringBuilder(truncated.Length);
         foreach (var c in truncated)
-            sb.Append(char.IsControl(c) ? '?' : c);
+            sb.Append(char.IsAsciiHexDigit(c) ? c : '?');
         return sb.ToString();
     }
 }

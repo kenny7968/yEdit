@@ -1,3 +1,4 @@
+using System.Linq;
 using Xunit;
 using yEdit.Core.Csv;
 
@@ -116,6 +117,58 @@ public class CsvParserTests
                 Assert.Equal(expected.Rows[i][j].Value, actual.Rows[i][j].Value);
         }
         Assert.Equal(expected.Ok, actual.Ok);
+    }
+
+    [Fact]
+    public void Parse_ReturnsOkFalse_WhenSingleFieldExceedsLimit()
+    {
+        var text = "\"" + new string('a', 200); // 未クローズかつ長大
+        var limits = new CsvParser.ParseLimits(
+            MaxFieldChars: 100,
+            MaxTotalCells: 10_000,
+            MaxTotalRows: 100
+        );
+        var csv = CsvParser.ParseForTest(text, limits);
+        Assert.False(csv.Ok);
+    }
+
+    [Fact]
+    public void Parse_ReturnsOkFalse_WhenTotalCellsExceedLimit()
+    {
+        var text = new string(',', 200);
+        var limits = new CsvParser.ParseLimits(
+            MaxFieldChars: 1024,
+            MaxTotalCells: 100,
+            MaxTotalRows: 100
+        );
+        var csv = CsvParser.ParseForTest(text, limits);
+        Assert.False(csv.Ok);
+    }
+
+    [Fact]
+    public void Parse_ReturnsOkFalse_WhenTotalRowsExceedLimit()
+    {
+        var text = string.Concat(Enumerable.Repeat("a\n", 200));
+        var limits = new CsvParser.ParseLimits(
+            MaxFieldChars: 1024,
+            MaxTotalCells: 10_000,
+            MaxTotalRows: 100
+        );
+        var csv = CsvParser.ParseForTest(text, limits);
+        Assert.False(csv.Ok);
+    }
+
+    [Fact]
+    public void Parse_ReturnsOkTrue_AtExactFieldBoundary()
+    {
+        var text = new string('a', 100); // ちょうど上限
+        var limits = new CsvParser.ParseLimits(
+            MaxFieldChars: 100,
+            MaxTotalCells: 10_000,
+            MaxTotalRows: 100
+        );
+        var csv = CsvParser.ParseForTest(text, limits);
+        Assert.True(csv.Ok);
     }
 
     [Fact]

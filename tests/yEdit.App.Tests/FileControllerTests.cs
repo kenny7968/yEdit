@@ -675,6 +675,96 @@ public class FileControllerTests
             Assert.Equal("* b.txt", doc.Page.Text);
         });
 
+    // ===== HIGH-2: OriginalPath 白リスト検証(RestoreFromBackup フォールバック) =====
+
+    [Fact]
+    public void RestoreFromBackup_KeepsOriginalPath_WhenPathIsSafe() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            // ユーザ配下(TempPath 直下)=OriginalPathValidator.Check → Ok。既存の path レコード契約が
+            // 白リスト導入後も維持されることを固定する(挙動不変性の担保)。
+            var safePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "safe-restore.txt");
+            var rec = new BackupRecord(
+                "id-safe",
+                OriginalPath: safePath,
+                UntitledNumber: 0,
+                CodePage: 65001,
+                HasBom: false,
+                LineEndingId: 0,
+                Content: "safe content",
+                TimestampUtc: DateTime.UtcNow
+            );
+
+            var doc = host.File.RestoreFromBackup(rec);
+
+            Assert.Equal(System.IO.Path.GetFullPath(safePath), doc.State.Path);
+            Assert.Equal(0, doc.State.UntitledNumber); // path レコードは 0 化(既存契約)
+            Assert.DoesNotContain(host.Prompt.Log, e => e.Kind == "Warn"); // 警告は出さない
+        });
+
+    [Fact]
+    public void RestoreFromBackup_FallsBackToUntitled_WhenPathIsRejected() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            // System32 配下=攻撃者が JSON を植えた復元先の代表例(Ctrl+S で hosts 上書き導線を作らせない)。
+            var attackPath = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System),
+                "drivers",
+                "etc",
+                "hosts"
+            );
+            var rec = new BackupRecord(
+                "id-attack",
+                OriginalPath: attackPath,
+                UntitledNumber: 0,
+                CodePage: 65001,
+                HasBom: false,
+                LineEndingId: 0,
+                Content: "poison",
+                TimestampUtc: DateTime.UtcNow
+            );
+
+            var doc = host.File.RestoreFromBackup(rec);
+
+            Assert.Null(doc.State.Path); // 無題フォールバック=Path は null
+            Assert.True(doc.State.UntitledNumber > 0); // 無題連番が付く
+            var warn = Assert.Single(host.Prompt.Log, e => e.Kind == "Warn");
+            Assert.Contains("バックアップの元パスが無効なため", warn.Text);
+            Assert.Contains(attackPath, warn.Text); // 拒絶した元パスを本文に含める(ユーザ判断のため)
+        });
+
+    [Fact]
+    public void RestoreFromBackup_MaliciousPath_ContentStillLoadedForSaveAs() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            // 攻撃 Path でフォールバックしても本文は失わない=ユーザが「名前を付けて保存」で救出できる。
+            var attackPath = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System),
+                "drivers",
+                "etc",
+                "hosts"
+            );
+            var rec = new BackupRecord(
+                "id-attack-content",
+                OriginalPath: attackPath,
+                UntitledNumber: 0,
+                CodePage: 65001,
+                HasBom: false,
+                LineEndingId: 0,
+                Content: "important user data",
+                TimestampUtc: DateTime.UtcNow
+            );
+
+            var doc = host.File.RestoreFromBackup(rec);
+
+            Assert.Null(doc.State.Path); // サイレントに target を上書きしない
+            Assert.Equal("important user data", doc.Editor.Text); // 本文は保持=SaveAs で救出可能
+            Assert.True(doc.Editor.Modified); // dirty=ユーザーが保存点を打てる
+        });
+
     // ===== EOL 非ロールバックの修正確認(Batch A Task 1・2026-07-15) =====
     //
     // 経緯: WriteToPath (:268-) は保存直前に doc.Editor.ConvertEols(EolMode) で本文中の

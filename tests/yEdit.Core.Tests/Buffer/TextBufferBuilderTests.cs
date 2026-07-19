@@ -1,5 +1,6 @@
 using System.Text;
 using yEdit.Core.Buffers;
+using yEdit.Core.Text;
 
 namespace yEdit.Core.Tests.Buffers;
 
@@ -99,5 +100,46 @@ public class TextBufferBuilderTests
         builder.Build();
         Assert.Throws<InvalidOperationException>(() => builder.Add("x"u8));
         Assert.Throws<InvalidOperationException>(() => builder.Build());
+    }
+
+    [Fact]
+    public void Add_Throws_DocumentTooLarge_WhenExceedingCap()
+    {
+        var builder = new TextBufferBuilder { MaxTotalBytes = 1024 }; // 既存 internal init を活用
+        var payload = new byte[2048];
+        Array.Fill(payload, (byte)'a');
+
+        var ex = Assert.Throws<DocumentTooLargeException>(() => builder.Add(payload));
+        Assert.True(ex.AttemptedBytes > 1024);
+    }
+
+    [Fact]
+    public void Add_Succeeds_AtExactCap()
+    {
+        var builder = new TextBufferBuilder { MaxTotalBytes = 1024 };
+        var payload = new byte[1024];
+        Array.Fill(payload, (byte)'a');
+
+        builder.Add(payload); // 例外なし
+        Assert.NotNull(builder.Build());
+    }
+
+    [Fact]
+    public void DocumentTooLargeException_IsCaughtBy_BroadExceptionCatch()
+    {
+        // catch (Exception) 経路でも受けられることを担保するリグレッションガード
+        var builder = new TextBufferBuilder { MaxTotalBytes = 8 };
+        var payload = new byte[16];
+        Array.Fill(payload, (byte)'a');
+
+        try
+        {
+            builder.Add(payload);
+            Assert.Fail("expected throw");
+        }
+        catch (Exception ex)
+        {
+            Assert.IsType<DocumentTooLargeException>(ex);
+        }
     }
 }

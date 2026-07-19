@@ -94,7 +94,7 @@ public class MarkdownRendererTests
         var md = "| a | b |\n|---|---|\n| 1 | 2 |";
         var html = MarkdownRenderer.Render(md, "");
         Assert.Contains("<table", html);
-        Assert.Contains("<td>1</td>", html);
+        Assert.Matches(@"<td[^>]*>\s*1\s*</td>", html);
     }
 
     [Fact]

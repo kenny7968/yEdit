@@ -24,6 +24,10 @@ public enum PathValidation
 /// - UNC 側の admin share (\\host\C$\Windows\... 等)経由の pivot は許容
 ///   (実運用の UNC を潰さない優先)。閉じる場合は BlockedRoots とは別の
 ///   UNC 用フィルタ(\\host\&lt;drive&gt;$\... を拒絶)で判定する。
+/// - OneDrive Files On-Demand 等 cloud placeholder は IO_REPARSE_TAG_CLOUD 系
+///   reparse tag を持つため BK-M-1 実装で無条件 Rejected になる可能性がある
+///   (false-positive 受容)。tag 別判定(GetFileInformationByHandleEx /
+///   FileAttributeTagInfo)による分離は将来検討。
 /// </summary>
 public static class OriginalPathValidator
 {
@@ -74,18 +78,8 @@ public static class OriginalPathValidator
             if (!isUnc && RejectIfReparsePresent(forCheck) == PathValidation.Rejected)
                 return PathValidation.Rejected;
 
-#pragma warning disable S3267 // foreach を LINQ Where に置換しない: plan Step 1.8 に従い可読性を優先する。
-            foreach (var root in BlockedRoots)
-            {
-                if (
-                    forCheck.StartsWith(
-                        root + Path.DirectorySeparatorChar,
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                )
-                    return PathValidation.Rejected;
-            }
-#pragma warning restore S3267
+            if (StartsWithAnyBlockedRoot(forCheck))
+                return PathValidation.Rejected;
             return PathValidation.Ok;
         }
         catch
@@ -138,6 +132,10 @@ public static class OriginalPathValidator
             }
             catch
             {
+                // 想定外のパス変形(将来の .NET / Windows 更新で新規例外が追加された
+                // 場合)に対する fail-safe。現状の .NET 9 では Path.GetFullPath 通過後の
+                // path に対して実質到達しないが、reparse 検出の可用性を優先し握って
+                // walk を打ち切る(既に走査済みの祖先分だけで判定)。
                 break;
             }
             if (
@@ -155,22 +153,8 @@ public static class OriginalPathValidator
         try
         {
             var linkTarget = File.ResolveLinkTarget(localPath, returnFinalTarget: true);
-            if (linkTarget != null)
-            {
-                var resolvedPath = linkTarget.FullName;
-#pragma warning disable S3267 // foreach を LINQ Where に置換しない: 上の判定 loop と対称。
-                foreach (var root in BlockedRoots)
-                {
-                    if (
-                        resolvedPath.StartsWith(
-                            root + Path.DirectorySeparatorChar,
-                            StringComparison.OrdinalIgnoreCase
-                        )
-                    )
-                        return PathValidation.Rejected;
-                }
-#pragma warning restore S3267
-            }
+            if (linkTarget != null && StartsWithAnyBlockedRoot(linkTarget.FullName))
+                return PathValidation.Rejected;
         }
         catch (Exception ex)
             when (ex
@@ -184,5 +168,25 @@ public static class OriginalPathValidator
         }
 
         return PathValidation.Ok;
+    }
+
+    /// <summary>
+    /// BlockedRoots 判定の唯一の入口。将来 root マッチ規則を変える時は本ヘルパのみ触れば良い。
+    /// </summary>
+    private static bool StartsWithAnyBlockedRoot(string path)
+    {
+#pragma warning disable S3267 // foreach を LINQ Where に置換しない: plan Step 1.8 に従い可読性を優先する。
+        foreach (var root in BlockedRoots)
+        {
+            if (
+                path.StartsWith(
+                    root + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+                return true;
+        }
+#pragma warning restore S3267
+        return false;
     }
 }

@@ -34,11 +34,23 @@ public class SerialBackupWriterTests
         }
     }
 
+    /// <summary>テスト用ラベルから決定的な GUID N (32 桁 hex) を生成する。HIGH-1 白リスト検証導入後、
+    /// BackupStore.LoadAll は GUID N でない Id を捨てるため、SHA-256 の先頭 16 バイトを 32 桁 hex に
+    /// 写して安定した Id を得る(暗号強度は不要=識別子生成のみ)。</summary>
+    private static string HashId(string label)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(label)
+        );
+        return Convert.ToHexString(hash, 0, 16).ToLowerInvariant();
+    }
+
     /// <summary>テスト用の BackupRecord ファクトリ(BackupCoordinatorTests.Rec と同じ形)。
-    /// TimestampUtc は固定値でロードバック検証を deterministic に。</summary>
-    private static BackupRecord Rec(string id, string content) =>
+    /// TimestampUtc は固定値でロードバック検証を deterministic に。
+    /// label は HashId で 32 桁 hex GUID N に写す(BackupStore.LoadAll の白リストを通過させる)。</summary>
+    private static BackupRecord Rec(string label, string content) =>
         new(
-            Id: id,
+            Id: HashId(label),
             OriginalPath: null,
             UntitledNumber: 1,
             CodePage: 65001,
@@ -70,8 +82,8 @@ public class SerialBackupWriterTests
 
         var loaded = BackupStore.LoadAll(tmp.Root);
         Assert.Equal(2, loaded.Count);
-        Assert.Contains(loaded, r => r.Id == "id-1" && r.Content == "one");
-        Assert.Contains(loaded, r => r.Id == "id-2" && r.Content == "two");
+        Assert.Contains(loaded, r => r.Id == HashId("id-1") && r.Content == "one");
+        Assert.Contains(loaded, r => r.Id == HashId("id-2") && r.Content == "two");
     }
 
     /// <summary>
@@ -140,8 +152,9 @@ public class SerialBackupWriterTests
     public void WriteFailure_InvokesOnWriteFailed_AndWorkerSurvives()
     {
         using var tmp = new TempDir();
-        // "will-fail.json" と同名のディレクトリを事前作成 → File.Move が決定的に失敗する経路。
-        Directory.CreateDirectory(Path.Combine(tmp.Root, "will-fail.json"));
+        // "<HashId(will-fail)>.json" と同名のディレクトリを事前作成 → File.Move が決定的に失敗する経路
+        // (HIGH-1 導入後は Id が GUID N になるためファイル名も HashId 経由で組み立てる)。
+        Directory.CreateDirectory(Path.Combine(tmp.Root, HashId("will-fail") + ".json"));
 
         var failures = new List<string>();
         var lockObj = new object();
@@ -178,7 +191,7 @@ public class SerialBackupWriterTests
 
         Assert.Null(disposeException); // Dispose が例外なく戻る=worker 死んでいない
         lock (lockObj)
-            Assert.Contains("will-fail", failures); // 失敗コールバックが Id 付きで発火
+            Assert.Contains(HashId("will-fail"), failures); // 失敗コールバックが Id 付きで発火
         // 失敗した *.json は書き込まれていない(BackupStore.LoadAll は will-fail ディレクトリを *.json glob で拾うが
         // Directory.EnumerateFiles はディレクトリを列挙しないためスキップされる=空)。
         Assert.Empty(BackupStore.LoadAll(tmp.Root));
@@ -209,9 +222,10 @@ public class SerialBackupWriterTests
     public void Write_Failure_Invokes_OnWriteFailed_WithRecordId()
     {
         using var tmp = new TempDir();
-        // 対象パス "id-mre.json" と同名のディレクトリを事前作成 → BackupStore.Write の
-        // 新規経路(AtomicFile.Write 内の File.Move(tmp, "id-mre.json"))が決定的に IOException を投げる。
-        Directory.CreateDirectory(Path.Combine(tmp.Root, "id-mre.json"));
+        // 対象パス "<HashId(id-mre)>.json" と同名のディレクトリを事前作成 → BackupStore.Write の
+        // 新規経路(AtomicFile.Write 内の File.Move)が決定的に IOException を投げる
+        // (HIGH-1 導入後は Id が GUID N になるためファイル名も HashId 経由で組み立てる)。
+        Directory.CreateDirectory(Path.Combine(tmp.Root, HashId("id-mre") + ".json"));
 
         string? capturedId = null;
         var doneEvent = new ManualResetEventSlim(initialState: false);
@@ -233,7 +247,7 @@ public class SerialBackupWriterTests
             doneEvent.Wait(TimeSpan.FromSeconds(15)),
             "OnWriteFailed が背景スレッドから発火しなかった(タイムアウト)"
         );
-        Assert.Equal("id-mre", capturedId);
+        Assert.Equal(HashId("id-mre"), capturedId);
     }
 
     // ===== Enqueue 締切後ガード(xmldoc「破棄後は無視」契約) =====

@@ -287,9 +287,20 @@ public class BackupCoordinatorTests
 
     // ===== OfferRestoreOnStartup(4 分岐) =====
 
-    private static BackupRecord Rec(string id, string content, DateTime? ts = null) =>
+    /// <summary>テスト用ラベルから決定的な GUID N (32 桁 hex) を生成する。HIGH-1 白リスト検証導入後、
+    /// BackupStore.LoadAll は GUID N でない Id を捨てるため、SHA-256 の先頭 16 バイトを 32 桁 hex に
+    /// 写して安定した Id を得る(暗号強度は不要=識別子生成のみ)。</summary>
+    private static string HashId(string label)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(label)
+        );
+        return Convert.ToHexString(hash, 0, 16).ToLowerInvariant();
+    }
+
+    private static BackupRecord Rec(string label, string content, DateTime? ts = null) =>
         new(
-            Id: id,
+            Id: HashId(label),
             OriginalPath: null,
             UntitledNumber: 1,
             CodePage: 65001,
@@ -369,7 +380,7 @@ public class BackupCoordinatorTests
                 host.Form,
                 r =>
                 {
-                    if (r.Id == "bad")
+                    if (r.Id == HashId("bad"))
                         throw new InvalidOperationException("restore failed");
                     var d = host.Docs.CreateNew();
                     d.Editor.Text = r.Content;
@@ -418,7 +429,7 @@ public class BackupCoordinatorTests
             restored.Editor.Text = "keeper edited";
             restored.Editor.ClearSavePoint();
             host.Backup.Reconcile();
-            Assert.Contains(host.Writer.Writes, w => w.Id == "keep"); // 復元タブは dirty=Write 走る・Id は元
+            Assert.Contains(host.Writer.Writes, w => w.Id == HashId("keep")); // 復元タブは dirty=Write 走る・Id は元
         });
 
     [Fact]
@@ -445,7 +456,7 @@ public class BackupCoordinatorTests
                 r =>
                 {
                     restoreCalls++;
-                    if (r.Id == "bad")
+                    if (r.Id == HashId("bad"))
                         throw new InvalidOperationException("restore failed");
                     var d = host.Docs.CreateNew();
                     d.Editor.Text = r.Content;
@@ -461,7 +472,7 @@ public class BackupCoordinatorTests
             restored.Editor.Text = "ok edited";
             restored.Editor.ClearSavePoint();
             host.Backup.Reconcile();
-            Assert.Contains(host.Writer.Writes, w => w.Id == "good");
+            Assert.Contains(host.Writer.Writes, w => w.Id == HashId("good"));
         });
 
     // ===== Task 1b: silent catch → IBackupTraceSink 導線(restore-item / restore-item-later) =====
@@ -488,7 +499,8 @@ public class BackupCoordinatorTests
             var warn = Assert.Single(host.Trace.Warnings); // 1 レコード=1 warn
             Assert.Equal("restore-item-later", warn.Category);
             Assert.Same(ex, warn.Ex); // 例外実体まで trace へ渡す
-            Assert.Equal("bad", warn.Detail); // detail は Id(plan §Step 1b.6.2)
+            // detail は SafeIdForLog(rec.Id): GUID N は無害化しても不変=生 Id と一致
+            Assert.Equal(HashId("bad"), warn.Detail);
         });
 
     [Fact]
@@ -512,7 +524,8 @@ public class BackupCoordinatorTests
             var warn = Assert.Single(host.Trace.Warnings);
             Assert.Equal("restore-item", warn.Category);
             Assert.Same(ex, warn.Ex);
-            Assert.Equal("bad", warn.Detail);
+            // detail は SafeIdForLog(rec.Id): GUID N は無害化しても不変=生 Id と一致
+            Assert.Equal(HashId("bad"), warn.Detail);
         });
 
     [Fact]

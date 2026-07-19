@@ -27,9 +27,23 @@ public class BackupStoreTests
         }
     }
 
-    private static BackupRecord Rec(string id, string? path, string content) =>
+    /// <summary>
+    /// テスト用ラベルから決定的な GUID N (32 桁 hex) を生成する。HIGH-1 白リスト検証導入後、
+    /// BackupStore.LoadAll は GUID N でない Id を捨てるため、旧来の「id-1」等の可読ラベルは
+    /// テストからそのまま流し込めない。ここで SHA-256 の先頭 16 バイトを 32 桁 hex に写し、
+    /// テスト間で安定した(かつ相互に衝突しない)Id を得る(暗号強度は不要=識別子生成のみ)。
+    /// </summary>
+    private static string HashId(string label)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(label)
+        );
+        return Convert.ToHexString(hash, 0, 16).ToLowerInvariant();
+    }
+
+    private static BackupRecord Rec(string label, string? path, string content) =>
         new(
-            Id: id,
+            Id: HashId(label),
             OriginalPath: path,
             UntitledNumber: path is null ? 3 : 0,
             CodePage: 65001,
@@ -84,10 +98,10 @@ public class BackupStoreTests
         BackupStore.Write(t.Root, Rec("id-a", null, "a"));
         BackupStore.Write(t.Root, Rec("id-b", null, "b"));
 
-        BackupStore.Delete(t.Root, "id-a");
+        BackupStore.Delete(t.Root, HashId("id-a"));
         var after = BackupStore.LoadAll(t.Root);
         Assert.Single(after);
-        Assert.Equal("id-b", after[0].Id);
+        Assert.Equal(HashId("id-b"), after[0].Id);
 
         BackupStore.DeleteAll(t.Root);
         Assert.Empty(BackupStore.LoadAll(t.Root));
@@ -102,7 +116,31 @@ public class BackupStoreTests
 
         var all = BackupStore.LoadAll(t.Root);
         var loaded = Assert.Single(all);
-        Assert.Equal("good", loaded.Id);
+        Assert.Equal(HashId("good"), loaded.Id);
+    }
+
+    [Fact]
+    public void LoadAll_SkipsRecord_WithMaliciousId()
+    {
+        // HIGH-1: JSON の Id が GUID N でなければ復元候補から捨てる契約(BackupStore.LoadAll)。
+        // ファイル名は正当な GUID にしておく=Directory.EnumerateFiles で拾わせて中身の Id を検査させる。
+        using var t = new TempDir();
+        var poison = new BackupRecord(
+            Id: @"..\..\..\..\Windows\Temp\evil", // 白リスト違反
+            OriginalPath: null,
+            UntitledNumber: 1,
+            CodePage: 65001,
+            HasBom: false,
+            LineEndingId: 0,
+            Content: "x",
+            TimestampUtc: DateTime.UtcNow
+        );
+        var file = Path.Combine(t.Root, Guid.NewGuid().ToString("N") + ".json");
+        File.WriteAllText(file, System.Text.Json.JsonSerializer.Serialize(poison));
+
+        var loaded = BackupStore.LoadAll(t.Root);
+
+        Assert.Empty(loaded); // 攻撃 Id は復元ダイアログに現れない
     }
 
     [Fact]

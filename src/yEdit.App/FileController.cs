@@ -389,14 +389,40 @@ public sealed class FileController
         };
     }
 
-    /// <summary>バックアップ記録を新タブへ復元する。本文・メタを載せ、保存点を破棄して dirty にする。</summary>
+    /// <summary>バックアップ記録を新タブへ復元する。本文・メタを載せ、保存点を破棄して dirty にする。
+    /// HIGH-2: OriginalPath がシステム系ルート配下(Windows/System32/ProgramFiles 等)なら
+    /// 無題タブへフォールバックし、後続の Ctrl+S での任意ファイル上書き導線を遮断する。</summary>
     public Document RestoreFromBackup(BackupRecord rec)
     {
         var doc = _docs.CreateNew();
-        doc.State.Path = rec.OriginalPath;
+
+        // OriginalPath 検証: 攻撃 JSON は Untitled にフォールバックする(HIGH-2)。
+        // ユーザ配下・UNC は Ok=そのまま復元先パスとして継続。
+        bool useUntitled = rec.OriginalPath is null;
+        string? safePath = null;
+        if (!useUntitled)
+        {
+            var status = OriginalPathValidator.Check(rec.OriginalPath!, out var normalized);
+            if (status == PathValidation.Ok)
+            {
+                safePath = normalized;
+            }
+            else
+            {
+                useUntitled = true;
+                _prompt.Warn(
+                    $"バックアップの元パスが無効なため、無題タブとして復元します。"
+                        + $"必要に応じて「名前を付けて保存」してください。\n\n元パス: {rec.OriginalPath}",
+                    "警告"
+                );
+            }
+        }
+
+        doc.State.Path = safePath;
+
         // 無題は元の連番を保ち、ダイアログ表示と復元後タブの番号を一致させる。連番カウンタは
         // 既存の最大値以上へ進め、以後の新規無題と衝突しないようにする。
-        if (rec.OriginalPath is null)
+        if (useUntitled)
         {
             int n = rec.UntitledNumber > 0 ? rec.UntitledNumber : ++_untitledSeq;
             if (n > _untitledSeq)

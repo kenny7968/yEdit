@@ -40,8 +40,9 @@ public static class BackupStore
             try
             {
                 var rec = JsonSerializer.Deserialize<BackupRecord>(File.ReadAllText(file), Options);
-                if (rec is not null && !string.IsNullOrEmpty(rec.Id))
-                    list.Add(rec);
+                if (rec is null || !BackupIdValidator.IsValid(rec.Id))
+                    continue; // HIGH-1: 攻撃者が植えた不正 Id は復元候補から捨てる(パストラバーサル入口の遮断)
+                list.Add(rec);
             }
             catch
             { /* 破損・途中書き込みは無視（次回のクリーン書き込みで上書きされる） */

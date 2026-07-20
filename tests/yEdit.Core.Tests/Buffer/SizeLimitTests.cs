@@ -4,7 +4,7 @@ using yEdit.Core.Text;
 
 namespace yEdit.Core.Tests.Buffers;
 
-/// <summary>文書上限(§0-1: int.MaxValueバイト)の強制。テストは上限を注入して閾値近傍を検証する。</summary>
+/// <summary>文書上限(§0-1: 既定 512 MB。2026-07-20 v0.11 引下げ)の強制。テストは上限を注入して閾値近傍を検証する。</summary>
 public class SizeLimitTests
 {
     [Fact]

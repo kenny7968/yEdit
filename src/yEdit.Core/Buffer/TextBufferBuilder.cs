@@ -15,8 +15,8 @@ public sealed class TextBufferBuilder
     private long _totalBytes;
     private bool _built;
 
-    /// <summary>文書上限(§0-1: 既定 int.MaxValue バイト)。テスト注入用。</summary>
-    internal long MaxTotalBytes { get; init; } = int.MaxValue;
+    /// <summary>文書上限(§0-1: 既定 512 MB (2026-07-20 v0.11 引下げ))。テスト注入用。</summary>
+    internal long MaxTotalBytes { get; init; } = 512L * 1024 * 1024;
 
     /// <summary>不正UTF-8をU+FFFDに置換したか。</summary>
     public bool HadReplacement { get; private set; }
@@ -83,7 +83,7 @@ public sealed class TextBufferBuilder
         if (_totalBytes > MaxTotalBytes)
             throw new DocumentTooLargeException(
                 _totalBytes,
-                "文書サイズ上限(int.MaxValue バイト)を超えました。"
+                "文書サイズ上限(512 MB)を超えました。"
             );
         var chunk = new TextChunk(clean);
         _pieces.Add(Piece.Of(chunk, 0, chunk.ByteLength));

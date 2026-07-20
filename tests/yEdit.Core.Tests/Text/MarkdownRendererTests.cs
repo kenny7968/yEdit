@@ -52,9 +52,26 @@ public class MarkdownRendererTests
     public void Empty_base_href_omits_base_tag() =>
         Assert.DoesNotContain("<base", MarkdownRenderer.Render("x", ""));
 
+    // MD-L-4: baseHref は空文字か PreviewBaseHref 定数以外を受け付けない (単一 caller の防御ガード)。
     [Fact]
-    public void Base_href_is_attribute_escaped() =>
-        Assert.Contains("<base href=\"a&amp;b&quot;c\">", MarkdownRenderer.Render("x", "a&b\"c"));
+    public void Render_Throws_ArgumentException_OnUnknownBaseHref() =>
+        Assert.Throws<ArgumentException>(() => MarkdownRenderer.Render("x", "https://evil.com/"));
+
+    [Fact]
+    public void Render_Accepts_EmptyBaseHref()
+    {
+        var html = MarkdownRenderer.Render("x", "");
+        Assert.Contains("<html", html);
+        Assert.DoesNotContain("<base", html);
+    }
+
+    [Fact]
+    public void Render_Accepts_PreviewBaseHref()
+    {
+        var html = MarkdownRenderer.Render("x", MarkdownRenderer.PreviewBaseHref);
+        Assert.Contains("<html", html);
+        Assert.Contains("<base href=\"https://yedit.preview/\">", html);
+    }
 
     [Fact]
     public void Document_includes_csp_blocking_scripts()

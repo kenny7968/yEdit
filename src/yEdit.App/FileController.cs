@@ -337,6 +337,21 @@ public sealed class FileController
     /// </remarks>
     private bool WriteToPath(Document doc, string path)
     {
+        // CSV-M-2: リモートパス(UNC / マップドネットワークドライブ)は 5 秒プローブで
+        // 到達不能なら即エラー(HIGH-6 の LoadInto 側と対称)。既にリモート文書を開いた
+        // 後にサーバがダウンしたシナリオで、AtomicFile.Write の FileStream(CreateNew) が
+        // SMB リトライで数十秒 UI 凍結するのを防ぐ。判定は LoadInto と同じ RemotePathDetector。
+        // snapshotBefore を握る前・ConvertEols 副作用を起こす前に短絡することで、
+        // プローブ失敗時に「本文の EOL が書き換わる」「新規バッファに差し替わる」を発生させない。
+        if (
+            RemotePathDetector.IsRemote(path)
+            && !_reachabilityProbe.ProbeWithTimeout(path, TimeSpan.FromSeconds(5))
+        )
+        {
+            _prompt.Error($"ネットワークパスに到達できません: {path}", "エラー");
+            return false;
+        }
+
         // ConvertEols 前のバッファ参照を保持(失敗時ロールバック用=バグ 1+2 対策)。
         // 旧 TextBuffer は不変=このハンドルを保持している限り、内部の _savedRoot/_current は
         // ConvertEols/ReplaceSource で書き換わらない。成功パスでは使わない。

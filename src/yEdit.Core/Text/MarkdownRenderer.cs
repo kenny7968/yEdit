@@ -11,6 +11,13 @@ public static class MarkdownRenderer
     /// <summary>プレビュー HTML の base href（PreviewVirtualHost への https URL）。</summary>
     public const string PreviewBaseHref = "https://" + PreviewVirtualHost + "/";
 
+    /// <summary>
+    /// MD-L-3: レンダー入力サイズ上限 (4,000,000 文字 = 8 MB UTF-16 相当)。
+    /// ネスト深度 / テーブルサイズの pre-scan は入れず、入口一箇所の cap で
+    /// パーサ側の pathological な計算量爆発を封じる (設計書: MD-L-3)。
+    /// </summary>
+    public const int MaxMarkdownChars = 4_000_000;
+
     // CommonMark + GFM 拡張（表・チェックリスト・自動リンク等）。スレッドセーフなので使い回す。
     private static readonly MarkdownPipeline Pipeline = BuildPipeline();
 

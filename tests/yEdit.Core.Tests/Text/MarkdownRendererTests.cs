@@ -259,4 +259,47 @@ public class MarkdownRendererTests
         Assert.Contains("<a", html); // opening <a> は残す (Write の open タグ削除変異を kill)
         Assert.Contains("</a>", html);
     }
+
+    // ---------------------------------------------------------------------
+    // MD-L-3: レンダー入力サイズ上限 (既定 4,000,000 文字 = 8 MB UTF-16 相当)。
+    //
+    // ネスト深度 / テーブルサイズの pre-scan は入れない (設計書: 入力サイズ
+    // 4 MB で実質封じられる・保守負担を優先)。入口一箇所の cap のみで DoS を
+    // 抑える。境界値 (ちょうど 4M 文字は許容 / +1 で throw) と const 値を
+    // 機械固定する。
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public void MaxMarkdownChars_IsFourMillion()
+    {
+        // const を書き換える PR は必ずこのテストを更新する = レビュー強制。
+        Assert.Equal(4_000_000, MarkdownRenderer.MaxMarkdownChars);
+    }
+
+    [Fact]
+    public void Render_Throws_DocumentTooLarge_WhenExceedingCap()
+    {
+        var md = new string('a', MarkdownRenderer.MaxMarkdownChars + 1);
+        Assert.Throws<DocumentTooLargeException>(() => MarkdownRenderer.Render(md, ""));
+    }
+
+    [Fact]
+    public void Render_Accepts_MaxSizedInput()
+    {
+        // 境界: ちょうど上限は素通し。cap を off-by-one で厳しくする回帰を防ぐ。
+        var md = new string('a', MarkdownRenderer.MaxMarkdownChars);
+        var html = MarkdownRenderer.Render(md, "");
+        Assert.Contains("<html", html);
+    }
+
+    [Fact]
+    public void Render_DocumentTooLargeException_ReportsAttemptedBytes()
+    {
+        // AttemptedBytes は UTF-16 バイト換算 (Length * 2)。TextBufferBuilder の
+        // 「実格納バイト数」とは意味が違うが、DocumentTooLargeException の契約に
+        // 揃える (テストが期待値を機械固定する)。
+        var md = new string('a', MarkdownRenderer.MaxMarkdownChars + 1);
+        var ex = Assert.Throws<DocumentTooLargeException>(() => MarkdownRenderer.Render(md, ""));
+        Assert.Equal((long)(MarkdownRenderer.MaxMarkdownChars + 1) * 2L, ex.AttemptedBytes);
+    }
 }

@@ -1251,4 +1251,114 @@ public class FileControllerTests
                 File2.SetAttributes(path, System.IO.FileAttributes.Normal);
             }
         });
+
+    // ===== CSV-L-5: _prompt.Error/Warn に生 path を載せる導線を SanitizeForDisplay で無害化 =====
+    //
+    // 攻撃 path (U+202E RLO / 改行 / 500 文字超) が _prompt へそのまま流れると、
+    //   - RLO 反転で拡張子スプーフィング (evil-{RLO}gpj.exe が evil-exe.jpg 風に表示)
+    //   - CR/LF で警告本文が複数行に化けて偽の追加情報を差し込める
+    //   - 巨大 path で MessageBox の視認性が破壊される
+    // という 3 系のスプーフィング/UX 破壊が可能。SanitizeForDisplay.OneLine(path, 200) で
+    // BiDi/format 系を drop・改行を空白へ畳み・末尾を "…" で切詰め、prompt に載る前段で
+    // 無害化する。U+202E は UnicodeCategory.Format のため culture-sensitive な Contains で
+    // 常に "見つかる" 側に倒れるので、以下は StringComparison.Ordinal を明示する
+    // (RestoreDialogTests のクラス header と同旨)。
+
+    [Fact]
+    public void RestoreFromBackup_SanitizesRloOverride_InOriginalPathWarn() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            // System32 配下=OriginalPathValidator が Rejected を返して _prompt.Warn 経路に入る。
+            // path に U+202E RLO を混入し、警告本文に生の RLO が載らないことを固定する。
+            var attackPath = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System),
+                "drivers",
+                "etc",
+                "evil-‮txt.hosts"
+            );
+            var rec = new BackupRecord(
+                "id-attack-rlo",
+                OriginalPath: attackPath,
+                UntitledNumber: 0,
+                CodePage: 65001,
+                HasBom: false,
+                LineEndingId: 0,
+                Content: "poison",
+                TimestampUtc: DateTime.UtcNow
+            );
+
+            _ = host.File.RestoreFromBackup(rec);
+
+            var warn = Assert.Single(host.Prompt.Log, e => e.Kind == "Warn");
+            Assert.DoesNotContain("‮", warn.Text, StringComparison.Ordinal);
+            // 警告本文の骨格 (案内文 + "元パス:" ラベル + 改行区切り) は保持=OneLine は path 部分のみ。
+            Assert.Contains("バックアップの元パスが無効なため", warn.Text);
+            Assert.Contains("元パス:", warn.Text);
+            Assert.Contains("\n\n元パス:", warn.Text); // path 部分だけを OneLine=文全体の改行は残す
+        });
+
+    [Fact]
+    public void LoadInto_SanitizesRloOverride_InUnreachableRemoteErrorPrompt() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            host.Probe.Result = false;
+            // UNC 先頭 `\\` は UncPathDetector.IsUnc→IsRemote=true→プローブ経路へ乗る。
+            // path に U+202E RLO を混入し、"ネットワークパスに到達できません: ..." に
+            // 生の RLO が載らないことを固定する (拡張子スプーフィング防御)。
+            var attackPath = @"\\server\share\evil-" + "‮" + "txt.exe";
+
+            var doc = host.File.TryOpenOrActivate(attackPath);
+
+            Assert.Null(doc);
+            var err = Assert.Single(host.Prompt.Log, e => e.Kind == "Error");
+            Assert.StartsWith(
+                "ネットワークパスに到達できません",
+                err.Text,
+                StringComparison.Ordinal
+            );
+            Assert.DoesNotContain("‮", err.Text, StringComparison.Ordinal);
+        });
+
+    [Fact]
+    public void LoadInto_SanitizesCrlf_InUnreachableRemoteErrorPrompt() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            host.Probe.Result = false;
+            // path に CR/LF を混入し、prompt 本文が複数行に化けないことを固定する
+            // (OneLine が CR/LF を単一空白へ畳み込む=1 行整合の維持)。
+            var attackPath = "\\\\server\\share\\evil\r\ninjected.txt";
+
+            var doc = host.File.TryOpenOrActivate(attackPath);
+
+            Assert.Null(doc);
+            var err = Assert.Single(host.Prompt.Log, e => e.Kind == "Error");
+            Assert.DoesNotContain("\r", err.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain("\n", err.Text, StringComparison.Ordinal);
+            // 1 行として存在(改行崩壊しない=Split('\n') の要素は 1 個)
+            Assert.Single(err.Text.Split('\n'));
+        });
+
+    [Fact]
+    public void LoadInto_TruncatesLongPath_InUnreachableRemoteErrorPrompt() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            host.Probe.Result = false;
+            // 500 文字級の UNC path。OneLine(path, 200) が 200 code unit を超える path を
+            // "…"(U+2026)で切詰めることを固定する (MessageBox 視認性破壊の防御)。
+            var longSegment = new string('a', 500);
+            var attackPath = @"\\server\share\" + longSegment + ".txt";
+
+            var doc = host.File.TryOpenOrActivate(attackPath);
+
+            Assert.Null(doc);
+            var err = Assert.Single(host.Prompt.Log, e => e.Kind == "Error");
+            // 切詰めマーカ "…" が末尾に出現=200 code unit を超えた path が省略された。
+            Assert.Contains("…", err.Text, StringComparison.Ordinal);
+            // 元 path 全体は載らない (500 文字 'a' 連続が丸ごとは入らない)。
+            Assert.DoesNotContain(new string('a', 500), err.Text, StringComparison.Ordinal);
+        });
 }

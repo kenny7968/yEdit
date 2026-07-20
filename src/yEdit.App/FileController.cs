@@ -200,7 +200,12 @@ public sealed class FileController
             )
         {
             // 想定内の入出力エラーのみ握る。NullReference 等のロジックバグは伝播させる。
-            _prompt.Error($"開けませんでした: {ex.Message}", "エラー");
+            // CSV-L-5: ex.Message は攻撃者制御下ではないがファイル名 (path) を含みうるため、
+            // 二次的スプーフィング防止として SanitizeForDisplay.OneLine で無害化する。
+            _prompt.Error(
+                $"開けませんでした: {SanitizeForDisplay.OneLine(ex.Message, 200)}",
+                "エラー"
+            );
             return false;
         }
     }
@@ -384,7 +389,11 @@ public sealed class FileController
             {
                 doc.Editor.SetOrReplaceSource(snapshotBefore);
             }
-            _prompt.Error($"保存できませんでした: {ex.Message}", "エラー");
+            // CSV-L-5: ex.Message にファイル名 (path) が混入し得るため、SanitizeForDisplay で無害化。
+            _prompt.Error(
+                $"保存できませんでした: {SanitizeForDisplay.OneLine(ex.Message, 200)}",
+                "エラー"
+            );
             return false;
         }
     }
@@ -429,9 +438,11 @@ public sealed class FileController
             else
             {
                 useUntitled = true;
+                // CSV-L-5: OriginalPath は攻撃者 JSON 由来 (RLO/改行 で拡張子偽装や複数行注入)。
+                // path 部分のみ OneLine で無害化し、案内文と "\n\n元パス:" の改行区切りは保持する。
                 _prompt.Warn(
                     $"バックアップの元パスが無効なため、無題タブとして復元します。"
-                        + $"必要に応じて「名前を付けて保存」してください。\n\n元パス: {rec.OriginalPath}",
+                        + $"必要に応じて「名前を付けて保存」してください。\n\n元パス: {SanitizeForDisplay.OneLine(rec.OriginalPath, 200)}",
                     "警告"
                 );
             }
@@ -508,7 +519,12 @@ public sealed class FileController
             && !_reachabilityProbe.ProbeWithTimeout(path, TimeSpan.FromSeconds(5))
         )
         {
-            _prompt.Error($"ネットワークパスに到達できません: {path}", "エラー");
+            // CSV-L-5: path は grep/最近のファイル/BackupRecord 由来で攻撃者制御が届き得るため、
+            // SanitizeForDisplay.OneLine で RLO/改行/長大 path を無害化してから prompt に載せる。
+            _prompt.Error(
+                $"ネットワークパスに到達できません: {SanitizeForDisplay.OneLine(path, 200)}",
+                "エラー"
+            );
             return false;
         }
         return true;

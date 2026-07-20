@@ -89,6 +89,38 @@ public static class MarkdownRenderer
             """;
     }
 
+    /// <summary>
+    /// MD-L-5: プレビュー起動前の拡張子判定 pure ヘルパ。allowed リストは
+    /// <see cref="Settings.AppSettings.MarkdownExtensions"/> から渡す想定
+    /// (小文字ドット付き)。判定は case-insensitive。
+    /// </summary>
+    /// <remarks>
+    /// 契約:
+    /// - path が null / 空文字 → false (未保存タブは拒否 = 安全側)。
+    /// - path に拡張子が無い → false。
+    /// - allowed が空リスト → 常に false (誤操作で全プレビュー封鎖に気付ける安全側 —
+    ///   <see cref="Settings.AppSettings.MarkdownExtensions"/> xmldoc と対応)。
+    /// 場所: AppSettings 側にメソッド化するより、MD 関連中央集権の当クラスに pure
+    /// static として置く方がテストしやすい (依存: <see cref="Path.GetExtension(string?)"/> のみ)。
+    /// </remarks>
+    public static bool IsMarkdownExtension(string? path, IReadOnlyList<string> allowed)
+    {
+        if (string.IsNullOrEmpty(path))
+            return false;
+        if (allowed.Count == 0)
+            return false;
+        string ext = Path.GetExtension(path);
+        if (string.IsNullOrEmpty(ext))
+            return false;
+        string extLower = ext.ToLowerInvariant();
+        for (int i = 0; i < allowed.Count; i++)
+        {
+            if (string.Equals(allowed[i], extLower, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
     private const string Css = """
         body { font-family: "Segoe UI", "Meiryo", sans-serif; line-height: 1.6;
                max-width: 900px; margin: 0 auto; padding: 24px; color: #1f2328; }

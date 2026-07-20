@@ -709,6 +709,7 @@ public sealed partial class MainForm : Form
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning
             );
+            _docs.Active?.FocusTarget.Focus(); // 成功パスと対称: 戻り後は編集領域へフォーカス
             return;
         }
 

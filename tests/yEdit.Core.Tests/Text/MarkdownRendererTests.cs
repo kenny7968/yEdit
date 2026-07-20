@@ -120,6 +120,7 @@ public class MarkdownRendererTests
     {
         var html = MarkdownRenderer.Render("[click](javascript:alert(1))", Base);
         Assert.DoesNotContain("href=\"javascript:", html);
+        Assert.Contains("<a", html); // opening <a> は残す (Write の open タグ削除変異を kill)
         Assert.Contains(">click</a>", html);
     }
 
@@ -128,6 +129,7 @@ public class MarkdownRendererTests
     {
         var html = MarkdownRenderer.Render("[x](vbscript:foo)", Base);
         Assert.DoesNotContain("href=\"vbscript:", html);
+        Assert.Contains("<a", html);
         Assert.Contains(">x</a>", html);
     }
 
@@ -136,6 +138,7 @@ public class MarkdownRendererTests
     {
         var html = MarkdownRenderer.Render("[x](data:text/html,<script>)", Base);
         Assert.DoesNotContain("href=\"data:", html);
+        Assert.Contains("<a", html);
         Assert.Contains(">x</a>", html);
     }
 
@@ -145,6 +148,7 @@ public class MarkdownRendererTests
         // MD-M-5 補完: file:// URL は本タスクでも遮断。
         var html = MarkdownRenderer.Render("[x](file://server/share)", Base);
         Assert.DoesNotContain("href=\"file:", html);
+        Assert.Contains("<a", html);
         Assert.Contains(">x</a>", html);
     }
 
@@ -196,6 +200,7 @@ public class MarkdownRendererTests
         var html = MarkdownRenderer.Render("[x](JAVASCRIPT:foo)", Base);
         Assert.DoesNotContain("href=\"JAVASCRIPT:", html);
         Assert.DoesNotContain("href=\"javascript:", html);
+        Assert.Contains("<a", html);
         Assert.Contains(">x</a>", html);
     }
 
@@ -217,5 +222,7 @@ public class MarkdownRendererTests
         // 同じ scheme whitelist を適用して防御の穴を塞ぐ。
         var html = MarkdownRenderer.Render("<javascript:alert(1)>", Base);
         Assert.DoesNotContain("href=\"javascript:", html);
+        Assert.Contains("<a", html); // opening <a> は残す (Write の open タグ削除変異を kill)
+        Assert.Contains("</a>", html);
     }
 }

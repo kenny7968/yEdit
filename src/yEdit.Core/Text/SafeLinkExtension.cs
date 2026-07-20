@@ -25,10 +25,25 @@ internal sealed class SafeLinkExtension : IMarkdownExtension
         {
             return;
         }
-        html.ObjectRenderers.Replace<LinkInlineRenderer>(new SafeLinkInlineRenderer());
+        // Replace は「該当型が見つかって差し替えた」= true / 「見つからず no-op」= false を返す。
+        // security-critical な差し替えが silent に消えないよう、false は fail fast させる
+        // (将来 Markdig の default renderer 構成が変わり別 assembly/extension に移った場合の検知)。
+        if (!html.ObjectRenderers.Replace<LinkInlineRenderer>(new SafeLinkInlineRenderer()))
+        {
+            throw new InvalidOperationException(
+                "Markdig LinkInlineRenderer not found - SafeLinkExtension setup failed. "
+                    + "Verify Markdig version compatibility."
+            );
+        }
         // CommonMark autolink `<javascript:...>` は AutolinkInline 経路 (別 renderer) を通るため、
         // LinkInlineRenderer だけの差し替えでは防御に穴が残る。同 whitelist を適用する。
-        html.ObjectRenderers.Replace<AutolinkInlineRenderer>(new SafeAutolinkInlineRenderer());
+        if (!html.ObjectRenderers.Replace<AutolinkInlineRenderer>(new SafeAutolinkInlineRenderer()))
+        {
+            throw new InvalidOperationException(
+                "Markdig AutolinkInlineRenderer not found - SafeLinkExtension setup failed. "
+                    + "Verify Markdig version compatibility."
+            );
+        }
     }
 
     /// <summary>

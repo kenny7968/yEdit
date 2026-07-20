@@ -16,16 +16,22 @@ public static class CsvParser
     public const int MaxFieldChars = 8 * 1024 * 1024; // 単一フィールド 8M chars (~16MB UTF-16)
     public const int MaxTotalCells = 10_000_000;
     public const int MaxTotalRows = 1_000_000;
-
+    public const long MaxTotalChars = 256L * 1024 * 1024; // 総 chars 合計 256M chars (~512MB UTF-16)
 #pragma warning disable S3218 // reason: 内側 record struct のプロパティ名が外側 CsvParser の public const と同名だが、テストが named argument で指定する契約=改名不可
     internal readonly record struct ParseLimits(
         int MaxFieldChars,
         int MaxTotalCells,
-        int MaxTotalRows
+        int MaxTotalRows,
+        long MaxTotalChars
     );
 #pragma warning restore S3218
 
-    private static readonly ParseLimits Default = new(MaxFieldChars, MaxTotalCells, MaxTotalRows);
+    private static readonly ParseLimits Default = new(
+        MaxFieldChars,
+        MaxTotalCells,
+        MaxTotalRows,
+        MaxTotalChars
+    );
 
     public static CsvDocument Parse(string text)
     {

@@ -126,7 +126,8 @@ public class CsvParserTests
         var limits = new CsvParser.ParseLimits(
             MaxFieldChars: 100,
             MaxTotalCells: 10_000,
-            MaxTotalRows: 100
+            MaxTotalRows: 100,
+            MaxTotalChars: 1024
         );
         var csv = CsvParser.ParseForTest(text, limits);
         Assert.False(csv.Ok);
@@ -139,7 +140,8 @@ public class CsvParserTests
         var limits = new CsvParser.ParseLimits(
             MaxFieldChars: 1024,
             MaxTotalCells: 100,
-            MaxTotalRows: 100
+            MaxTotalRows: 100,
+            MaxTotalChars: 1024
         );
         var csv = CsvParser.ParseForTest(text, limits);
         Assert.False(csv.Ok);
@@ -152,7 +154,24 @@ public class CsvParserTests
         var limits = new CsvParser.ParseLimits(
             MaxFieldChars: 1024,
             MaxTotalCells: 10_000,
-            MaxTotalRows: 100
+            MaxTotalRows: 100,
+            MaxTotalChars: 1024
+        );
+        var csv = CsvParser.ParseForTest(text, limits);
+        Assert.False(csv.Ok);
+    }
+
+    [Fact]
+    public void Parse_ReturnsOkFalse_WhenTotalCharsExceedLimit()
+    {
+        // 各フィールド 50 chars + 51 chars = 総 101 chars。MaxTotalChars=100 で超過。
+        // 単一フィールドは MaxFieldChars=1024 の内側なので、4 番目のガードのみ発火。
+        var text = new string('a', 50) + "," + new string('b', 51);
+        var limits = new CsvParser.ParseLimits(
+            MaxFieldChars: 1024,
+            MaxTotalCells: 10_000,
+            MaxTotalRows: 100,
+            MaxTotalChars: 100
         );
         var csv = CsvParser.ParseForTest(text, limits);
         Assert.False(csv.Ok);
@@ -165,7 +184,8 @@ public class CsvParserTests
         var limits = new CsvParser.ParseLimits(
             MaxFieldChars: 100,
             MaxTotalCells: 10_000,
-            MaxTotalRows: 100
+            MaxTotalRows: 100,
+            MaxTotalChars: 1024
         );
         var csv = CsvParser.ParseForTest(text, limits);
         Assert.True(csv.Ok);
@@ -178,7 +198,8 @@ public class CsvParserTests
         var limits = new CsvParser.ParseLimits(
             MaxFieldChars: 1024,
             MaxTotalCells: 100,
-            MaxTotalRows: 100
+            MaxTotalRows: 100,
+            MaxTotalChars: 1024
         );
         var csv = CsvParser.ParseForTest(text, limits);
         Assert.True(csv.Ok);
@@ -191,11 +212,27 @@ public class CsvParserTests
         var limits = new CsvParser.ParseLimits(
             MaxFieldChars: 1024,
             MaxTotalCells: 10_000,
-            MaxTotalRows: 100
+            MaxTotalRows: 100,
+            MaxTotalChars: 1024
         );
         var csv = CsvParser.ParseForTest(text, limits);
         Assert.True(csv.Ok);
         Assert.Equal(100, csv.Rows.Count);
+    }
+
+    [Fact]
+    public void Parse_ReturnsOkTrue_AtExactTotalCharsBoundary()
+    {
+        // 各フィールド 50 chars ずつ = 総 100 chars でちょうど上限。
+        var text = new string('a', 50) + "," + new string('b', 50);
+        var limits = new CsvParser.ParseLimits(
+            MaxFieldChars: 1024,
+            MaxTotalCells: 10_000,
+            MaxTotalRows: 100,
+            MaxTotalChars: 100
+        );
+        var csv = CsvParser.ParseForTest(text, limits);
+        Assert.True(csv.Ok);
     }
 
     [Fact]

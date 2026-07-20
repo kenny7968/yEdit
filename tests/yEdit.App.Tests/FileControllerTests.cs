@@ -809,6 +809,132 @@ public class FileControllerTests
             Assert.True(doc.Editor.Modified); // dirty=ユーザーが保存点を打てる
         });
 
+    // ===== BK-L-1 / BK-L-2: LineEndingId / CodePage フォールバック(2026-07-19) =====
+    //
+    // 攻撃者 JSON が範囲外の LineEndingId(例 999 / -1)や未サポートの CodePage(99999 / -1)を
+    // 持つ場合、以前は
+    //   - `(LineEnding)rec.LineEndingId` は enum 範囲外の値を無検査で返し、
+    //     ToEolString()/ToDisplayString() の `_ => "\r\n"` 分岐で silent CRLF 上書きになる
+    //   - `EncodingCatalog.Get(rec.CodePage)` は ArgumentException / NotSupportedException を投げ、
+    //     RestoreFromBackup が try/catch を持たないため MainForm へ伝播=他タブの復元まで巻き添え喪失
+    // という 2 つの脆弱性(BK-L-1 / BK-L-2)があった。修正後は
+    //   - LineEndingId が Enum.IsDefined 不成立なら Crlf にフォールバック
+    //   - CodePage が Argument/NotSupported を投げたら UTF-8(65001)にフォールバック
+    // を行い、いずれも silent recovery(_prompt.Warn は追加しない=ユーザは復元後 Save で確定できる)。
+    // 復元の他メタ(Path/HasBom/Content/Modified)は正常経路と同じで、フォールバックが本文や
+    // 保存導線を壊さないことを固定する。
+
+    [Fact]
+    public void RestoreFromBackup_OutOfRangeLineEndingId_FallsBackToCrlf() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            var rec = new BackupRecord(
+                "id-eol-oor",
+                OriginalPath: null,
+                UntitledNumber: 3,
+                CodePage: 65001,
+                HasBom: false,
+                LineEndingId: 999, // 定義外(Enum.IsDefined=false)=CRLF にフォールバック
+                Content: "hello",
+                TimestampUtc: DateTime.UtcNow
+            );
+
+            var doc = host.File.RestoreFromBackup(rec);
+
+            Assert.Equal(LineEnding.Crlf, doc.State.LineEnding);
+            // 本文・他メタは正常復元(フォールバックが復元全体を壊さない)
+            Assert.Equal("hello", doc.Editor.Text);
+            Assert.Equal(3, doc.State.UntitledNumber);
+            Assert.Equal(65001, doc.State.Encoding.CodePage);
+            Assert.True(doc.Editor.Modified);
+            // silent recovery=_prompt.Warn は増やさない
+            Assert.DoesNotContain(host.Prompt.Log, e => e.Kind == "Warn");
+        });
+
+    [Fact]
+    public void RestoreFromBackup_NegativeLineEndingId_FallsBackToCrlf() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            // -1 は Enum.IsDefined でも false になる corner(999 と別経路の代表値)。
+            var rec = new BackupRecord(
+                "id-eol-neg",
+                OriginalPath: null,
+                UntitledNumber: 4,
+                CodePage: 65001,
+                HasBom: false,
+                LineEndingId: -1,
+                Content: "neg",
+                TimestampUtc: DateTime.UtcNow
+            );
+
+            var doc = host.File.RestoreFromBackup(rec);
+
+            Assert.Equal(LineEnding.Crlf, doc.State.LineEnding);
+            Assert.Equal("neg", doc.Editor.Text);
+            Assert.Equal(4, doc.State.UntitledNumber);
+            Assert.True(doc.Editor.Modified);
+            Assert.DoesNotContain(host.Prompt.Log, e => e.Kind == "Warn");
+        });
+
+    [Fact]
+    public void RestoreFromBackup_UnsupportedCodePage_FallsBackToUtf8() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            // 存在しない CodePage 99999 は Encoding.GetEncoding が NotSupportedException を投げる。
+            // RestoreFromBackup は UTF-8(65001)にフォールバック=例外は上位へ伝播させない。
+            var rec = new BackupRecord(
+                "id-cp-oor",
+                OriginalPath: null,
+                UntitledNumber: 8,
+                CodePage: 99999,
+                HasBom: false,
+                LineEndingId: 0, // Crlf
+                Content: "cp-fallback",
+                TimestampUtc: DateTime.UtcNow
+            );
+
+            var doc = host.File.RestoreFromBackup(rec);
+
+            Assert.Equal(65001, doc.State.Encoding.CodePage);
+            // 本文・他メタは正常復元(フォールバックが復元全体を壊さない)
+            Assert.Equal("cp-fallback", doc.Editor.Text);
+            Assert.Equal(8, doc.State.UntitledNumber);
+            Assert.Equal(LineEnding.Crlf, doc.State.LineEnding);
+            Assert.True(doc.Editor.Modified);
+            Assert.DoesNotContain(host.Prompt.Log, e => e.Kind == "Warn");
+        });
+
+    [Fact]
+    public void RestoreFromBackup_NegativeCodePage_FallsBackToUtf8() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            // -1 は Encoding.GetEncoding が ArgumentOutOfRangeException(=ArgumentException 派生)を投げる。
+            // フォールバックの catch フィルタ(ArgumentException or NotSupportedException)がカバーする経路。
+            var rec = new BackupRecord(
+                "id-cp-neg",
+                OriginalPath: null,
+                UntitledNumber: 9,
+                CodePage: -1,
+                HasBom: false,
+                LineEndingId: 0, // Crlf
+                Content: "neg-cp",
+                TimestampUtc: DateTime.UtcNow
+            );
+
+            var doc = host.File.RestoreFromBackup(rec);
+
+            Assert.Equal(65001, doc.State.Encoding.CodePage);
+            Assert.Equal("neg-cp", doc.Editor.Text);
+            Assert.Equal(9, doc.State.UntitledNumber);
+            Assert.Equal(LineEnding.Crlf, doc.State.LineEnding);
+            Assert.True(doc.Editor.Modified);
+            Assert.DoesNotContain(host.Prompt.Log, e => e.Kind == "Warn");
+        });
+
     // ===== EOL 非ロールバックの修正確認(Batch A Task 1・2026-07-15) =====
     //
     // 経緯: WriteToPath (:268-) は保存直前に doc.Editor.ConvertEols(EolMode) で本文中の

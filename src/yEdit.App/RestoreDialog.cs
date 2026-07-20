@@ -1,5 +1,6 @@
 using System.IO;
 using yEdit.Core.Backup;
+using yEdit.Core.Text;
 
 namespace yEdit.App;
 
@@ -51,7 +52,16 @@ public sealed class RestoreDialog : Form
         }
     }
 
-    private static string Describe(BackupRecord r)
+    /// <summary>
+    /// <see cref="BackupRecord"/> をダイアログの 1 行表示文字列へ変換する。
+    /// 攻撃者 JSON 由来の BiDi/format 制御(U+202E RLO 等)と CR/LF を
+    /// <see cref="SanitizeForDisplay.OneLine(string?, int)"/> で除去し、ファイル名スプーフィング
+    /// と改行注入によるダイアログ表示崩しを塞ぐ(BK-L-4)。path traversal 側面は HIGH-2 側で
+    /// 塞ぎ済みという前提で組み立てる。
+    /// テストの都合で <c>internal</c>(<c>App.Tests</c> から Form を作らずに戻り値を検証する
+    /// ため。<c>InternalsVisibleTo yEdit.App.Tests</c> で公開)。
+    /// </summary>
+    internal static string Describe(BackupRecord r)
     {
         string timestamp = $"（{r.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm}）";
         if (r.OriginalPath is null)
@@ -59,8 +69,8 @@ public sealed class RestoreDialog : Form
             string untitled = r.UntitledNumber > 0 ? $"無題 {r.UntitledNumber}" : "無題";
             return $"{untitled}{timestamp}";
         }
-        var fileName = Path.GetFileName(r.OriginalPath);
-        var dir = Path.GetDirectoryName(r.OriginalPath) ?? string.Empty;
+        var fileName = SanitizeForDisplay.OneLine(Path.GetFileName(r.OriginalPath));
+        var dir = SanitizeForDisplay.OneLine(Path.GetDirectoryName(r.OriginalPath) ?? string.Empty);
         // HIGH-2 視認性強化: フルパスを 1 行に併記し、復元先ディレクトリを利用者が識別できるようにする。
         // SR 互換のため OwnerDraw で 2 段化はせず、" — " 区切りの 1 行に留める(header 冒頭コメント準拠)。
         return $"{fileName} — {ElideMiddle(dir, maxLen: 60)}{timestamp}";

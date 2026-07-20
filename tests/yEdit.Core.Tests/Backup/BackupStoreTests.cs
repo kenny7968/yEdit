@@ -157,8 +157,108 @@ public class BackupStoreTests
     public void Delete_on_missing_is_harmless()
     {
         using var t = new TempDir();
-        // 契約=存在しない ID / 空ディレクトリでも例外を投げないこと
-        Assert.Null(Record.Exception(() => BackupStore.Delete(t.Root, "does-not-exist")));
+        // 契約=存在しない(が形式は妥当な) ID / 空ディレクトリでも例外を投げないこと。
+        // BK-L-7 導入により「不正 Id → ArgumentException」「不在 Id → harmless」へ契約が分割された。
+        // ここでは後半(不在は harmless)を lock in する。前者は下の Theory テスト参照。
+        Assert.Null(
+            Record.Exception(() => BackupStore.Delete(t.Root, Guid.NewGuid().ToString("N")))
+        );
         Assert.Null(Record.Exception(() => BackupStore.DeleteAll(t.Root)));
+    }
+
+    // -------------------------------------------------------------------------
+    // BK-L-7: Write / Delete に GUID N 白リスト(HIGH-1 対称性)
+    // -------------------------------------------------------------------------
+    // HIGH-1 で LoadAll は既に BackupIdValidator.IsValid で「GUID N 形式(32 桁 hex・区切りなし)」
+    // の白リスト検証を行い、%APPDATA%\yEdit\backups 配下に攻撃者が植えた不正 Id JSON を復元候補から
+    // 捨てている。しかし Write / Delete は Id を Path.Combine(dir, record.Id + ".json") に無検証で
+    // 流していたため、将来「Import」機能や JSON パッチ流入経路が増えた場合、record.Id に
+    // "..\..\evil" 等が入るとローカル ACL 内の任意場所へ書き込みできる導線になり得る。
+    // BK-L-7 は Write / Delete 冒頭で BackupIdValidator.IsValid を呼び、失敗時は ArgumentException
+    // を投げる(silent 無視ではなくプログラムバグとして目に見えるように)。
+
+    [Theory]
+    [InlineData("")] // 空
+    [InlineData(null!)] // M-3: null(実行時到達は理論のみだが JSON デシリアライズ/将来の new 経路で入り得る=Id 契約として lock in・HIGH-1 BackupIdValidatorTests 対称)
+    [InlineData("abcdef0123456789abcdef012345678")] // 31 文字
+    [InlineData("abcdef0123456789abcdef01234567890")] // 33 文字
+    [InlineData("abcdef01-2345-6789-abcd-ef0123456789")] // ハイフン形式(GUID N ではない)
+    [InlineData(@"..\..\..\Windows\Temp\evil")] // パストラバーサル
+    [InlineData("xyz injection")] // 制御文字類 / space
+    public void Write_ThrowsArgumentException_ForInvalidId(string? invalidId)
+    {
+        using var t = new TempDir();
+        var rec = new BackupRecord(
+            // null は BackupRecord.Id が非 nullable string である契約を跨いだ「実行時到達は理論のみ」ケース。
+            // BackupIdValidator.IsValid(null) は false=Write 冒頭の validation で ArgumentException として即座に弾かれる。
+            Id: invalidId!,
+            OriginalPath: null,
+            UntitledNumber: 1,
+            CodePage: 65001,
+            HasBom: false,
+            LineEndingId: 0,
+            Content: "x",
+            TimestampUtc: DateTime.UtcNow
+        );
+
+        var ex = Assert.Throws<ArgumentException>(() => BackupStore.Write(t.Root, rec));
+        Assert.Equal("record", ex.ParamName);
+        // ファイルが実際には書かれていないことを確認(validation は Directory.CreateDirectory と
+        // AtomicFile.Write の前段で発火するため .json / .tmp とも残らない=パストラバーサル入口を確実に塞ぐ)。
+        Assert.Empty(Directory.GetFiles(t.Root, "*.json"));
+        Assert.Empty(Directory.GetFiles(t.Root, "*.tmp"));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(@"..\..\..\Windows\System32\config\SAM")]
+    [InlineData("gggggggggggggggggggggggggggggggg")] // 32 文字だが非 hex(g は hex ではない)
+    public void Delete_ThrowsArgumentException_ForInvalidId(string invalidId)
+    {
+        using var t = new TempDir();
+        // M-2: 事前に妥当な GUID N の record を 1 個置く=Delete が invalid Id を早期リジェクトし
+        // 実ファイルを削除しないことを invariant として lock in する(Write 側の Assert.Empty と対称)。
+        // validation が Path.Combine + TryDelete の前段で発火するため、妥当ファイルは無傷のはず。
+        var canonical = Guid.NewGuid().ToString("N");
+        var seed = new BackupRecord(
+            Id: canonical,
+            OriginalPath: null,
+            UntitledNumber: 1,
+            CodePage: 65001,
+            HasBom: false,
+            LineEndingId: 0,
+            Content: "seed",
+            TimestampUtc: DateTime.UtcNow
+        );
+        BackupStore.Write(t.Root, seed);
+        var before = Directory.GetFiles(t.Root, "*.json");
+
+        var ex = Assert.Throws<ArgumentException>(() => BackupStore.Delete(t.Root, invalidId));
+        Assert.Equal("id", ex.ParamName);
+        Assert.Equal(before, Directory.GetFiles(t.Root, "*.json")); // 副作用ゼロ
+    }
+
+    [Fact]
+    public void Write_AllowsCanonicalGuidN()
+    {
+        // 正規の GUID N(32 桁 hex・区切りなし)は Write が例外を投げず、実ファイルが書かれる。
+        // 既存の Rec(...) 経由テスト群も HashId で GUID N を通しているため invariant はカバー済みだが、
+        // 「validation を通過した後の正常経路が壊れていない」ことを明示ロックする 1 本。
+        using var t = new TempDir();
+        string canonical = Guid.NewGuid().ToString("N");
+        var rec = new BackupRecord(
+            Id: canonical,
+            OriginalPath: null,
+            UntitledNumber: 1,
+            CodePage: 65001,
+            HasBom: false,
+            LineEndingId: 0,
+            Content: "ok",
+            TimestampUtc: DateTime.UtcNow
+        );
+
+        var recordException = Record.Exception(() => BackupStore.Write(t.Root, rec));
+        Assert.Null(recordException);
+        Assert.Single(Directory.GetFiles(t.Root, "*.json"));
     }
 }

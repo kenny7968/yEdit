@@ -449,9 +449,16 @@ public sealed class FileController
         {
             doc.State.UntitledNumber = 0;
         }
-        doc.State.Encoding = EncodingCatalog.Get(rec.CodePage);
+        // BK-L-1 / BK-L-2: 攻撃者 JSON が範囲外 LineEndingId / 未サポート CodePage を持つ場合、
+        // 素の `(LineEnding)rec.LineEndingId` は enum 範囲外のまま突き抜けて
+        // ToEolString()/ToDisplayString() の `_ => "\r\n"` で silent 上書きになり、
+        // 素の `EncodingCatalog.Get(rec.CodePage)` は ArgumentException / NotSupportedException を
+        // MainForm まで伝播させて他タブの復元まで巻き添え喪失させる。
+        // 復元は「壊れた入力でもプロセス継続」を優先し、いずれも安全値(CRLF / UTF-8)へ silent
+        // フォールバックする(_prompt.Warn は出さない=ユーザは復元後 Save で確定できる)。
+        doc.State.Encoding = SafeEncodingOrFallback(rec.CodePage);
         doc.State.HasBom = rec.HasBom;
-        doc.State.LineEnding = (LineEnding)rec.LineEndingId;
+        doc.State.LineEnding = SafeLineEndingOrFallback(rec.LineEndingId);
 
         // P6 Task 10: BackupRecord.Content は string 保存(Task 12 で Stream 化判断)なので、
         // ここでは TextBuffer.FromString でラップして SetOrReplaceSource に流す(パターン統一)。
@@ -483,4 +490,47 @@ public sealed class FileController
 
     /// <summary>doc.State.LineEnding をそのエディタの EOL モードへ反映する。</summary>
     private static void ApplyEol(Document doc) => doc.Editor.EolMode = doc.State.LineEnding;
+
+    /// <summary>
+    /// BK-L-2: BackupRecord.CodePage を <see cref="Encoding"/> に変換する。攻撃者 JSON の壊れた値
+    /// (未サポート/範囲外)で <see cref="Encoding.GetEncoding(int)"/> が投げる
+    /// <see cref="ArgumentException"/> / <see cref="NotSupportedException"/> を握って UTF-8(65001)へ
+    /// silent フォールバックする。呼び出し元(RestoreFromBackup)は try/catch を持たず、これを外で
+    /// 伝播させると他タブの復元まで巻き添えに壊れるため。<c>Encoding.GetEncoding(-1)</c> は
+    /// <see cref="ArgumentOutOfRangeException"/> を投げるが <see cref="ArgumentException"/> の派生な
+    /// のでこの catch でカバーされる。BK-L-5 対応時に <c>Trace</c> は sink 経由へ移す予定。
+    /// </summary>
+    private static Encoding SafeEncodingOrFallback(int codePage)
+    {
+        try
+        {
+            return EncodingCatalog.Get(codePage);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+        {
+            System.Diagnostics.Trace.TraceWarning(
+                "yEdit: BackupRecord CodePage {0} is not supported; falling back to UTF-8.",
+                codePage
+            );
+            return EncodingCatalog.Get(65001);
+        }
+    }
+
+    /// <summary>
+    /// BK-L-1: BackupRecord.LineEndingId を <see cref="LineEnding"/> に変換する。素の enum キャストは
+    /// 定義外の値(例 999 / -1)をそのまま通してしまい、<c>ToEolString()</c> /
+    /// <c>ToDisplayString()</c> の <c>_ =&gt; "\r\n"</c> 分岐で silent CRLF 上書きになる。
+    /// <see cref="Enum.IsDefined(Type,object)"/> で範囲チェックし、範囲外なら Crlf にフォールバックする。
+    /// hot path でないため <c>IsDefined</c> の boxing は許容。BK-L-5 対応時に <c>Trace</c> は sink 経由へ移す予定。
+    /// </summary>
+    private static LineEnding SafeLineEndingOrFallback(int id)
+    {
+        if (Enum.IsDefined(typeof(LineEnding), id))
+            return (LineEnding)id;
+        System.Diagnostics.Trace.TraceWarning(
+            "yEdit: BackupRecord LineEndingId {0} is out of range; falling back to CRLF.",
+            id
+        );
+        return LineEnding.Crlf;
+    }
 }

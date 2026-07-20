@@ -389,9 +389,14 @@ public class MarkdownRendererTests
     public void Meta_ImgSrc_Excludes_Data_Scheme()
     {
         // MD-L-1: img-src ディレクティブは存在するが data: は付かない。
+        // M-6 補正: 単純な "img-src https://yedit.preview data:" の substring 判定は
+        // "img-src https://yedit.preview 'self' data:" のような insertion mutation を
+        // 検出できないため、img-src ディレクティブ全体を切り出して data: が入らない
+        // ことを regex で機械固定する。
         string html = MarkdownRenderer.Render("x", Base);
         Assert.Contains("img-src https://yedit.preview", html);
-        Assert.DoesNotContain("img-src https://yedit.preview data:", html);
+        Assert.Matches(@"img-src\s+[^;]*?;", html);
+        Assert.DoesNotMatch(@"img-src\s+[^;]*\bdata:", html);
     }
 
     [Fact]

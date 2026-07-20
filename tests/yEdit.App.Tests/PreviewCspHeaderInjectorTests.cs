@@ -121,6 +121,33 @@ public class PreviewCspHeaderInjectorTests
         Assert.False(PreviewCspHeaderInjector.IsPreviewStylesheetRequest("not a url"));
     }
 
+    // M-4 補正: 完全一致契約を near-miss suffix で機械固定。将来 StartsWith 等への
+    // 実装差し替え (contract 弛緩) を silent に許さないための tripwire。
+
+    [Fact]
+    public void IsPreviewStylesheetRequest_SuffixExtension_ReturnsFalse() =>
+        Assert.False(
+            PreviewCspHeaderInjector.IsPreviewStylesheetRequest(
+                "https://yedit.preview/_yedit/styles.css.txt"
+            )
+        );
+
+    [Fact]
+    public void IsPreviewStylesheetRequest_SuffixCharacter_ReturnsFalse() =>
+        Assert.False(
+            PreviewCspHeaderInjector.IsPreviewStylesheetRequest(
+                "https://yedit.preview/_yedit/styles.cssx"
+            )
+        );
+
+    [Fact]
+    public void IsPreviewStylesheetRequest_PathPrefixMismatch_ReturnsFalse() =>
+        Assert.False(
+            PreviewCspHeaderInjector.IsPreviewStylesheetRequest(
+                "https://yedit.preview/_yedit/styles.css/extra"
+            )
+        );
+
     // ---------------------------------------------------------------------
     // BuildResponseHeaders — CRLF 区切り HTTP header 文字列
     // WebView2.CreateWebResourceResponse は headers 引数を CRLF 区切りで受け取る。

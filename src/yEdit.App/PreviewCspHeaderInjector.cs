@@ -12,17 +12,28 @@ namespace yEdit.App;
 /// CSS 本体 + <c>Content-Security-Policy</c> ヘッダを含む response を返す。
 /// (実 file は存在しない — <see cref="MarkdownRenderer.PreviewStylesheet"/> が single source of truth。)
 /// <para>
-/// preview 内の他リソース (画像等) は passthrough し、<c>SetVirtualHostNameToFolderMapping</c>
-/// に任せる。WebView2 API では passthrough 時の response header 上書き手段が API 未提供のため、
-/// それらリソースの CSP は HTML 内の <c>&lt;meta http-equiv&gt;</c> fallback で担保する。
+/// preview 内の他リソース (画像/フォント等) は本 Injector を通さず、
+/// <c>SetVirtualHostNameToFolderMapping</c> が直接応答する (filter を narrow に絞ったため
+/// event 自体が発火しない)。それら sub-resource の CSP は HTML 内の
+/// <c>&lt;meta http-equiv&gt;</c> が担保する (WebView2 API では passthrough 時の
+/// response header 上書き手段が未提供)。
 /// </para>
 /// <para>
-/// <b>重要 (仕様):</b> <c>NavigateToString(html)</c> の初回 bootstrap は
+/// <b>防御レイヤの役割 (M-1 補正):</b>
+/// <list type="bullet">
+///   <item><c>&lt;meta http-equiv&gt;</c> CSP: HTML 文書本体 (<c>data:text/html</c> bootstrap
+///     経由で HTTP header 注入不可) と passthrough sub-resource の CSP は meta が唯一の担保。</item>
+///   <item>本 Injector の HTTP header CSP: styles.css レスポンス自体の CSP を強化する
+///     defense-in-depth (CSS の <c>@import</c> / <c>url(...)</c> 経路)。両者は同一
+///     <see cref="MarkdownRenderer.PreviewCspHeader"/> 定数から生成され、ブラウザ側で
+///     intersect (両方を満たす制約集合) される。</item>
+/// </list>
+/// </para>
+/// <para>
+/// <b>NavigateToString bootstrap (仕様):</b> 初回 HTML の origin は
 /// <c>data:text/html;...</c> URI であり、<see cref="CoreWebView2.WebResourceRequested"/> は
 /// <c>data:</c> URI に対しては発火しない (WebView2 仕様)。従って初回 HTML 文書自身の
-/// CSP は <c>&lt;meta http-equiv&gt;</c> 側が唯一の防御。本 Injector は
-/// <c>https://yedit.preview/*</c> 配下の sub-resource (styles.css および将来の絶対
-/// URL 経由アクセス) にのみ効く。
+/// CSP は上記の通り <c>&lt;meta&gt;</c> 側が担う。
 /// </para>
 /// <para>
 /// App 層内部にのみ露出するため <c>internal sealed</c>。テストは
@@ -35,6 +46,12 @@ internal sealed class PreviewCspHeaderInjector
     // Content-Type を明示する。charset=utf-8 は PreviewStylesheet が ASCII 部分集合
     // であっても将来の多言語コメント混入時に備え固定。
     private const string StylesheetContentType = "text/css; charset=utf-8";
+
+    // PreviewStylesheet は静的定数なので UTF-8 バイト列も 1 度だけ計算すれば足りる
+    // (M-3: 毎リクエストで Encoding.UTF8.GetBytes を再実行する必要はない)。
+    private static readonly byte[] StylesheetBytes = Encoding.UTF8.GetBytes(
+        MarkdownRenderer.PreviewStylesheet
+    );
 
     private readonly CoreWebView2Environment _env;
 
@@ -59,11 +76,16 @@ internal sealed class PreviewCspHeaderInjector
     /// </summary>
     public void Attach(CoreWebView2 core)
     {
-        // filter は preview 仮想ホスト配下の全リソース (styles.css だけでなく画像等の
-        // passthrough 判定にも event 発火が必要 = All)。
+        // filter は styles.css の URL 完全一致まで narrow (M-2 補正)。
+        // 画像/フォント等 passthrough リソースには event 自体を発火させない
+        // (WebView2 API の URL wildcard は "https://host/path" 完全一致でマッチする)。
+        // これにより Injector 内部の passthrough 分岐は「future-proof の defensive layer」
+        // としてのみ残る (通常運用では到達しない)。
         core.AddWebResourceRequestedFilter(
-            "https://" + MarkdownRenderer.PreviewVirtualHost + "/*",
-            CoreWebView2WebResourceContext.All
+            "https://"
+                + MarkdownRenderer.PreviewVirtualHost
+                + MarkdownRenderer.PreviewStylesheetPath,
+            CoreWebView2WebResourceContext.Stylesheet
         );
         core.WebResourceRequested += OnWebResourceRequested;
     }
@@ -77,9 +99,10 @@ internal sealed class PreviewCspHeaderInjector
             return;
         }
 
-        byte[] cssBytes = Encoding.UTF8.GetBytes(MarkdownRenderer.PreviewStylesheet);
         // MemoryStream は WebView2 側が Read するので writable=false + 可視 buffer 不要。
-        var stream = new MemoryStream(cssBytes, writable: false);
+        // 共有バッファ (StylesheetBytes) を各リクエストで新しい MemoryStream に巻き直す
+        // (Stream は per-request で消費される)。バイト列自体の再割当ては不要。
+        var stream = new MemoryStream(StylesheetBytes, writable: false);
         e.Response = _env.CreateWebResourceResponse(stream, 200, "OK", BuildResponseHeaders());
     }
 

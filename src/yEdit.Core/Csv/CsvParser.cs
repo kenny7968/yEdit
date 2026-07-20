@@ -70,10 +70,14 @@ public static class CsvParser
         bool inQuotes = false;
         bool ok = true;
         int totalCells = 0;
+        long totalChars = 0; // CSV-M-5: 全フィールド sb.Length 総和 (3 次元別上限を素通りする組合せ攻撃対策)
 
         void EndField(int endExclusive)
         {
             row.Add(new CsvField(fieldStart, endExclusive - fieldStart, sb.ToString()));
+            totalChars += sb.Length;
+            if (totalChars > limits.MaxTotalChars)
+                ok = false; // 呼び出し側で !ok を検知してループを break / EndRow をスキップ
             sb.Clear();
         }
         void EndRow()
@@ -125,6 +129,8 @@ public static class CsvParser
             if (c == ',')
             {
                 EndField(pos);
+                if (!ok)
+                    break; // CSV-M-5: EndField 内で totalChars 超過→即 break
                 totalCells++;
                 if (totalCells > limits.MaxTotalCells)
                 {
@@ -138,6 +144,8 @@ public static class CsvParser
             if (c == '\r' || c == '\n')
             {
                 EndField(pos);
+                if (!ok)
+                    break; // CSV-M-5: EndField 内で totalChars 超過→即 break
                 totalCells++;
                 if (totalCells > limits.MaxTotalCells)
                 {
@@ -177,7 +185,8 @@ public static class CsvParser
         if (ok && (pos > fieldStart || row.Count > 0))
         {
             EndField(pos);
-            EndRow();
+            if (ok) // CSV-M-5: 末尾 EndField で totalChars 超過→EndRow をスキップ(loop break と対称)
+                EndRow();
         }
 
         return new CsvDocument(rows, ok);

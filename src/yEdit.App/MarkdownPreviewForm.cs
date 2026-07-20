@@ -25,6 +25,12 @@ public sealed class MarkdownPreviewForm : Form
     private readonly string _html;
     private readonly string? _baseDir;
 
+    // WebView2 の NavigateToString(html) は内部で data:text/html;charset=utf-16;base64,... へ
+    // エンコードして NavigationStarting を発火させる。このオブジェクトの生存期間で 1 回だけ
+    // その data URI を通すためのフラグ。通過後は false に落として MD-M-3 (二層防御) を復元する。
+    // WebView2 のイベントは全て UI スレッド発火なので通常のフィールドで OK。
+    private bool _bootstrappingDataUri = true;
+
     public MarkdownPreviewForm(string html, string? baseDir, string fileName)
     {
         _html = html;
@@ -142,9 +148,20 @@ public sealed class MarkdownPreviewForm : Form
     /// MD-M-1 + MD-M-5: WebView2 内の遷移要求を分類し、preview 内以外は cancel。
     /// LaunchExternal は既定ブラウザ/メールクライアントで開き直す。
     /// Block はキャンセルのみで何も起動しない (file:// UNC 経路の NTLM 漏出防止)。
+    /// <para>
+    /// 初回の NavigateToString(html) は WebView2 内部で data:text/html;... URI として
+    /// 発火するため、one-shot flag で 1 回だけ素通しする。通過後は通常の Classify に戻り、
+    /// 悪意リンク経由の <c>data:</c> ナビゲート (MD-M-3 XSS 二層防御) は引き続き Block。
+    /// </para>
     /// </summary>
-    private static void OnNavigationStarting(object? _s, CoreWebView2NavigationStartingEventArgs e)
+    private void OnNavigationStarting(object? _s, CoreWebView2NavigationStartingEventArgs e)
     {
+        if (_bootstrappingDataUri && PreviewNavigationPolicy.IsNavigateToStringBootstrapUri(e.Uri))
+        {
+            _bootstrappingDataUri = false;
+            return;
+        }
+
         var cls = PreviewNavigationPolicy.Classify(e.Uri);
         if (cls == PreviewNavigationPolicy.Classification.AllowIntra)
         {

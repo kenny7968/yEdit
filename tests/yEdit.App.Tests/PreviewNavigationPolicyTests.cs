@@ -152,4 +152,65 @@ public class PreviewNavigationPolicyTests
             PreviewNavigationPolicy.Classification.Block,
             PreviewNavigationPolicy.Classify("not a url")
         );
+
+    // -----------------------------------------------------------------------
+    // IsNavigateToStringBootstrapUri: WebView2 の NavigateToString(html) は
+    // 内部的に HTML を data:text/html;charset=utf-16;base64,... の data URI に
+    // エンコードして NavigationStarting を発火させる。この初回だけ通すための
+    // 検出ヘルパ。通常の Classify() では data: を Block しつづける (MD-M-3 二層防御)。
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void IsBootstrap_DataTextHtml_ReturnsTrue() =>
+        Assert.True(
+            PreviewNavigationPolicy.IsNavigateToStringBootstrapUri(
+                "data:text/html;charset=utf-16;base64,PGh0bWw+PC9odG1sPg=="
+            )
+        );
+
+    [Fact]
+    public void IsBootstrap_DataTextHtml_UpperCase_ReturnsTrue() =>
+        Assert.True(
+            PreviewNavigationPolicy.IsNavigateToStringBootstrapUri(
+                "DATA:TEXT/HTML;charset=utf-8,<html></html>"
+            )
+        );
+
+    [Fact]
+    public void IsBootstrap_Null_ReturnsFalse() =>
+        Assert.False(PreviewNavigationPolicy.IsNavigateToStringBootstrapUri(null));
+
+    [Fact]
+    public void IsBootstrap_Empty_ReturnsFalse() =>
+        Assert.False(PreviewNavigationPolicy.IsNavigateToStringBootstrapUri(""));
+
+    [Fact]
+    public void IsBootstrap_AboutBlank_ReturnsFalse() =>
+        Assert.False(PreviewNavigationPolicy.IsNavigateToStringBootstrapUri("about:blank"));
+
+    [Fact]
+    public void IsBootstrap_HttpsPreview_ReturnsFalse() =>
+        Assert.False(
+            PreviewNavigationPolicy.IsNavigateToStringBootstrapUri("https://yedit.preview/x")
+        );
+
+    /// <summary>data:image/... 等の非 text/html data URI は bootstrap とみなさない
+    /// (最上位ナビゲートには通常出ないが、防御的に text/html に限定)。</summary>
+    [Fact]
+    public void IsBootstrap_DataImageSvg_ReturnsFalse() =>
+        Assert.False(
+            PreviewNavigationPolicy.IsNavigateToStringBootstrapUri(
+                "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>"
+            )
+        );
+
+    /// <summary>bootstrap 通過後の data:text/html は依然として Classify で Block される
+    /// こと (MD-M-3 二層防御が生きる) を機械固定。IsNavigateToStringBootstrapUri は
+    /// 単なる検出 helper で、通過の可否はフォーム側の one-shot flag が決める。</summary>
+    [Fact]
+    public void Classify_DataTextHtml_ReturnsBlock() =>
+        Assert.Equal(
+            PreviewNavigationPolicy.Classification.Block,
+            PreviewNavigationPolicy.Classify("data:text/html;charset=utf-16;base64,PGh0bWw+")
+        );
 }

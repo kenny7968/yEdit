@@ -60,4 +60,13 @@ public class SizeLimitTests
         buffer.Insert(5, "あ12"); // 5+5=10
         Assert.Equal("abcdeあ12", buffer.Current.GetText(0, 8));
     }
+
+    [Fact]
+    public void TextBuffer_MaxTotalBytes_default_is_512MB()
+    {
+        // PR-E Task 7 (CSV-L-10): int.MaxValue (~2GB) は攻撃 file を通してしまう。
+        // 512 MB (UTF-16 で 256M chars) に引下げ、TextBufferBuilder 側と統一。
+        var buffer = TextBuffer.FromString("");
+        Assert.Equal(512L * 1024 * 1024, buffer.MaxTotalBytes);
+    }
 }

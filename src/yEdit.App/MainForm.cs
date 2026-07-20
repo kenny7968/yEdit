@@ -461,7 +461,8 @@ public sealed partial class MainForm : Form
         mode.DropDownItems.Add(new ToolStripSeparator());
         var csvToggle = new ToolStripMenuItem("CSVモード(&C)", null, (_, _) => _csv.ToggleMode());
         mode.DropDownItems.Add(csvToggle);
-        // 開く度に活性状態を更新（プレビューはアクティブタブがあれば拡張子を問わず有効、
+        // 開く度に活性状態を更新（プレビュー項目はアクティブタブがあれば有効化する。
+        // MD-L-5: 拡張子が非マッチなら ShowMarkdownPreview 内でクリック時に拒否ダイアログ。
         // CSVトグルは現在のモードを Checked で表示）。
         mode.DropDownOpening += (_, _) =>
         {

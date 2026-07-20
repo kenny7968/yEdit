@@ -354,4 +354,21 @@ public class MarkdownRendererTests
         // AppSettings 側の xmldoc と対応。
         Assert.False(MarkdownRenderer.IsMarkdownExtension("readme.md", new List<string>()));
     }
+
+    [Fact]
+    public void IsMarkdownExtension_BareDotMd_Returns_True()
+    {
+        // Path.GetExtension(".md") は ".md" を返す仕様 (dotfile 単体でも extension 扱い)。
+        // 現状 helper は true を返す。将来 Path.GetExtension 実装を差し替えた際に
+        // silent に false へ倒れないよう機械固定する (defensive)。
+        Assert.True(MarkdownRenderer.IsMarkdownExtension(".md", DefaultMdExtensions));
+    }
+
+    [Fact]
+    public void IsMarkdownExtension_TrailingDot_Returns_False()
+    {
+        // Path.GetExtension("readme.md.") は "" を返す (末尾ドットは extension なし扱い)。
+        // 拡張子として認識されないため helper は false を返す。回帰保護。
+        Assert.False(MarkdownRenderer.IsMarkdownExtension("readme.md.", DefaultMdExtensions));
+    }
 }

@@ -303,6 +303,29 @@ public class SettingsStoreTests
         }
     }
 
+    // MD-L-5 fixup: 手編集された settings.json の "md"(先頭ドット無)を "." 付きへ寄せる。
+    // UI SaveTo 側の "." 自動付与 (BasicSettingsTab.SaveTo) と挙動を揃えることで、
+    // 「UI では正しく見えるのにマッチしない (常に拒否)」という silent drift を回避する。
+    [Fact]
+    public void Normalize_PrependsDot_WhenMissing_MarkdownExtensions()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            File.WriteAllText(path, "{\"MarkdownExtensions\":[\"md\",\".markdown\",\"MKD\"]}");
+            var s = SettingsStore.Load(path);
+            Assert.Equal(3, s.MarkdownExtensions.Count);
+            Assert.Equal(".md", s.MarkdownExtensions[0]);
+            Assert.Equal(".markdown", s.MarkdownExtensions[1]);
+            Assert.Equal(".mkd", s.MarkdownExtensions[2]);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
     // MD-L-5: ユーザが意図的に空リストへ編集した場合、既定復元せず空のまま保持する
     // (SaveTo で 0 件 → JSON 上は "MarkdownExtensions":[] → 常に拒否契約が発動)。
     [Fact]

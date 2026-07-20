@@ -56,7 +56,14 @@ public static class SettingsStore
         {
             s.MarkdownExtensions = s
                 .MarkdownExtensions.Where(x => !string.IsNullOrWhiteSpace(x))
-                .Select(x => x.Trim().ToLowerInvariant())
+                .Select(x =>
+                {
+                    var y = x.Trim().ToLowerInvariant();
+                    // 手編集 settings.json の "md"(先頭ドット無)を UI SaveTo と同じく "." 付きへ寄せる。
+                    // これを怠ると Path.GetExtension が返す ".md" と一致せず、UI では表示されるのに
+                    // マッチしない状態が発生する (安全側 = 拒否だが意図と乖離)。
+                    return y.StartsWith('.') ? y : "." + y;
+                })
                 .ToList();
         }
 

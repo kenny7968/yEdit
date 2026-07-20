@@ -45,6 +45,21 @@ public static class SettingsStore
         if (string.IsNullOrEmpty(s.FontName))
             s.FontName = def.FontName;
 
+        // MD-L-5: MarkdownExtensions は null なら既定へ復元 (RecentFiles と同じ pattern)。
+        // 空要素/whitespace のみは除去 + 小文字化 + trim で健全化するが、要素ゼロの
+        // 意図的な空リストはそのまま保持する = 常に拒否契約 (AppSettings 側の xmldoc 参照)。
+        if (s.MarkdownExtensions is null)
+        {
+            s.MarkdownExtensions = def.MarkdownExtensions;
+        }
+        else
+        {
+            s.MarkdownExtensions = s
+                .MarkdownExtensions.Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim().ToLowerInvariant())
+                .ToList();
+        }
+
         // 禁則文字セットは明示 null のみ既定へ補正する。空文字 "" は「そのルール無効」の意図なので保持する。
         if (s.KinsokuLineStartChars is null)
             s.KinsokuLineStartChars = def.KinsokuLineStartChars;

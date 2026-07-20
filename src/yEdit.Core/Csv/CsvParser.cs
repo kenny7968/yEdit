@@ -19,6 +19,8 @@ public static class CsvParser
     public const int MaxTotalCells = 10_000_000;
     public const int MaxTotalRows = 1_000_000;
     public const long MaxTotalChars = 256L * 1024 * 1024; // 総 chars 合計 256M chars (~512MB UTF-16)
+
+    // ParseLimits (テスト専用シーム): プロパティ名衝突は下記 pragma で抑止
 #pragma warning disable S3218 // reason: 内側 record struct のプロパティ名が外側 CsvParser の public const と同名だが、テストが named argument で指定する契約=改名不可
     internal readonly record struct ParseLimits(
         int MaxFieldChars,

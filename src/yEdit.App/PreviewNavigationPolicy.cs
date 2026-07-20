@@ -83,4 +83,23 @@ public static class PreviewNavigationPolicy
             _ => Classification.Block,
         };
     }
+
+    /// <summary>
+    /// WebView2 の <c>CoreWebView2.NavigateToString(html)</c> 起点の
+    /// NavigationStarting.Uri かどうかを検出する。
+    /// <para>
+    /// WebView2 は NavigateToString の内部実装で HTML を
+    /// <c>data:text/html;charset=utf-16;base64,...</c> の data URI へエンコードして
+    /// ナビゲートする (Microsoft docs の "origin will be about:blank" は origin の
+    /// 話であって NavigationStarting.Uri ではない、というのが本ヘルパの由来)。
+    /// この初回だけ通さないと preview 本体の HTML が描画されず about:blank のまま残る。
+    /// </para>
+    /// <para>
+    /// 通過制御 (one-shot flag) はフォーム側の責務で、本ヘルパはピュアな検出関数。
+    /// bootstrap 済 (通常時) の <c>data:</c> はフォーム側でこの分岐を通さず
+    /// <see cref="Classify"/> に落ちるため引き続き Block される (MD-M-3 二層防御)。
+    /// </para>
+    /// </summary>
+    public static bool IsNavigateToStringBootstrapUri(string? uri) =>
+        uri != null && uri.StartsWith("data:text/html", StringComparison.OrdinalIgnoreCase);
 }

@@ -40,6 +40,10 @@ public static class MarkdownRenderer
     /// baseHref が空文字でも <see cref="PreviewBaseHref"/> 定数でもない場合。
     /// 単一 caller の防御的ガードで、将来 caller が増えた際の混入を fail-fast で止める。
     /// </exception>
+    /// <exception cref="DocumentTooLargeException">
+    /// markdown が <see cref="MaxMarkdownChars"/> を超える場合 (MD-L-3)。
+    /// caller (MainForm.ShowMarkdownPreview) が捕えてユーザに MessageBox で提示する。
+    /// </exception>
     public static string Render(string? markdown, string baseHref)
     {
         // MD-L-4: baseHref は空文字か PreviewBaseHref 定数のみを受け付ける allow-list ガード。
@@ -49,6 +53,18 @@ public static class MarkdownRenderer
             throw new ArgumentException(
                 $"baseHref must be either empty or MarkdownRenderer.PreviewBaseHref (\"{PreviewBaseHref}\").",
                 nameof(baseHref)
+            );
+        }
+
+        // MD-L-3: 入力サイズ cap (4M 文字 = 8 MB UTF-16 相当)。ネスト深度 / テーブル
+        // サイズの pre-scan は入れず、入口一箇所で Markdig への pathological な
+        // 入力を封じる。null は既存の ?? string.Empty で吸収されるため対象外。
+        if (markdown != null && markdown.Length > MaxMarkdownChars)
+        {
+            long attemptedBytes = (long)markdown.Length * 2L;
+            throw new DocumentTooLargeException(
+                attemptedBytes,
+                $"マークダウン本文が上限を超えました({markdown.Length:N0}/{MaxMarkdownChars:N0} 文字)"
             );
         }
 

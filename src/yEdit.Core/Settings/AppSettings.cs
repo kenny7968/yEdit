@@ -69,20 +69,11 @@ public sealed class AppSettings
     /// <summary>最近開いたファイル（先頭が最新）。</summary>
     public List<string> RecentFiles { get; set; } = new();
 
-    /// <summary>
-    /// マークダウンプレビュー allow list 拡張子（小文字ドット付き）。MD-L-5。
-    /// 空リストなら常に拒否契約 — 誤操作で全プレビューが封鎖されれば設定タブで気付けるため
-    /// 安全側に倒す（「常に許可」に倒すと拡張子ガードが黙って無効化されるリスクがある）。
-    /// </summary>
-    public List<string> MarkdownExtensions { get; set; } =
-        new() { ".md", ".markdown", ".mkd", ".mkdn" };
-
-    /// <summary>独立したコピーを返す（RecentFiles / MarkdownExtensions も複製）。設定ダイアログの編集用スナップショット。</summary>
+    /// <summary>独立したコピーを返す（RecentFiles も複製）。設定ダイアログの編集用スナップショット。</summary>
     public AppSettings Clone()
     {
         var c = (AppSettings)MemberwiseClone();
         c.RecentFiles = new List<string>(RecentFiles);
-        c.MarkdownExtensions = new List<string>(MarkdownExtensions);
         return c;
     }
 }

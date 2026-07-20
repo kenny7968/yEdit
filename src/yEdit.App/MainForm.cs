@@ -461,8 +461,7 @@ public sealed partial class MainForm : Form
         mode.DropDownItems.Add(new ToolStripSeparator());
         var csvToggle = new ToolStripMenuItem("CSVモード(&C)", null, (_, _) => _csv.ToggleMode());
         mode.DropDownItems.Add(csvToggle);
-        // 開く度に活性状態を更新（プレビュー項目はアクティブタブがあれば有効化する。
-        // MD-L-5: 拡張子が非マッチなら ShowMarkdownPreview 内でクリック時に拒否ダイアログ。
+        // 開く度に活性状態を更新（プレビューはアクティブタブがあれば拡張子を問わず有効、
         // CSVトグルは現在のモードを Checked で表示）。
         mode.DropDownOpening += (_, _) =>
         {
@@ -681,36 +680,17 @@ public sealed partial class MainForm : Form
         _announcer.Say(ed.Overtype ? "上書きモード" : "挿入モード");
     }
 
-    /// <summary>アクティブタブの編集中内容を WebView2 プレビューで表示する（.md/.markdown/.mkd/.mkdn のみ）。</summary>
+    /// <summary>アクティブタブの編集中内容を WebView2 プレビューで表示する（拡張子は問わない）。</summary>
     /// <remarks>
     /// MD-L-3 L5 検証: 4M 文字超の .md を開いて Preview 起動 → エラーダイアログが出て
     /// プレビュー窓は開かないこと。MainForm には IUserPrompt が注入されていないため、
     /// MarkdownPreviewForm.cs:135 と同様に MessageBox.Show を直接使う。
-    ///
-    /// MD-L-5 L5 検証: .txt を開いて Preview 起動 → 「マークダウン拡張子ではありません」
-    /// ダイアログが出てプレビュー窓は開かないこと。.md → 従来通り表示。未保存タブ
-    /// (State.Path が null/空) も拡張子情報が無いため拒否 (安全側 = IsMarkdownExtension の契約)。
     /// </remarks>
     private void ShowMarkdownPreview()
     {
         var doc = _docs.Active;
         if (doc is null)
             return;
-
-        // MD-L-5: 拡張子ガード。allow list は _settings.MarkdownExtensions (既定 4 種)。
-        // 空リストなら常に拒否 (誤操作で全プレビュー封鎖に気付ける安全側)。
-        if (!MarkdownRenderer.IsMarkdownExtension(doc.State.Path, _settings.MarkdownExtensions))
-        {
-            MessageBox.Show(
-                this,
-                "このファイルはマークダウン拡張子ではありません。",
-                "プレビューを表示できません",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning
-            );
-            _docs.Active?.FocusTarget.Focus(); // 成功パスと対称: 戻り後は編集領域へフォーカス
-            return;
-        }
 
         string markdown = doc.Editor.SnapshotText; // 編集中バッファ（未保存も反映）
         string? dir = System.IO.Path.GetDirectoryName(doc.State.Path);

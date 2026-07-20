@@ -79,6 +79,17 @@ public sealed class MarkdownPreviewForm : Form
             // ローカル閲覧用途のため不要機能を抑止。
             core.Settings.AreDevToolsEnabled = false;
             core.Settings.IsStatusBarEnabled = false;
+            // MD-M-6: WebView2 の browser accelerator keys (Ctrl+S=名前を付けて保存 /
+            // Ctrl+P=印刷 / Ctrl+O=ファイル選択 等) を無効化。プレビューは閲覧専用のため
+            // ブラウザ的な操作を露出させない。
+            core.Settings.AreBrowserAcceleratorKeysEnabled = false;
+
+            // MD-M-1 + MD-M-5: preview 内以外のナビゲートを block/外部起動へ振り分け。
+            // NavigationStarting は同一 WebView 内での遷移 (a href クリック等) を捕捉、
+            // NewWindowRequested は target=_blank / window.open 等の新窓要求を捕捉する。
+            // 分類ロジックは PreviewNavigationPolicy.Classify (テスト網羅済み)。
+            core.NavigationStarting += OnNavigationStarting;
+            core.NewWindowRequested += OnNewWindowRequested;
 
             // WebView2 にフォーカスがある時の Esc を JS 経由で拾って閉じる。
             // このスクリプトは CDP 経由で注入されページ CSP の影響を受けずに実行される。
@@ -124,6 +135,64 @@ public sealed class MarkdownPreviewForm : Form
             );
             if (!IsDisposed)
                 Close();
+        }
+    }
+
+    /// <summary>
+    /// MD-M-1 + MD-M-5: WebView2 内の遷移要求を分類し、preview 内以外は cancel。
+    /// LaunchExternal は既定ブラウザ/メールクライアントで開き直す。
+    /// Block はキャンセルのみで何も起動しない (file:// UNC 経路の NTLM 漏出防止)。
+    /// </summary>
+    private static void OnNavigationStarting(object? _s, CoreWebView2NavigationStartingEventArgs e)
+    {
+        var cls = PreviewNavigationPolicy.Classify(e.Uri);
+        if (cls == PreviewNavigationPolicy.Classification.AllowIntra)
+        {
+            return; // 素通し (preview 内 https://yedit.preview/* / about:blank)
+        }
+        e.Cancel = true;
+        if (cls == PreviewNavigationPolicy.Classification.LaunchExternal)
+        {
+            TryLaunchExternal(e.Uri);
+        }
+    }
+
+    /// <summary>
+    /// MD-M-1: WebView2 の新窓要求は常に Handled=true にして WebView2 に窓を作らせない。
+    /// LaunchExternal のみ既定ブラウザで開き直し、Block/AllowIntra はキャンセルのみ。
+    /// AllowIntra の新窓要求は今の preview モデル (単一 WebView にモデル文書を流す) と
+    /// 合致しないので開かない (=モーダル閉じ忘れ防止)。
+    /// </summary>
+    private static void OnNewWindowRequested(object? _s, CoreWebView2NewWindowRequestedEventArgs e)
+    {
+        e.Handled = true; // WebView2 に新窓を作らせない
+        var cls = PreviewNavigationPolicy.Classify(e.Uri);
+        if (cls == PreviewNavigationPolicy.Classification.LaunchExternal)
+        {
+            TryLaunchExternal(e.Uri);
+        }
+    }
+
+    /// <summary>
+    /// 既定ブラウザ/メールクライアントで URL を開く。起動失敗 (ブラウザ未設定等) は
+    /// preview 側の操作性を優先して silent (Trace 出力のみ)。
+    /// </summary>
+    private static void TryLaunchExternal(string url)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }
+            );
+        }
+        catch (Exception ex)
+            when (ex
+                    is System.ComponentModel.Win32Exception
+                        or InvalidOperationException
+                        or System.IO.FileNotFoundException
+            )
+        {
+            System.Diagnostics.Trace.TraceWarning($"外部プロセス起動失敗: {ex.Message}");
         }
     }
 }

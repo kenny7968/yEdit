@@ -34,6 +34,9 @@ public static class PreviewNavigationPolicy
         Block,
     }
 
+    /// <summary>preview 内で許可する仮想ホスト (MarkdownRenderer.PreviewVirtualHost と一致)。</summary>
+    private const string PreviewHost = "yedit.preview";
+
     /// <summary>
     /// WebView2 の navigation 対象 URI を 3 クラスに分類する。
     /// </summary>
@@ -41,7 +44,38 @@ public static class PreviewNavigationPolicy
     /// <returns>分類結果。詳細は <see cref="Classification"/> 参照。</returns>
     public static Classification Classify(string? uri)
     {
-        // Task 3 test commit: 型 surface のみ先行公開。実装は次コミットで埋める。
-        throw new NotImplementedException();
+        if (string.IsNullOrEmpty(uri))
+        {
+            return Classification.Block;
+        }
+
+        // about:blank は NavigateToString の初回 origin として WebView2 が渡してくるため
+        // 明示的に許可する。Uri.TryCreate は about:blank を Scheme="about" として parse
+        // するので後段の switch より前に string 比較で片付ける (path が blank 以外の
+        // about:* を巻き込まない)。
+        if (string.Equals(uri, "about:blank", StringComparison.OrdinalIgnoreCase))
+        {
+            return Classification.AllowIntra;
+        }
+
+        if (!Uri.TryCreate(uri, UriKind.Absolute, out Uri? parsed))
+        {
+            return Classification.Block; // malformed = safe by default
+        }
+
+        string scheme = parsed.Scheme.ToLowerInvariant();
+        return scheme switch
+        {
+            // https は preview 仮想ホスト一致のみ intra 扱い。それ以外は既定ブラウザへ逃がす。
+            // http は preview として認めない (strict): 仮想ホストマッピングは https のみで張っている。
+            "https"
+                when string.Equals(parsed.Host, PreviewHost, StringComparison.OrdinalIgnoreCase) =>
+                Classification.AllowIntra,
+            "http" or "https" => Classification.LaunchExternal,
+            "mailto" => Classification.LaunchExternal,
+            // file:// UNC は Windows が SMB で NTLM 認証を通してしまうため全面 Block (MD-M-5)。
+            // ftp / data / javascript / vbscript / その他未知 scheme も既定 Block (safe by default)。
+            _ => Classification.Block,
+        };
     }
 }

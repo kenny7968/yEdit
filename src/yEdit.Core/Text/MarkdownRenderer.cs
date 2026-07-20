@@ -26,14 +26,29 @@ public static class MarkdownRenderer
 
     /// <summary>
     /// markdown を HTML 化し、&lt;base href&gt;・charset・読みやすい CSS を備えた
-    /// 完結した HTML 文書文字列を返す。baseHref は相対リソース解決の基準 URL。
+    /// 完結した HTML 文書文字列を返す。baseHref は相対リソース解決の基準 URL で、
+    /// <see cref="PreviewBaseHref"/> 定数か空文字のみ受け付ける (MD-L-4)。
     /// </summary>
+    /// <exception cref="ArgumentException">
+    /// baseHref が空文字でも <see cref="PreviewBaseHref"/> 定数でもない場合。
+    /// 単一 caller の防御的ガードで、将来 caller が増えた際の混入を fail-fast で止める。
+    /// </exception>
     public static string Render(string? markdown, string baseHref)
     {
+        // MD-L-4: baseHref は空文字か PreviewBaseHref 定数のみを受け付ける allow-list ガード。
+        // 属性エスケープを万一漏らした場合の被害を封じるため、定数比較でホワイトリスト化する。
+        if (baseHref != string.Empty && baseHref != PreviewBaseHref)
+        {
+            throw new ArgumentException(
+                $"baseHref must be either empty or MarkdownRenderer.PreviewBaseHref (\"{PreviewBaseHref}\").",
+                nameof(baseHref)
+            );
+        }
+
         string body = Markdown.ToHtml(markdown ?? string.Empty, Pipeline);
         string baseTag = string.IsNullOrEmpty(baseHref)
             ? string.Empty
-            : $"<base href=\"{HtmlAttr(baseHref)}\">";
+            : $"<base href=\"{baseHref}\">";
         return $$"""
             <!DOCTYPE html>
             <html lang="ja">
@@ -50,9 +65,6 @@ public static class MarkdownRenderer
             </html>
             """;
     }
-
-    private static string HtmlAttr(string s) =>
-        s.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;");
 
     private const string Css = """
         body { font-family: "Segoe UI", "Meiryo", sans-serif; line-height: 1.6;

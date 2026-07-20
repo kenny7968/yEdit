@@ -69,4 +69,70 @@ public class AtomicFileTests
     [Fact]
     public void IsShareOrLockViolation_is_false_for_generic_io_error() =>
         Assert.False(AtomicFile.IsShareOrLockViolation(new IOException("generic")));
+
+    // CSV-L-7 (v0.11): File.Replace は reparse point (symlink / directory junction) を
+    // follow して権限外の実体を上書きし得るため、byte[] / Stream 両オーバーロードの
+    // 冒頭で dest を検査し IOException で拒否する契約を pin する。junction は非管理者権限で
+    // 作成できるので CI (windows-latest) で確実に成立する
+    // (symlink 版は Developer Mode 前提 = 環境依存で不採用)。
+
+    [Fact]
+    public void Write_bytes_throws_when_destination_is_reparse_point_junction()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        string target = Path.Combine(tempRoot, "target");
+        string junction = Path.Combine(tempRoot, "link");
+        Directory.CreateDirectory(target);
+        try
+        {
+            ReparsePointCheckTests.CreateJunction(junction, target);
+            var ex = Assert.Throws<IOException>(() =>
+                AtomicFile.Write(junction, new byte[] { 1, 2, 3 })
+            );
+            // 生の File.Replace ではなく本 guard が発火したことを message で pin
+            // (guard 追加前は Move/Replace が別 IOException を投げるため区別可能)。
+            Assert.Contains("reparse point", ex.Message, StringComparison.OrdinalIgnoreCase);
+            // guard は tmp を作らずに即 throw する契約=junction 親に *.tmp が残っていない。
+            Assert.Empty(Directory.GetFiles(tempRoot, "*.tmp"));
+            // junction target 側の実体も一切書かれていない。
+            Assert.Empty(Directory.GetFiles(target));
+        }
+        finally
+        {
+            ReparsePointCheckTests.SafeCleanupJunctionTree(junction, target, tempRoot);
+        }
+    }
+
+    [Fact]
+    public void Write_stream_throws_when_destination_is_reparse_point_junction()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        string target = Path.Combine(tempRoot, "target");
+        string junction = Path.Combine(tempRoot, "link");
+        Directory.CreateDirectory(target);
+        try
+        {
+            ReparsePointCheckTests.CreateJunction(junction, target);
+            // writer は呼ばれずに guard で throw されることを pin する (writerInvoked=false)。
+            bool writerInvoked = false;
+            var ex = Assert.Throws<IOException>(() =>
+                AtomicFile.Write(
+                    junction,
+                    s =>
+                    {
+                        writerInvoked = true;
+                        s.WriteByte(0x39);
+                    }
+                )
+            );
+            Assert.Contains("reparse point", ex.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.False(writerInvoked);
+            Assert.Empty(Directory.GetFiles(tempRoot, "*.tmp"));
+            Assert.Empty(Directory.GetFiles(target));
+        }
+        finally
+        {
+            ReparsePointCheckTests.SafeCleanupJunctionTree(junction, target, tempRoot);
+        }
+    }
 }

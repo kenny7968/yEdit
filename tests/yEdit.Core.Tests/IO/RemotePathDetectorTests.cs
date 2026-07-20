@@ -38,7 +38,9 @@ public class RemotePathDetectorTests
     {
         // 空文字/null は UncPathDetector 側で早期 false。相対パスは Path.GetPathRoot が
         // 空文字を返すため DriveInfo にかけずに false 返却(early return)。
-        Assert.False(RemotePathDetector.IsRemote(path ?? ""));
+        // null は null-forgiving でそのまま渡す(実装の null-safety 契約を documentation として pin する
+        // =`?? ""` でコアレスすると実質「空文字を 2 回テスト」になり null 経路を検証できない)。
+        Assert.False(RemotePathDetector.IsRemote(path!));
     }
 
     [Fact]

@@ -16,6 +16,12 @@ public static class AtomicFile
     /// <summary>payload を path へ原子的に書き込む。失敗時は tmp を掃除して例外を伝播する。</summary>
     public static void Write(string path, byte[] payload)
     {
+        // CSV-L-7 (v0.11): File.Replace は reparse point (symbolic link / directory junction)
+        // を follow して権限外の実体を上書きし得るため、書込直前に dest を拒否する
+        // (missing / 属性取得失敗 は silent fallback で通常経路=ReparsePointCheck 契約)。
+        if (ReparsePointCheck.IsReparsePoint(path))
+            throw new IOException($"reparse point の上書きは許可されていません: {path}");
+
         string dir = Path.GetDirectoryName(Path.GetFullPath(path))!;
         string tmp = Path.Combine(
             dir,
@@ -59,6 +65,11 @@ public static class AtomicFile
     public static void Write(string path, Action<Stream> writer)
     {
         ArgumentNullException.ThrowIfNull(writer);
+        // CSV-L-7 (v0.11): byte[] 版と同じ理由で dest の reparse point を拒否する
+        // (writer 呼出前に guard を効かせ、tmp も作らない=副作用を残さない)。
+        if (ReparsePointCheck.IsReparsePoint(path))
+            throw new IOException($"reparse point の上書きは許可されていません: {path}");
+
         string dir = Path.GetDirectoryName(Path.GetFullPath(path))!;
         string tmp = Path.Combine(
             dir,

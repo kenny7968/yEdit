@@ -70,6 +70,18 @@ public class AtomicFileTests
     public void IsShareOrLockViolation_is_false_for_generic_io_error() =>
         Assert.False(AtomicFile.IsShareOrLockViolation(new IOException("generic")));
 
+    // CSV-L-7 (v0.11): reparse point guard の IOException は「共有違反」ではないため、
+    // TextFileService.Save 側の in-place fallback 経路
+    // (catch when IsShareOrLockViolation → File.WriteAllBytes) に流れ込まない invariant を pin する。
+    // ここが崩れると reparse point 検出後もフォールバック書込が follow して結果的に上書きされる。
+    [Fact]
+    public void IsShareOrLockViolation_is_false_for_reparse_point_guard_exception() =>
+        Assert.False(
+            AtomicFile.IsShareOrLockViolation(
+                new IOException("reparse point の上書きは許可されていません: x")
+            )
+        );
+
     // CSV-L-7 (v0.11): File.Replace は reparse point (symlink / directory junction) を
     // follow して権限外の実体を上書きし得るため、byte[] / Stream 両オーバーロードの
     // 冒頭で dest を検査し IOException で拒否する契約を pin する。junction は非管理者権限で

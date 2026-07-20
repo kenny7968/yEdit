@@ -77,6 +77,14 @@ public sealed class MarkdownPreviewForm : Form
 
             var core = _web.CoreWebView2;
 
+            // MD-M-2: WebResourceRequested に CSP header injector を装着。
+            // filter/handler を装着してから NavigateToString しないと初回サブリソース要求
+            // (styles.css) で virtual CSS response を返す機会を失うため、順序が重要
+            // (SetVirtualHostNameToFolderMapping と NavigateToString の間に挟む)。
+            // Attach 後は event delegate が Injector を root で保持するため、
+            // ローカル変数のみで OK (WebView2 Dispose で購読が切れると GC 対象になる)。
+            new PreviewCspHeaderInjector(env).Attach(core);
+
             // 相対リソース（画像・ローカルリンク）を .md のフォルダから解決する。
             if (!string.IsNullOrEmpty(_baseDir) && System.IO.Directory.Exists(_baseDir))
             {

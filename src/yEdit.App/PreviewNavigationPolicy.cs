@@ -1,3 +1,5 @@
+using yEdit.Core.Text;
+
 namespace yEdit.App;
 
 /// <summary>
@@ -34,8 +36,11 @@ public static class PreviewNavigationPolicy
         Block,
     }
 
-    /// <summary>preview 内で許可する仮想ホスト (MarkdownRenderer.PreviewVirtualHost と一致)。</summary>
-    private const string PreviewHost = "yedit.preview";
+    /// <summary>
+    /// preview 内で許可する仮想ホスト。MarkdownRenderer 側の VirtualHost マッピング
+    /// (App の SetVirtualHostNameToFolderMapping) と単一の source of truth を共有する。
+    /// </summary>
+    private static readonly string PreviewHost = MarkdownRenderer.PreviewVirtualHost;
 
     /// <summary>
     /// WebView2 の navigation 対象 URI を 3 クラスに分類する。

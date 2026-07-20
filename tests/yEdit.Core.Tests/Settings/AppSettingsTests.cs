@@ -77,4 +77,28 @@ public class AppSettingsTests
         Assert.True(c.ShowWhitespace);
         Assert.False(c.ConfirmRestoreOnStartup);
     }
+
+    // MD-L-5: マークダウンプレビュー allow list 拡張子。既定 4 種を機械固定して、
+    // 追加/削除の PR は必ずこのテストを更新することを強制する。
+    [Fact]
+    public void MarkdownExtensions_DefaultsToFourExtensions()
+    {
+        var def = new AppSettings();
+        Assert.Equal(4, def.MarkdownExtensions.Count);
+        Assert.Contains(".md", def.MarkdownExtensions);
+        Assert.Contains(".markdown", def.MarkdownExtensions);
+        Assert.Contains(".mkd", def.MarkdownExtensions);
+        Assert.Contains(".mkdn", def.MarkdownExtensions);
+    }
+
+    // MD-L-5: Clone は list の独立性を保つ (RecentFiles と同じ pattern)。
+    [Fact]
+    public void Clone_DuplicatesMarkdownExtensionsList()
+    {
+        var s = new AppSettings();
+        var c = s.Clone();
+        c.MarkdownExtensions.Add(".foo");
+        Assert.Equal(4, s.MarkdownExtensions.Count); // 元は不変
+        Assert.Equal(5, c.MarkdownExtensions.Count);
+    }
 }

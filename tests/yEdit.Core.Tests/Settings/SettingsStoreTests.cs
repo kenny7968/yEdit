@@ -244,6 +244,84 @@ public class SettingsStoreTests
         }
     }
 
+    // MD-L-5: MarkdownExtensions は null なら既定へ復元 (RecentFiles と同じ pattern)。
+    [Fact]
+    public void Normalize_RestoresDefault_WhenMarkdownExtensionsNull()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            File.WriteAllText(path, "{\"MarkdownExtensions\":null}");
+            var s = SettingsStore.Load(path);
+            var def = new AppSettings();
+            Assert.Equal(def.MarkdownExtensions, s.MarkdownExtensions);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    // MD-L-5: 各要素は lowercase / trim される (ユーザ入力の寛容な扱い)。
+    [Fact]
+    public void Normalize_LowercasesAndTrims_MarkdownExtensions()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            File.WriteAllText(path, "{\"MarkdownExtensions\":[\" .MD \",\".MarkDown\"]}");
+            var s = SettingsStore.Load(path);
+            Assert.Equal(2, s.MarkdownExtensions.Count);
+            Assert.Equal(".md", s.MarkdownExtensions[0]);
+            Assert.Equal(".markdown", s.MarkdownExtensions[1]);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    // MD-L-5: 空要素 / whitespace のみは除去。ただしユーザが意図的に空リストにした場合
+    // (要素ゼロ) はそのまま保持する = 常に拒否契約 (安全側)。
+    [Fact]
+    public void Normalize_DropsEmpty_MarkdownExtensions()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            File.WriteAllText(path, "{\"MarkdownExtensions\":[\".md\",\"\",\"  \"]}");
+            var s = SettingsStore.Load(path);
+            Assert.Single(s.MarkdownExtensions);
+            Assert.Equal(".md", s.MarkdownExtensions[0]);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    // MD-L-5: ユーザが意図的に空リストへ編集した場合、既定復元せず空のまま保持する
+    // (SaveTo で 0 件 → JSON 上は "MarkdownExtensions":[] → 常に拒否契約が発動)。
+    [Fact]
+    public void Normalize_PreservesEmptyList_MarkdownExtensions()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            File.WriteAllText(path, "{\"MarkdownExtensions\":[]}");
+            var s = SettingsStore.Load(path);
+            Assert.Empty(s.MarkdownExtensions);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
     [Fact]
     public void Load_preserves_valid_new_keys()
     {

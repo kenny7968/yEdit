@@ -40,6 +40,10 @@ public static class SettingsStore
     {
         var def = new AppSettings();
         s.RecentFiles ??= def.RecentFiles;
+        // CSV-L-4: 攻撃 settings.json が 10 万件級の RecentFiles を持っていても、ここで
+        // MaxItems (=10) にキャップし後段(メニュー再構築・RecentFilesList.Add の PathKey 走査)を
+        // O(MaxItems) に押し込める。Truncate は null 耐性を持つため上の null 補正順序と独立に安全。
+        s.RecentFiles = RecentFilesList.Truncate(s.RecentFiles);
         if (string.IsNullOrEmpty(s.Theme))
             s.Theme = def.Theme;
         if (string.IsNullOrEmpty(s.FontName))

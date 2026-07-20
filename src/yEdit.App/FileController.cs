@@ -14,8 +14,6 @@ namespace yEdit.App;
 /// </summary>
 public sealed class FileController
 {
-    private const int MaxRecent = 10;
-
     private readonly DocumentManager _docs;
     private readonly IWin32Window _owner;
     private readonly Func<AppSettings> _settings; // 設定ダイアログ適用で参照が差し替わるため都度解決する
@@ -488,7 +486,7 @@ public sealed class FileController
     private void RegisterRecent(string path)
     {
         var s = _settings();
-        s.RecentFiles = RecentFilesList.Add(s.RecentFiles, path, MaxRecent);
+        s.RecentFiles = RecentFilesList.Add(s.RecentFiles, path, RecentFilesList.MaxItems);
         _saveSettings();
         _recentChanged();
     }

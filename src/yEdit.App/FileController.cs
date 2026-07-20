@@ -148,16 +148,10 @@ public sealed class FileController
     {
         try
         {
-            // HIGH-6: UNC パスは 5 秒プローブで到達不能なら即エラー(現状 60 秒 UI 凍結を回避)。
-            // ローカルパスは判定を skip(挙動不変)。UNC 正常経路は reachable=true で通過(挙動不変)。
-            if (
-                UncPathDetector.IsUnc(path)
-                && !_reachabilityProbe.ProbeWithTimeout(path, TimeSpan.FromSeconds(5))
-            )
-            {
-                _prompt.Error($"ネットワークパスに到達できません: {path}", "エラー");
+            // HIGH-6 + CSV-M-1: UNC / マップドネットワークドライブは 5 秒プローブで到達不能なら
+            // 即エラー(60 秒 UI 凍結を回避)。ポリシーは Save 側と共有=TryProbeReachability。
+            if (!TryProbeReachability(path))
                 return false;
-            }
 
             // P6 Task 10: Stream I/O 経路で TextBuffer に直接読み込む(1GB 級 UTF-8 の OOM 回避)。
             // 従来の TextFileService.Load(=byte 全読み + string 全文化)は選択肢から外し、
@@ -324,6 +318,10 @@ public sealed class FileController
     /// 例外は _prompt.Error で通知し false を返す。
     /// </summary>
     /// <remarks>
+    /// CSV-M-2(2026-07-20): 冒頭に <see cref="TryProbeReachability"/> を追加し、UNC / マップドネットワーク
+    /// ドライブは 5 秒プローブで到達不能なら以下のロールバック導線を発火する前に return false する
+    /// (Load 側 HIGH-6 と対称=Save でも 60 秒 UI 凍結を回避)。
+    ///
     /// Batch A Task 1(2026-07-15): WriteToPath 失敗時に ConvertEols で書き換わった本文と保存点(Modified)
     /// をロールバックする。ConvertEols(非 fast-path)は <c>ReplaceSource(builder.Build())</c> で新規
     /// TextBuffer に差し替えるため、失敗しても本文の EOL が新値に変わったまま/新規バッファは fresh
@@ -335,6 +333,13 @@ public sealed class FileController
     /// </remarks>
     private bool WriteToPath(Document doc, string path)
     {
+        // CSV-M-2: リモートパス(UNC / マップドネットワークドライブ)は 5 秒プローブで到達不能なら
+        // 即エラー(HIGH-6 の LoadInto 側と対称)。snapshotBefore を握る前・ConvertEols 副作用を
+        // 起こす前に短絡することで、プローブ失敗時に「本文の EOL が書き換わる」「新規バッファに
+        // 差し替わる」を発生させない。ポリシーは Load 側と共有=TryProbeReachability。
+        if (!TryProbeReachability(path))
+            return false;
+
         // ConvertEols 前のバッファ参照を保持(失敗時ロールバック用=バグ 1+2 対策)。
         // 旧 TextBuffer は不変=このハンドルを保持している限り、内部の _savedRoot/_current は
         // ConvertEols/ReplaceSource で書き換わらない。成功パスでは使わない。
@@ -490,6 +495,26 @@ public sealed class FileController
 
     /// <summary>doc.State.LineEnding をそのエディタの EOL モードへ反映する。</summary>
     private static void ApplyEol(Document doc) => doc.Editor.EolMode = doc.State.LineEnding;
+
+    /// <summary>
+    /// HIGH-6 + CSV-M-1/M-2: リモートパス(UNC / マップドネットワークドライブ)は 5 秒プローブで
+    /// 到達不能なら即 <c>_prompt.Error</c> を出して false を返す。ローカルは true を返して通常経路へ。
+    /// LoadInto / WriteToPath 双方から共有し「Save と Load で同じ到達性ポリシー」を 1 箇所で表現する。
+    /// 判定は <see cref="RemotePathDetector.IsRemote(string)"/>(UNC + DriveInfo.DriveType==Network)。
+    /// ローカル固定/リムーバブルは判定を skip(挙動不変)、リモート正常経路は reachable=true で通過(挙動不変)。
+    /// </summary>
+    private bool TryProbeReachability(string path)
+    {
+        if (
+            RemotePathDetector.IsRemote(path)
+            && !_reachabilityProbe.ProbeWithTimeout(path, TimeSpan.FromSeconds(5))
+        )
+        {
+            _prompt.Error($"ネットワークパスに到達できません: {path}", "エラー");
+            return false;
+        }
+        return true;
+    }
 
     /// <summary>
     /// BK-L-2: BackupRecord.CodePage を <see cref="Encoding"/> に変換する。攻撃者 JSON の壊れた値

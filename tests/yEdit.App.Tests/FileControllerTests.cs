@@ -467,6 +467,113 @@ public class FileControllerTests
             Assert.Equal(0, host.Probe.CallCount); // ローカルパスはプローブを回さない(挙動不変)
         });
 
+    // ===== CSV-M-2: Save 経路のリーチャビリティプローブ(WriteToPath 冒頭・HIGH-6 の Save 側対称) =====
+
+    [Fact]
+    public void Save_ShowsErrorPrompt_WhenRemoteUncUnreachable() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            // 既存 UNC ファイルを開いた後にサーバがダウンしたシナリオ:
+            // Path だけ UNC の Document を用意し、以後の Save でリーチャビリティチェックを走らせる。
+            var doc = host.Docs.CreateNew();
+            doc.Editor.Text = "abc"; // Text setter は fresh buffer=Modified=false
+            // Save 前に必ず dirty 状態を作る(SetSavePoint が呼ばれていないこと=WriteToPath が
+            // プローブで短絡したことの観測点)。fast-path 回避のために別の 1 文字挿入→即削除で
+            // content は "abc" のまま Modified=true にする。
+            doc.Editor.ReplaceCharRange(0, 0, "z"); // "zabc", Modified=true
+            doc.Editor.ReplaceCharRange(0, 1, ""); // "abc", Modified=true(_savedRoot からズレたまま)
+            Assert.True(doc.Editor.Modified); // 前提: Save 前は dirty
+            doc.State.Path = @"\\nonexistent-host-42\share\x.txt";
+            host.Probe.Result = false; // プローブがタイムアウト/到達不可を返す
+
+            Assert.False(host.File.Save());
+
+            Assert.Equal(1, host.Probe.CallCount); // Save 経路も UNC は必ずプローブを通す(HIGH-6 と対称)
+            Assert.Equal(TimeSpan.FromSeconds(5), host.Probe.LastTimeout); // 5s → 5min mutation の kill
+            // "ネットワークパスに到達できません" が Save 経路でも 1 件だけ発火する(Load と Save の
+            // 二重発火を避ける=WriteToPath 冒頭ガードのみで完結する契約)。
+            var reachErrors = host.Prompt.Log.Where(e =>
+                e.Kind == "Error"
+                && e.Text.StartsWith(
+                    "ネットワークパスに到達できません",
+                    System.StringComparison.Ordinal
+                )
+            );
+            Assert.Single(reachErrors);
+            // 副作用非発生の pin:
+            // - Modified=true 維持 → SetSavePoint が呼ばれていない(=WriteToPath の成功パスに入っていない)
+            // - Assert.DoesNotContain("保存できませんでした") → 短絡 return であって catch 経由の失敗ではない
+            // (content が "abc"=改行なしのため ConvertEols は元々 no-op=このテスト単体では ConvertEols
+            //  経由か短絡かの直接判別はできないが、上記 2 点で「WriteToPath の副作用ブロックに入って
+            //  いない」ことは pin できる)
+            Assert.True(doc.Editor.Modified);
+            Assert.Equal("abc", doc.Editor.SnapshotText);
+            Assert.DoesNotContain(
+                host.Prompt.Log,
+                e =>
+                    e.Kind == "Error"
+                    && e.Text.StartsWith("保存できませんでした", System.StringComparison.Ordinal)
+            );
+        });
+
+    [Fact]
+    public void Save_SkipsProbe_ForLocalPath() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            using var tmp = new TempDir();
+            string path = tmp.File("a.txt");
+            var doc = host.Docs.CreateNew();
+            doc.Editor.Text = "abc";
+            doc.State.Path = path;
+
+            Assert.True(host.File.Save()); // 通常経路で成功
+
+            Assert.Equal(0, host.Probe.CallCount); // ローカルパスはプローブを回さない(挙動不変)
+            Assert.Equal("abc", File2.ReadAllText(path)); // 実際にディスクへ書き出し完了
+        });
+
+    [Fact]
+    public void SaveAs_ShowsErrorPrompt_WhenPickedPathIsRemoteAndUnreachable() =>
+        Sta.Run(() =>
+        {
+            // SaveAs で新たに UNC を選んだが到達不可なシナリオ: SaveAs は WriteToPath を経由する
+            // ため CSV-M-2 ガードで短絡し、SaveAsDocument の Encoding/HasBom/LineEnding ロールバックが
+            // WriteToPath=false の帰り経路で発火する(既存 SaveAs_WriteFailure_RollsBack... と対称)。
+            using var host = new Host();
+            var doc = host.Docs.CreateNew();
+            doc.Editor.Text = "abc"; // 既定 State=UTF-8/BOM なし/CRLF
+            // CodePage は 932 を選ぶ: 既定(65001)と同値だと Encoding ロールバックの assert が
+            // 空振りする(既存 SaveAs_WriteFailure_RollsBackEncodingBomEol_AndKeepsPath と同旨)。
+            host.Dialogs.SaveAs = new SaveAsResult(
+                @"\\nonexistent-host-42\share\x.txt",
+                932,
+                HasBom: true,
+                LineEnding.Lf
+            );
+            host.Probe.Result = false;
+
+            Assert.False(host.File.SaveAs());
+
+            Assert.Equal(1, host.Probe.CallCount); // SaveAs でも WriteToPath 経由で 1 回だけプローブが走る
+            Assert.Equal(TimeSpan.FromSeconds(5), host.Probe.LastTimeout); // 5s pin
+            // State ロールバック(WriteToPath が false を返した経路が SaveAsDocument のロールバックを発火)
+            Assert.Null(doc.State.Path); // Path は旧のまま(後続 Ctrl+S の別エンコード上書き事故防止)
+            Assert.Equal(65001, doc.State.Encoding.CodePage); // ロールバック(932→65001)
+            Assert.False(doc.State.HasBom); // ロールバック
+            Assert.Equal(LineEnding.Crlf, doc.State.LineEnding); // ロールバック
+            Assert.Contains(
+                host.Prompt.Log,
+                e =>
+                    e.Kind == "Error"
+                    && e.Text.StartsWith(
+                        "ネットワークパスに到達できません",
+                        System.StringComparison.Ordinal
+                    )
+            );
+        });
+
     [Fact]
     public void OpenFileWithDialog_UsesPickedPath_AndCancelDoesNothing() =>
         Sta.Run(() =>

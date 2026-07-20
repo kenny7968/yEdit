@@ -1,3 +1,4 @@
+using System.Linq;
 using Xunit;
 using yEdit.Core.Text;
 
@@ -63,4 +64,36 @@ public class RecentFilesListTests
             new[] { @"C:\a.txt" },
             RecentFilesList.Add(System.Array.Empty<string>(), @"C:\a.txt", 10)
         );
+
+    // CSV-L-4: settings.json 側で 10 万件の RecentFiles を投入されても Load が O(MaxItems) で終わるように
+    // Truncate ヘルパで上限を持ち込む。null 耐性も持たせ SettingsStore.Normalize と二重防御にする。
+    [Fact]
+    public void Truncate_caps_to_max_items()
+    {
+        var source = Enumerable.Range(0, 100_000).Select(i => $@"C:\a{i}.txt");
+        var r = RecentFilesList.Truncate(source);
+        Assert.Equal(RecentFilesList.MaxItems, r.Count);
+        Assert.Equal(@"C:\a0.txt", r[0]);
+        Assert.Equal($@"C:\a{RecentFilesList.MaxItems - 1}.txt", r[^1]);
+    }
+
+    [Fact]
+    public void Truncate_short_list_is_unchanged()
+    {
+        var source = new[] { @"C:\a.txt", @"C:\b.txt", @"C:\c.txt", @"C:\d.txt", @"C:\e.txt" };
+        var r = RecentFilesList.Truncate(source);
+        Assert.Equal(source, r);
+    }
+
+    [Fact]
+    public void Truncate_null_returns_empty_list()
+    {
+        var r = RecentFilesList.Truncate(null!);
+        Assert.NotNull(r);
+        Assert.Empty(r);
+    }
+
+    // 定数値の pin: FileController から参照される single-source-of-truth を回帰保護する。
+    [Fact]
+    public void MaxItems_is_10() => Assert.Equal(10, RecentFilesList.MaxItems);
 }

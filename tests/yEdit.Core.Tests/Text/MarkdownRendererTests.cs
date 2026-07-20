@@ -371,4 +371,130 @@ public class MarkdownRendererTests
         // 拡張子として認識されないため helper は false を返す。回帰保護。
         Assert.False(MarkdownRenderer.IsMarkdownExtension("readme.md.", DefaultMdExtensions));
     }
+
+    // ---------------------------------------------------------------------
+    // MD-M-2 + MD-L-1: CSP を HTTP ヘッダで配信 + img-src data: 削除 + CSS 外部化。
+    //
+    // 変更点:
+    //   - meta CSP と HTTP header 用の PreviewCspHeader 定数を single source of truth 化
+    //   - img-src から data: を削除 (MD-L-1)
+    //   - base-uri/form-action/frame-ancestors/object-src/worker-src/manifest-src/connect-src
+    //     を追加 (全て 'none')
+    //   - style-src から 'unsafe-inline' を削除し 'self' https://yedit.preview のみに
+    //   - <style>{Css}</style> を <link rel="stylesheet" href="/_yedit/styles.css"> へ外部化
+    //     (実 file は PreviewCspHeaderInjector が virtual response で供給)
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public void Meta_ImgSrc_Excludes_Data_Scheme()
+    {
+        // MD-L-1: img-src ディレクティブは存在するが data: は付かない。
+        string html = MarkdownRenderer.Render("x", Base);
+        Assert.Contains("img-src https://yedit.preview", html);
+        Assert.DoesNotContain("img-src https://yedit.preview data:", html);
+    }
+
+    [Fact]
+    public void Meta_Contains_BaseUri_None() =>
+        Assert.Contains("base-uri 'none'", MarkdownRenderer.Render("x", Base));
+
+    [Fact]
+    public void Meta_Contains_FormAction_None() =>
+        Assert.Contains("form-action 'none'", MarkdownRenderer.Render("x", Base));
+
+    [Fact]
+    public void Meta_Contains_FrameAncestors_None() =>
+        Assert.Contains("frame-ancestors 'none'", MarkdownRenderer.Render("x", Base));
+
+    [Fact]
+    public void Meta_Contains_ObjectSrc_None() =>
+        Assert.Contains("object-src 'none'", MarkdownRenderer.Render("x", Base));
+
+    [Fact]
+    public void Meta_Contains_WorkerSrc_None() =>
+        Assert.Contains("worker-src 'none'", MarkdownRenderer.Render("x", Base));
+
+    [Fact]
+    public void Meta_Contains_ManifestSrc_None() =>
+        Assert.Contains("manifest-src 'none'", MarkdownRenderer.Render("x", Base));
+
+    [Fact]
+    public void Meta_Contains_ConnectSrc_None() =>
+        Assert.Contains("connect-src 'none'", MarkdownRenderer.Render("x", Base));
+
+    [Fact]
+    public void Meta_StyleSrc_ExcludesUnsafeInline()
+    {
+        // MD-M-2: 外部化により 'unsafe-inline' は不要になる。誰かが緩和で戻すことを検知。
+        string html = MarkdownRenderer.Render("x", Base);
+        Assert.DoesNotContain("'unsafe-inline'", html);
+    }
+
+    [Fact]
+    public void Document_LinksToStylesheet_ViaAbsolutePath()
+    {
+        // MD-M-2: inline <style> を撤去し <link> へ外部化。href は
+        // /_yedit/styles.css 固定 (先頭アンダースコアで .md フォルダ内のユーザ
+        // ファイル衝突をほぼゼロに)。
+        string html = MarkdownRenderer.Render("x", Base);
+        Assert.Contains("<link rel=\"stylesheet\" href=\"/_yedit/styles.css\">", html);
+    }
+
+    [Fact]
+    public void Document_NoInlineStyleTag()
+    {
+        // MD-M-2: CSS 外部化により <style> タグは HTML 内に含まれない。
+        string html = MarkdownRenderer.Render("x", Base);
+        Assert.DoesNotContain("<style>", html);
+        Assert.DoesNotContain("<style ", html);
+    }
+
+    [Fact]
+    public void PreviewCspHeader_ContainsAllDirectives()
+    {
+        // HTTP header 側と meta 側で同一の CSP 文字列を使う single source of truth。
+        // 各 directive の存在 + 不要な緩和が入っていないことを機械固定。
+        string csp = MarkdownRenderer.PreviewCspHeader;
+        Assert.Contains("default-src 'none'", csp);
+        Assert.Contains("base-uri 'none'", csp);
+        Assert.Contains("form-action 'none'", csp);
+        Assert.Contains("frame-ancestors 'none'", csp);
+        Assert.Contains("object-src 'none'", csp);
+        Assert.Contains("worker-src 'none'", csp);
+        Assert.Contains("manifest-src 'none'", csp);
+        Assert.Contains("connect-src 'none'", csp);
+        Assert.Contains("img-src https://yedit.preview", csp);
+        Assert.Contains("media-src https://yedit.preview", csp);
+        Assert.Contains("style-src 'self' https://yedit.preview", csp);
+        Assert.Contains("font-src https://yedit.preview data:", csp);
+        Assert.DoesNotContain("'unsafe-inline'", csp);
+        Assert.DoesNotContain("img-src https://yedit.preview data:", csp);
+    }
+
+    [Fact]
+    public void PreviewStylesheetPath_IsUnderYeditNamespace()
+    {
+        // /_yedit/styles.css は Injector の URL 判定と HTML link href の両方で参照される
+        // single source of truth。名前空間 (先頭 _) を機械固定して衝突リスク回帰を防ぐ。
+        Assert.Equal("/_yedit/styles.css", MarkdownRenderer.PreviewStylesheetPath);
+    }
+
+    [Fact]
+    public void PreviewStylesheet_ContainsCoreRules()
+    {
+        // CSS 外部化前後の見た目一致を担保するため代表 rule の存在を機械固定する。
+        // css 側の書き換え時にこのテストが落ちる = 目視確認のトリガ。
+        string css = MarkdownRenderer.PreviewStylesheet;
+        Assert.Contains("body", css);
+        Assert.Contains("font-family", css);
+    }
+
+    [Fact]
+    public void Meta_And_HttpHeader_Use_SameCspString()
+    {
+        // meta http-equiv 側と HTTP header 側で CSP 文字列が食い違うと防御差が生まれる。
+        // 同一定数を参照している契約を機械固定する。
+        string html = MarkdownRenderer.Render("x", Base);
+        Assert.Contains(MarkdownRenderer.PreviewCspHeader, html);
+    }
 }

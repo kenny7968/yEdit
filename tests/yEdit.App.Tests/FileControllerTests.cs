@@ -501,12 +501,14 @@ public class FileControllerTests
                 )
             );
             Assert.Single(reachErrors);
-            // ConvertEols/SetSavePoint 副作用が発生していない=プローブ短絡の直接的観測。
-            // SetSavePoint されていないため Modified は true のまま保たれる。
+            // 副作用非発生の pin:
+            // - Modified=true 維持 → SetSavePoint が呼ばれていない(=WriteToPath の成功パスに入っていない)
+            // - Assert.DoesNotContain("保存できませんでした") → 短絡 return であって catch 経由の失敗ではない
+            // (content が "abc"=改行なしのため ConvertEols は元々 no-op=このテスト単体では ConvertEols
+            //  経由か短絡かの直接判別はできないが、上記 2 点で「WriteToPath の副作用ブロックに入って
+            //  いない」ことは pin できる)
             Assert.True(doc.Editor.Modified);
-            // 本文は "abc" のまま=ConvertEols も走っていない(本文改行が変わっていない)。
             Assert.Equal("abc", doc.Editor.SnapshotText);
-            // 通常の "保存できませんでした" ダイアログは出さない(短絡経路は独自メッセージのみ)。
             Assert.DoesNotContain(
                 host.Prompt.Log,
                 e =>

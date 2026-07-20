@@ -12,10 +12,17 @@ public static class MarkdownRenderer
     public const string PreviewBaseHref = "https://" + PreviewVirtualHost + "/";
 
     // CommonMark + GFM 拡張（表・チェックリスト・自動リンク等）。スレッドセーフなので使い回す。
-    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
-        .UseAdvancedExtensions()
-        .DisableHtml() // CSP との二重防御: raw HTML をパーサ段で無効化(script/iframe/on* 等)
-        .Build();
+    private static readonly MarkdownPipeline Pipeline = BuildPipeline();
+
+    private static MarkdownPipeline BuildPipeline()
+    {
+        // CSP との二重防御: raw HTML (script/iframe/on* 等) をパーサ段で無効化。
+        var builder = new MarkdownPipelineBuilder().UseAdvancedExtensions().DisableHtml();
+        // MD-M-3: リンク URL scheme whitelist (二層目の防御)。CSP を弱めた瞬間の
+        // live XSS を防ぐため javascript:/vbscript:/data:/file: 等は href を drop する。
+        builder.Extensions.AddIfNotAlready<SafeLinkExtension>();
+        return builder.Build();
+    }
 
     /// <summary>
     /// markdown を HTML 化し、&lt;base href&gt;・charset・読みやすい CSS を備えた

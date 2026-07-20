@@ -126,7 +126,8 @@ public class CsvParserTests
         var limits = new CsvParser.ParseLimits(
             MaxFieldChars: 100,
             MaxTotalCells: 10_000,
-            MaxTotalRows: 100
+            MaxTotalRows: 100,
+            MaxTotalChars: 1024
         );
         var csv = CsvParser.ParseForTest(text, limits);
         Assert.False(csv.Ok);
@@ -139,7 +140,8 @@ public class CsvParserTests
         var limits = new CsvParser.ParseLimits(
             MaxFieldChars: 1024,
             MaxTotalCells: 100,
-            MaxTotalRows: 100
+            MaxTotalRows: 100,
+            MaxTotalChars: 1024
         );
         var csv = CsvParser.ParseForTest(text, limits);
         Assert.False(csv.Ok);
@@ -152,7 +154,24 @@ public class CsvParserTests
         var limits = new CsvParser.ParseLimits(
             MaxFieldChars: 1024,
             MaxTotalCells: 10_000,
-            MaxTotalRows: 100
+            MaxTotalRows: 100,
+            MaxTotalChars: 1024
+        );
+        var csv = CsvParser.ParseForTest(text, limits);
+        Assert.False(csv.Ok);
+    }
+
+    [Fact]
+    public void Parse_ReturnsOkFalse_WhenTotalCharsExceedLimit()
+    {
+        // 各フィールド 50 chars + 51 chars = 総 101 chars。MaxTotalChars=100 で超過。
+        // 単一フィールドは MaxFieldChars=1024 の内側なので、4 番目のガードのみ発火。
+        var text = new string('a', 50) + "," + new string('b', 51);
+        var limits = new CsvParser.ParseLimits(
+            MaxFieldChars: 1024,
+            MaxTotalCells: 10_000,
+            MaxTotalRows: 100,
+            MaxTotalChars: 100
         );
         var csv = CsvParser.ParseForTest(text, limits);
         Assert.False(csv.Ok);
@@ -165,7 +184,8 @@ public class CsvParserTests
         var limits = new CsvParser.ParseLimits(
             MaxFieldChars: 100,
             MaxTotalCells: 10_000,
-            MaxTotalRows: 100
+            MaxTotalRows: 100,
+            MaxTotalChars: 1024
         );
         var csv = CsvParser.ParseForTest(text, limits);
         Assert.True(csv.Ok);
@@ -178,7 +198,8 @@ public class CsvParserTests
         var limits = new CsvParser.ParseLimits(
             MaxFieldChars: 1024,
             MaxTotalCells: 100,
-            MaxTotalRows: 100
+            MaxTotalRows: 100,
+            MaxTotalChars: 1024
         );
         var csv = CsvParser.ParseForTest(text, limits);
         Assert.True(csv.Ok);
@@ -191,11 +212,54 @@ public class CsvParserTests
         var limits = new CsvParser.ParseLimits(
             MaxFieldChars: 1024,
             MaxTotalCells: 10_000,
-            MaxTotalRows: 100
+            MaxTotalRows: 100,
+            MaxTotalChars: 1024
         );
         var csv = CsvParser.ParseForTest(text, limits);
         Assert.True(csv.Ok);
         Assert.Equal(100, csv.Rows.Count);
+    }
+
+    [Fact]
+    public void Parse_ReturnsOkTrue_AtExactTotalCharsBoundary()
+    {
+        // 各フィールド 50 chars ずつ = 総 100 chars でちょうど上限。
+        var text = new string('a', 50) + "," + new string('b', 50);
+        var limits = new CsvParser.ParseLimits(
+            MaxFieldChars: 1024,
+            MaxTotalCells: 10_000,
+            MaxTotalRows: 100,
+            MaxTotalChars: 100
+        );
+        var csv = CsvParser.ParseForTest(text, limits);
+        Assert.True(csv.Ok);
+    }
+
+    [Fact]
+    public void Parse_ReturnsOkFalse_WhenTotalCharsExceedAtCommaBoundary()
+    {
+        // mid-loop の EndField 直後ガード (comma 分岐 L134-135 / CR|LF 分岐 L149-150)
+        // が発火する経路を機械固定する。上の Parse_ReturnsOkFalse_WhenTotalCharsExceedLimit
+        // は tail EndField 経路のみを踏むため、mid-loop の `if (!ok) break;` が消えても
+        // 素通りしてしまう(mutation 耐性ゼロ)。
+        //
+        // 入力: 60 chars + "," + 60 chars + ",X\n"
+        //   - 1st comma (pos=60) の EndField: totalChars=60 で OK 継続
+        //   - 2nd comma (pos=121) の EndField: totalChars=120 > 100 で ok=false
+        //     → mid-loop comma 分岐で break → 以降の "X\n" は消費されず EndRow も不発
+        //
+        // 両 mid-loop break が同時に消えた場合、"X\n" が消費されて CR/LF 分岐で
+        // EndRow が発火 = rows に 1 行混入する。Assert.Empty がその変異を kill する。
+        var text = new string('a', 60) + "," + new string('b', 60) + ",X\n";
+        var limits = new CsvParser.ParseLimits(
+            MaxFieldChars: 1024,
+            MaxTotalCells: 10_000,
+            MaxTotalRows: 100,
+            MaxTotalChars: 100
+        );
+        var csv = CsvParser.ParseForTest(text, limits);
+        Assert.False(csv.Ok);
+        Assert.Empty(csv.Rows); // mid-loop break が消えると余分な行が混入する
     }
 
     [Fact]

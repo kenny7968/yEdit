@@ -7,8 +7,10 @@ namespace yEdit.Core.Csv;
 /// RFC 4180 準拠の CSV パーサ（区切りはカンマ固定）。各フィールドの元テキスト上の
 /// UTF-16 スパン（引用符込み）を保持する。引用符内のカンマ・改行・"" エスケープに対応。
 /// 引用符が閉じないまま EOF に達した場合のみ Ok=false。
-/// 極端に大きい入力での OOM を避けるため、単一フィールド長・総セル数・総行数に上限を設ける
-/// (通常業務利用の実測上限を大きく超える値)。超えた場合は Ok=false でフォールバックする。
+/// 極端に大きい入力での OOM を避けるため、単一フィールド長・総セル数・総行数・総 chars 合計
+/// の 4 次元に上限を設ける(通常業務利用の実測上限を大きく超える値)。超えた場合は Ok=false
+/// でフォールバックする。総 chars 合計 (CSV-M-5) は 3 次元別上限を素通りする組合せ攻撃
+/// (10M セル × 各 100KB 等) による .NET string allocator の OutOfMemoryException を防ぐ。
 /// </summary>
 public static class CsvParser
 {
@@ -16,16 +18,24 @@ public static class CsvParser
     public const int MaxFieldChars = 8 * 1024 * 1024; // 単一フィールド 8M chars (~16MB UTF-16)
     public const int MaxTotalCells = 10_000_000;
     public const int MaxTotalRows = 1_000_000;
+    public const long MaxTotalChars = 256L * 1024 * 1024; // 総 chars 合計 256M chars (~512MB UTF-16)
 
+    // ParseLimits (テスト専用シーム): プロパティ名衝突は下記 pragma で抑止
 #pragma warning disable S3218 // reason: 内側 record struct のプロパティ名が外側 CsvParser の public const と同名だが、テストが named argument で指定する契約=改名不可
     internal readonly record struct ParseLimits(
         int MaxFieldChars,
         int MaxTotalCells,
-        int MaxTotalRows
+        int MaxTotalRows,
+        long MaxTotalChars
     );
 #pragma warning restore S3218
 
-    private static readonly ParseLimits Default = new(MaxFieldChars, MaxTotalCells, MaxTotalRows);
+    private static readonly ParseLimits Default = new(
+        MaxFieldChars,
+        MaxTotalCells,
+        MaxTotalRows,
+        MaxTotalChars
+    );
 
     public static CsvDocument Parse(string text)
     {
@@ -64,10 +74,14 @@ public static class CsvParser
         bool inQuotes = false;
         bool ok = true;
         int totalCells = 0;
+        long totalChars = 0; // CSV-M-5: 全フィールド sb.Length 総和 (3 次元別上限を素通りする組合せ攻撃対策)
 
         void EndField(int endExclusive)
         {
             row.Add(new CsvField(fieldStart, endExclusive - fieldStart, sb.ToString()));
+            totalChars += sb.Length;
+            if (totalChars > limits.MaxTotalChars)
+                ok = false; // 呼び出し側で !ok を検知してループを break / EndRow をスキップ
             sb.Clear();
         }
         void EndRow()
@@ -119,6 +133,8 @@ public static class CsvParser
             if (c == ',')
             {
                 EndField(pos);
+                if (!ok)
+                    break; // CSV-M-5: EndField 内で totalChars 超過→即 break
                 totalCells++;
                 if (totalCells > limits.MaxTotalCells)
                 {
@@ -132,6 +148,8 @@ public static class CsvParser
             if (c == '\r' || c == '\n')
             {
                 EndField(pos);
+                if (!ok)
+                    break; // CSV-M-5: EndField 内で totalChars 超過→即 break
                 totalCells++;
                 if (totalCells > limits.MaxTotalCells)
                 {
@@ -171,7 +189,8 @@ public static class CsvParser
         if (ok && (pos > fieldStart || row.Count > 0))
         {
             EndField(pos);
-            EndRow();
+            if (ok) // CSV-M-5: 末尾 EndField で totalChars 超過→EndRow をスキップ(loop break と対称)
+                EndRow();
         }
 
         return new CsvDocument(rows, ok);

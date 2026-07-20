@@ -148,10 +148,12 @@ public sealed class FileController
     {
         try
         {
-            // HIGH-6: UNC パスは 5 秒プローブで到達不能なら即エラー(現状 60 秒 UI 凍結を回避)。
-            // ローカルパスは判定を skip(挙動不変)。UNC 正常経路は reachable=true で通過(挙動不変)。
+            // HIGH-6 + CSV-M-1: UNC パス / マップドネットワークドライブ(X: → \\server\share)は
+            // 5 秒プローブで到達不能なら即エラー(現状 60 秒 UI 凍結を回避)。ローカルパスは
+            // 判定を skip(挙動不変)。リモート正常経路は reachable=true で通過(挙動不変)。
+            // 判定は RemotePathDetector.IsRemote(UncPathDetector + DriveInfo.DriveType==Network)。
             if (
-                UncPathDetector.IsUnc(path)
+                RemotePathDetector.IsRemote(path)
                 && !_reachabilityProbe.ProbeWithTimeout(path, TimeSpan.FromSeconds(5))
             )
             {

@@ -681,6 +681,11 @@ public sealed partial class MainForm : Form
     }
 
     /// <summary>アクティブタブの編集中内容を WebView2 プレビューで表示する（拡張子は問わない）。</summary>
+    /// <remarks>
+    /// MD-L-3 L5 検証: 4M 文字超の .md を開いて Preview 起動 → エラーダイアログが出て
+    /// プレビュー窓は開かないこと。MainForm には IUserPrompt が注入されていないため、
+    /// MarkdownPreviewForm.cs:135 と同様に MessageBox.Show を直接使う。
+    /// </remarks>
     private void ShowMarkdownPreview()
     {
         var doc = _docs.Active;
@@ -689,7 +694,23 @@ public sealed partial class MainForm : Form
 
         string markdown = doc.Editor.SnapshotText; // 編集中バッファ（未保存も反映）
         string? dir = System.IO.Path.GetDirectoryName(doc.State.Path);
-        string html = MarkdownRenderer.Render(markdown, MarkdownRenderer.PreviewBaseHref);
+        string html;
+        try
+        {
+            html = MarkdownRenderer.Render(markdown, MarkdownRenderer.PreviewBaseHref);
+        }
+        catch (DocumentTooLargeException ex)
+        {
+            // MD-L-3: 入力サイズ cap 超過時はユーザに提示してプレビュー窓は開かない。
+            MessageBox.Show(
+                this,
+                $"プレビューを表示できません。マークダウン本文が大きすぎます。\n\n詳細: {ex.Message}",
+                "プレビューを表示できません",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning
+            );
+            return;
+        }
 
         using var f = new MarkdownPreviewForm(html, dir, doc.State.DisplayName);
         f.ShowDialog(this);

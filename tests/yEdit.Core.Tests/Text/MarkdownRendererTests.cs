@@ -54,8 +54,13 @@ public class MarkdownRendererTests
 
     // MD-L-4: baseHref は空文字か PreviewBaseHref 定数以外を受け付けない (単一 caller の防御ガード)。
     [Fact]
-    public void Render_Throws_ArgumentException_OnUnknownBaseHref() =>
-        Assert.Throws<ArgumentException>(() => MarkdownRenderer.Render("x", "https://evil.com/"));
+    public void Render_Throws_ArgumentException_OnUnknownBaseHref()
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            MarkdownRenderer.Render("x", "https://evil.com/")
+        );
+        Assert.Equal("baseHref", ex.ParamName);
+    }
 
     [Fact]
     public void Render_Accepts_EmptyBaseHref()
@@ -71,6 +76,18 @@ public class MarkdownRendererTests
         var html = MarkdownRenderer.Render("x", MarkdownRenderer.PreviewBaseHref);
         Assert.Contains("<html", html);
         Assert.Contains("<base href=\"https://yedit.preview/\">", html);
+    }
+
+    [Fact]
+    public void PreviewBaseHref_ContainsOnly_HtmlAttrSafeChars()
+    {
+        // MD-L-4 の allow-list は "baseHref は PreviewBaseHref か空文字のみ" を保証するので
+        // 直接 interpolate しても安全。ただし PreviewBaseHref 自体が将来 URL-safe 外の
+        // 文字を持つとその前提が崩れる。ここで機械固定して回帰を防ぐ。
+        Assert.DoesNotContain('"', MarkdownRenderer.PreviewBaseHref);
+        Assert.DoesNotContain('<', MarkdownRenderer.PreviewBaseHref);
+        Assert.DoesNotContain('>', MarkdownRenderer.PreviewBaseHref);
+        Assert.DoesNotContain('&', MarkdownRenderer.PreviewBaseHref);
     }
 
     [Fact]

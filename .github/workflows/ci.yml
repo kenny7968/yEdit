@@ -56,3 +56,10 @@ jobs:
 
       - name: App.Tests(LocalOnly 除外)
         run: dotnet test tests/yEdit.App.Tests -c Release --no-build --filter "Category!=LocalOnly"
+
+      # MD-L-2: 依存 (直接/推移) の可視化。依存更新 PR で人間が diff を確認できる
+      # ようログ出力するだけの参考ステップ。lock file check は行わないため
+      # continue-on-error で失敗しても CI 全体は成功扱いにする。
+      - name: 依存ツリー(参考出力)
+        continue-on-error: true
+        run: dotnet list package --include-transitive

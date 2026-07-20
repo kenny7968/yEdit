@@ -9,10 +9,19 @@ namespace yEdit.App;
 /// 相対リソース（画像・ローカルリンク）は元ファイルのフォルダ基準（仮想ホスト）で解決する。
 /// baseDir が null（未保存タブ等）の場合は仮想ホストを設定せず、相対リソースは解決できない。
 /// 「閉じる」ボタンと Esc の両方でエディタへ戻る。
+/// <para>
+/// MD-M-4: WebView2 の <c>userDataFolder</c> は per-form 一意 (<see cref="PreviewUserDataFolder"/>)
+/// = プロファイルロック競合回避 + 破棄で一時ディレクトリごと除去。
+/// </para>
 /// </summary>
 public sealed class MarkdownPreviewForm : Form
 {
     private readonly WebView2 _web = new() { Dock = DockStyle.Fill, AccessibleName = "プレビュー" };
+
+    // MD-M-4: per-form の一時 UserDataFolder。%LOCALAPPDATA%\yEdit\WebView2\preview-{guid} に作られ、
+    // Dispose(bool) で削除される (Form 側 dispose が先 = WebView2 のファイルロックが外れてから
+    // Delete する順序)。
+    private readonly PreviewUserDataFolder _userData = new();
     private readonly Button _close = new()
     {
         Text = "閉じる(&C)",
@@ -58,12 +67,8 @@ public sealed class MarkdownPreviewForm : Form
     {
         try
         {
-            string userData = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "yEdit",
-                "WebView2"
-            );
-            var env = await CoreWebView2Environment.CreateAsync(userDataFolder: userData);
+            // MD-M-4: per-form UserDataFolder (プロファイルロック競合回避 + 破棄で除去)。
+            var env = await CoreWebView2Environment.CreateAsync(userDataFolder: _userData.Path);
             if (IsDisposed || Disposing)
                 return;
             await _web.EnsureCoreWebView2Async(env);
@@ -71,6 +76,14 @@ public sealed class MarkdownPreviewForm : Form
                 return;
 
             var core = _web.CoreWebView2;
+
+            // MD-M-2: WebResourceRequested に CSP header injector を装着。
+            // filter/handler を装着してから NavigateToString しないと初回サブリソース要求
+            // (styles.css) で virtual CSS response を返す機会を失うため、順序が重要
+            // (SetVirtualHostNameToFolderMapping と NavigateToString の間に挟む)。
+            // Attach 後は event delegate が Injector を root で保持するため、
+            // ローカル変数のみで OK (WebView2 Dispose で購読が切れると GC 対象になる)。
+            new PreviewCspHeaderInjector(env).Attach(core);
 
             // 相対リソース（画像・ローカルリンク）を .md のフォルダから解決する。
             if (!string.IsNullOrEmpty(_baseDir) && System.IO.Directory.Exists(_baseDir))
@@ -210,6 +223,21 @@ public sealed class MarkdownPreviewForm : Form
             )
         {
             System.Diagnostics.Trace.TraceWarning($"外部プロセス起動失敗: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// MD-M-4: WebView2 の内部ファイルハンドルが解放されてから UserDataFolder を消したいので、
+    /// <c>base.Dispose(disposing)</c> (= WebView2 コントロール破棄) を先に呼び、その後で
+    /// <see cref="PreviewUserDataFolder"/> を Dispose する順。逆順にすると WebView2 側の
+    /// ロックにかかって Delete が Trace 警告に落ちる (silent fallback ではあるが残骸が残る)。
+    /// </summary>
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing)
+        {
+            _userData.Dispose();
         }
     }
 }

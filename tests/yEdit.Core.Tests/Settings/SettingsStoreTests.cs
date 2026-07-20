@@ -247,8 +247,9 @@ public class SettingsStoreTests
         }
     }
 
-    // CSV-L-4: 攻撃 settings.json に 10 万件の RecentFiles を仕込まれても Load は O(MaxItems) で終わる。
-    // Normalize 段階で Truncate されるので後段の RecentFilesList.Add / メニュー再構築も O(MaxItems) を維持する。
+    // CSV-L-4: 攻撃 settings.json に 10 万件の RecentFiles を仕込まれても Load の後段
+    // (RecentFilesList.Add / メニュー再構築 / 各所の走査)は O(MaxItems) を維持する。
+    // Deserialize 自体は System.Text.Json の仕様で O(N)(緩和不能)。Normalize 段階で Truncate してそれ以降を封じる。
     [Fact]
     public void Load_truncates_recent_files_over_max_items()
     {

@@ -11,8 +11,9 @@ public static class RecentFilesList
     /// メニュー表示件数と、settings.json ロード時の防御的キャップの双方で参照する。
     /// </summary>
     /// <remarks>
-    /// CSV-L-4: 攻撃 settings.json に 10 万件の RecentFiles を仕込まれても Load / メニュー再構築が
-    /// O(MaxItems) で終わるよう <see cref="Truncate"/> と SettingsStore.Normalize で使う。
+    /// CSV-L-4: 攻撃 settings.json に 10 万件の RecentFiles を仕込まれても Deserialize 直後に
+    /// <see cref="Truncate"/> でここへ押し込み、後段(Add / メニュー再構築 / 各所の走査)を
+    /// O(MaxItems) に固定する。Deserialize 自体は依然 O(N)(System.Text.Json 側の仕様)。
     /// </remarks>
     public const int MaxItems = 10;
 

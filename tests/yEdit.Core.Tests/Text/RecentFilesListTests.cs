@@ -65,8 +65,9 @@ public class RecentFilesListTests
             RecentFilesList.Add(System.Array.Empty<string>(), @"C:\a.txt", 10)
         );
 
-    // CSV-L-4: settings.json 側で 10 万件の RecentFiles を投入されても Load が O(MaxItems) で終わるように
-    // Truncate ヘルパで上限を持ち込む。null 耐性も持たせ SettingsStore.Normalize と二重防御にする。
+    // CSV-L-4: settings.json 側で 10 万件の RecentFiles を投入された場合、Deserialize は O(N) を避けられない
+    // (System.Text.Json 側の仕様)が、Deserialize 直後に本ヘルパを通せば後段(Add / メニュー再構築 / 各所の走査)
+    // を O(MaxItems) に固定できる。null 耐性も持たせ SettingsStore.Normalize と二重防御にする。
     [Fact]
     public void Truncate_caps_to_max_items()
     {

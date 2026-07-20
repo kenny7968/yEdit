@@ -103,6 +103,23 @@ public class PreviewUserDataFolderTests
         }
     }
 
+    [Fact]
+    public void Ctor_PathLeaf_Matches_PreviewGuidNContract()
+    {
+        // Guid.N (32 桁小文字 hex・ハイフン無) の naming 契約を機械固定する。
+        // Guid.NewGuid().ToString() (ハイフン付) や ToString("D") への誤変更を検知。
+        var sut = new PreviewUserDataFolder();
+        try
+        {
+            string leaf = System.IO.Path.GetFileName(sut.Path);
+            Assert.Matches("^preview-[0-9a-f]{32}$", leaf);
+        }
+        finally
+        {
+            SafeCleanup(sut);
+        }
+    }
+
     private static void SafeCleanup(PreviewUserDataFolder sut)
     {
         try

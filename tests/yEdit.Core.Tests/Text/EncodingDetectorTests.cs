@@ -72,4 +72,41 @@ public class EncodingDetectorTests
         var r = EncodingDetector.Detect(Array.Empty<byte>());
         Assert.Equal(65001, r.CodePage);
     }
+
+    [Fact]
+    public void Utf8Bom_is_detected_before_utf_unknown_would_pick_ambiguous()
+    {
+        // CSV-L-6 (v0.11): 攻撃者制御バイト列で UtfUnknown を誤判定させても、BOM が
+        // ある限り UTF-8 (65001, HasBom=true) を返すという invariant を固定する。
+        // 前提: 同じ tail bytes (BOM なし) を単体で渡すと SJIS(932) として判定される
+        // (Detects_shift_jis で確認済) — したがって BOM 前置で UTF-8 になる事実が
+        // 「BOM check が UtfUnknown より前に走っている」ことの回帰保護になる。
+        var sjis = EncodingCatalog.Get(932);
+        var bytes = new byte[] { 0xEF, 0xBB, 0xBF }
+            .Concat(sjis.GetBytes(Jp))
+            .ToArray();
+
+        var r = EncodingDetector.Detect(bytes);
+
+        Assert.Equal(65001, r.CodePage);
+        Assert.True(r.HasBom);
+    }
+
+    [Fact]
+    public void Utf8Bom_priority_survives_short_input()
+    {
+        // CSV-L-6 (v0.11): BOM 単体 (3 バイト) や BOM+1 バイトなど極端に短い入力でも
+        // BOM 検出が最優先で機能する。BOM check を外して strict UTF-8 が先に走ると
+        // (BOM 自体は valid UTF-8 = U+FEFF なので) HasBom=false が返り、この test が
+        // 落ちる = 回帰保護。
+        var bomOnly = new byte[] { 0xEF, 0xBB, 0xBF };
+        var rBomOnly = EncodingDetector.Detect(bomOnly);
+        Assert.Equal(65001, rBomOnly.CodePage);
+        Assert.True(rBomOnly.HasBom);
+
+        var bomPlusOne = new byte[] { 0xEF, 0xBB, 0xBF, 0x41 }; // BOM + 'A'
+        var rBomPlusOne = EncodingDetector.Detect(bomPlusOne);
+        Assert.Equal(65001, rBomPlusOne.CodePage);
+        Assert.True(rBomPlusOne.HasBom);
+    }
 }

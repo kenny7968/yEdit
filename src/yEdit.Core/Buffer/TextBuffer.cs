@@ -22,8 +22,8 @@ public sealed class TextBuffer
     // 空文書なら両方 null)が常に「未変更」になるため、Modified へ OR するフラグで表す。
     private bool _noSavePoint;
 
-    /// <summary>文書上限(§0-1: 既定 int.MaxValue バイト)。テスト注入用。</summary>
-    internal long MaxTotalBytes { get; set; } = int.MaxValue;
+    /// <summary>文書上限(§0-1: 既定 512 MB (2026-07-20 v0.11 引下げ))。テスト注入用。</summary>
+    internal long MaxTotalBytes { get; set; } = 512L * 1024 * 1024;
 
     internal TextBuffer(PieceTree.Node? root)
     {
@@ -133,7 +133,7 @@ public sealed class TextBuffer
             + (insert.Length == 0 ? 0 : Encoding.UTF8.GetByteCount(insert));
         if (newTotalBytes > MaxTotalBytes)
             throw new InvalidOperationException(
-                "文書サイズ上限(int.MaxValueバイト)を超えるため編集できません。"
+                "文書サイズ上限(512 MB)を超えるため編集できません。"
             );
 
         // 3) 挿入テキストを追記バッファへ

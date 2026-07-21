@@ -103,6 +103,15 @@ public class TextBufferBuilderTests
     }
 
     [Fact]
+    public void MaxTotalBytes_default_is_512MB()
+    {
+        // PR-E Task 7 (CSV-L-10): int.MaxValue (~2GB) は攻撃 file を通してしまう。
+        // 512 MB (UTF-16 で 256M chars) に引下げ、TextBuffer 側と統一。
+        var builder = new TextBufferBuilder();
+        Assert.Equal(512L * 1024 * 1024, builder.MaxTotalBytes);
+    }
+
+    [Fact]
     public void Add_Throws_DocumentTooLarge_WhenExceedingCap()
     {
         var builder = new TextBufferBuilder { MaxTotalBytes = 1024 }; // 既存 internal init を活用

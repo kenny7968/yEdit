@@ -1,5 +1,8 @@
+using System.Linq;
+using System.Text;
 using Xunit;
 using yEdit.Core.Settings;
+using yEdit.Core.Text;
 
 namespace yEdit.Core.Tests.Settings;
 
@@ -236,6 +239,41 @@ public class SettingsStoreTests
             File.WriteAllText(path, "{\"PreferredScreenReader\":\"pctalker\",\"TabWidth\":8}");
             var s = SettingsStore.Load(path);
             Assert.Equal(8, s.TabWidth); // 既知キーは通常通り反映
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    // CSV-L-4: 攻撃 settings.json に 10 万件の RecentFiles を仕込まれても Load の後段
+    // (RecentFilesList.Add / メニュー再構築 / 各所の走査)は O(MaxItems) を維持する。
+    // Deserialize 自体は System.Text.Json の仕様で O(N)(緩和不能)。Normalize 段階で Truncate してそれ以降を封じる。
+    [Fact]
+    public void Load_truncates_recent_files_over_max_items()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            // 10 万件の "C:\\a0.txt".."C:\\a99999.txt" を持つ JSON を組み立てる(直書きで
+            // JsonSerializer.Serialize のセットアップコストを避けつつ、Load の防御を素直に検証する)。
+            var sb = new StringBuilder();
+            sb.Append("{\"RecentFiles\":[");
+            for (int i = 0; i < 100_000; i++)
+            {
+                if (i > 0)
+                    sb.Append(',');
+                sb.Append("\"C:\\\\a").Append(i).Append(".txt\"");
+            }
+            sb.Append("]}");
+            File.WriteAllText(path, sb.ToString());
+
+            var s = SettingsStore.Load(path);
+            Assert.NotNull(s.RecentFiles);
+            Assert.Equal(RecentFilesList.MaxItems, s.RecentFiles!.Count);
+            Assert.Equal(@"C:\a0.txt", s.RecentFiles[0]);
+            Assert.Equal($@"C:\a{RecentFilesList.MaxItems - 1}.txt", s.RecentFiles[^1]);
         }
         finally
         {

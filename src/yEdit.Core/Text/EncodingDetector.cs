@@ -14,6 +14,10 @@ public static class EncodingDetector
         EncodingCatalog.EnsureRegistered();
 
         // ① BOM 確定
+        // CSV-L-6 (v0.11): UTF-8 BOM 優先は、後続の UtfUnknown 誤判定を攻撃者制御バイト列で
+        // 引き起こすスプーフィングを防ぐ意図がある。ここを外して UtfUnknown を先に走らせると
+        // 「BOM 付き UTF-8 が SJIS/EUC 誤判定」の窓が開く。P6 Task 6 で UTF-16 は非対応化
+        // (UTF-16 BOM は検出しない = 常に SJIS フォールバックへ落とす) と決定済み。
         if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
             return new DetectedEncoding(65001, true);
 

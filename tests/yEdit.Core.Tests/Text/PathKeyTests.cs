@@ -19,4 +19,10 @@ public class PathKeyTests
 
     [Fact]
     public void Empty_returns_empty() => Assert.Equal(string.Empty, PathKey.For(""));
+
+    // CSV-L-8 (v0.11): 正規化不能パス（例: 埋め込み NUL 文字）は攻撃者が
+    // 生パスを dedup キーに紛れ込ませるベクタなので、空文字に落として
+    // 「invalid はまとめて 1 件」に集約する。
+    [Fact]
+    public void Invalid_path_returns_empty() => Assert.Equal(string.Empty, PathKey.For("a\0b"));
 }

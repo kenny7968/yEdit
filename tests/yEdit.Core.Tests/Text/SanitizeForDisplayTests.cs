@@ -385,4 +385,73 @@ public class SanitizeForDisplayTests
     {
         Assert.Equal("a😀b\nc", SanitizeForDisplay.MultiLine("a😀b\nc"));
     }
+
+    // ---------- ContainsSanitizableControlChar ----------
+    // UIA-M-1 で「制御文字を含むかどうか」を明確に判定するためのヘルパ。
+    // Format / LineSeparator / ParagraphSeparator / Control のいずれかを含めば true。
+
+    [Fact]
+    public void ContainsSanitizableControlChar_Null_ReturnsFalse() =>
+        Assert.False(SanitizeForDisplay.ContainsSanitizableControlChar(null));
+
+    [Fact]
+    public void ContainsSanitizableControlChar_Empty_ReturnsFalse() =>
+        Assert.False(SanitizeForDisplay.ContainsSanitizableControlChar(""));
+
+    [Theory]
+    [InlineData("hello world")]
+    [InlineData("abc123")]
+    [InlineData("path/to/file.txt")]
+    [InlineData("日本語")]
+    [InlineData(" leading and trailing ")]
+    public void ContainsSanitizableControlChar_CleanText_ReturnsFalse(string s) =>
+        Assert.False(SanitizeForDisplay.ContainsSanitizableControlChar(s));
+
+    [Fact]
+    public void ContainsSanitizableControlChar_Rlo_ReturnsTrue()
+    {
+        // U+202E (RLO) は Format カテゴリ
+        Assert.True(SanitizeForDisplay.ContainsSanitizableControlChar("a‮b"));
+    }
+
+    [Fact]
+    public void ContainsSanitizableControlChar_Cr_ReturnsTrue() =>
+        Assert.True(SanitizeForDisplay.ContainsSanitizableControlChar("a\rb"));
+
+    [Fact]
+    public void ContainsSanitizableControlChar_Lf_ReturnsTrue() =>
+        Assert.True(SanitizeForDisplay.ContainsSanitizableControlChar("a\nb"));
+
+    [Fact]
+    public void ContainsSanitizableControlChar_Tab_ReturnsTrue() =>
+        Assert.True(SanitizeForDisplay.ContainsSanitizableControlChar("a\tb"));
+
+    [Fact]
+    public void ContainsSanitizableControlChar_LineSeparator_U2028_ReturnsTrue() =>
+        Assert.True(SanitizeForDisplay.ContainsSanitizableControlChar("a\u2028b"));
+
+    [Fact]
+    public void ContainsSanitizableControlChar_ParagraphSeparator_U2029_ReturnsTrue() =>
+        Assert.True(SanitizeForDisplay.ContainsSanitizableControlChar("a\u2029b"));
+
+    [Fact]
+    public void ContainsSanitizableControlChar_Bom_UFEFF_ReturnsTrue() =>
+        Assert.True(SanitizeForDisplay.ContainsSanitizableControlChar("﻿hello"));
+
+    [Fact]
+    public void ContainsSanitizableControlChar_NullByte_ReturnsTrue() =>
+        Assert.True(SanitizeForDisplay.ContainsSanitizableControlChar("a\0b"));
+
+    [Fact]
+    public void ContainsSanitizableControlChar_Del_ReturnsTrue() =>
+        Assert.True(SanitizeForDisplay.ContainsSanitizableControlChar("ab"));
+
+    [Fact]
+    public void ContainsSanitizableControlChar_C1_U0085_ReturnsTrue() =>
+        Assert.True(SanitizeForDisplay.ContainsSanitizableControlChar("a\u0085b"));
+
+    [Fact]
+    public void ContainsSanitizableControlChar_SurrogatePair_Clean_ReturnsFalse() =>
+        // Emoji (U+1F600) は制御ではない
+        Assert.False(SanitizeForDisplay.ContainsSanitizableControlChar("a😀b"));
 }

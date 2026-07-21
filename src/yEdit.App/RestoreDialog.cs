@@ -76,10 +76,43 @@ public sealed class RestoreDialog : Form
             return $"{untitled}{timestamp}{suffix}";
         }
         var fileName = SanitizeForDisplay.OneLine(Path.GetFileName(r.OriginalPath));
-        var dir = SanitizeForDisplay.OneLine(Path.GetDirectoryName(r.OriginalPath) ?? string.Empty);
+        // UIA-M-3 (v0.11): dir が %USERPROFILE% 配下なら "~\..." に縮退する。OneLine を
+        // 先に通してから HomeRelative を適用: OneLine は home 部分(信頼済み文字列)を変えず、
+        // 攻撃者制御の suffix 側の BiDi/format 制御を先に除去する順序が安全。
+        var dir = HomeRelative(
+            SanitizeForDisplay.OneLine(Path.GetDirectoryName(r.OriginalPath) ?? string.Empty)
+        );
         // HIGH-2 視認性強化: フルパスを 1 行に併記し、復元先ディレクトリを利用者が識別できるようにする。
         // SR 互換のため OwnerDraw で 2 段化はせず、" — " 区切りの 1 行に留める(header 冒頭コメント準拠)。
         return $"{fileName} — {ElideMiddle(dir, maxLen: 60)}{timestamp}{suffix}";
+    }
+
+    /// <summary>
+    /// UIA-M-3 (v0.11): ディレクトリパスが %USERPROFILE% 配下なら先頭を "~" に置換して縮退表示する。
+    /// 位置づけは「SR 発話が短くなり、スピーカー越しの周囲漏れも減る」純粋 UX/プライバシー改善
+    /// (UIA クライアントは本文丸ごと読めるためセキュリティ利得はない=設計 §PR-G (2) 参照)。
+    /// 判定は Windows のパス比較セマンティクスに合わせ <see cref="StringComparison.OrdinalIgnoreCase"/>。
+    /// 完全一致 or 直後がパス区切り (Path.DirectorySeparatorChar / AltDirectorySeparatorChar) でなければ
+    /// 縮退しない(例: home = "%USERPROFILE%" 直下の隣接プロファイル風パスを "~Friend\..." に化かさない)。
+    /// ホームプロファイル外のパスはそのまま返す。テスト都合で <c>internal</c>。
+    /// </summary>
+    internal static string HomeRelative(string dir)
+    {
+        if (string.IsNullOrEmpty(dir))
+            return string.Empty;
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrEmpty(home))
+            return dir;
+        if (!dir.StartsWith(home, StringComparison.OrdinalIgnoreCase))
+            return dir;
+        // 完全一致 = home 直下の bare ケース(dir がそのままユーザプロファイル)。
+        if (dir.Length == home.Length)
+            return "~";
+        char boundary = dir[home.Length];
+        if (boundary == Path.DirectorySeparatorChar || boundary == Path.AltDirectorySeparatorChar)
+            return "~" + dir[home.Length..];
+        // 「同名プレフィックス」の隣接プロファイル風パスは縮退しない(false positive 回避)。
+        return dir;
     }
 
     /// <summary>BK-M-3: path-only fallback record の Describe 末尾に付ける marker。

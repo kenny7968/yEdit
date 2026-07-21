@@ -377,7 +377,9 @@ public sealed class BackupCoordinator : IDisposable
                 doc.State.Path ?? $"<untitled-{doc.State.UntitledNumber}>",
                 200
             );
-            _trace.Warn("backup-content-skipped", pathKey, ex: null);
+            // BK-M-3 I-1: sizeChars を detail に折り込む(閾値ぎりぎり vs 遥かに超えの区別が付き
+            // 閾値チューニング診断が可能になる)。追加する " (Nchars)" は自コード生成 = sanitize 不要。
+            _trace.Warn("backup-content-skipped", pathKey + $" ({content.Length}chars)", ex: null);
             persistContent = null;
         }
         var rec = BuildRecord(info.Id, doc, persistContent);

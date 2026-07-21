@@ -955,11 +955,14 @@ public class BackupCoordinatorTests
             var write = Assert.Single(host.Writer.Writes);
             Assert.Null(write.Content); // path-only=Content は null で保存
             // メタ (Path/CodePage 等) は通常通り書かれる=RestoreDialog に「無題」として現れる
-            Assert.Equal(0, write.CodePage == 0 ? 0 : 65001 - write.CodePage); // sanity: 65001 (UTF-8) が入る
+            Assert.Equal(65001, write.CodePage); // sanity: 65001 (UTF-8) が入る
 
             var warn = Assert.Single(host.Trace.Warnings);
             Assert.Equal("backup-content-skipped", warn.Category);
             Assert.Null(warn.Ex); // ex=null (size cap は正常系の分岐で例外ではない)
+            // BK-M-3 I-1: detail に content.Length が含まれる=閾値チューニング診断のための size ヒント。
+            // "hello world" は 11 chars なので "11chars" の substring が含まれる。
+            Assert.Contains("11chars", warn.Detail, StringComparison.Ordinal);
         });
 
     [Fact]
@@ -978,7 +981,9 @@ public class BackupCoordinatorTests
             var warn = Assert.Single(host.Trace.Warnings);
             Assert.Equal("backup-content-skipped", warn.Category);
             Assert.Contains("<untitled-", warn.Detail); // プレースホルダ形式が使われる
-            Assert.EndsWith(">", warn.Detail);
+            // BK-M-3 I-1: sizeChars が追記された影響で末尾は ")" になる=EndsWith ではなく Contains で
+            // プレースホルダ閉じ ">" の存在のみを検証する。
+            Assert.Contains(">", warn.Detail, StringComparison.Ordinal);
         });
 
     [Fact]

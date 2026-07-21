@@ -235,6 +235,32 @@ public class AnnouncerTests
             Assert.Equal("hello", label.Text);
         });
 
+    /// <summary>UIA-L-2 I-1 fixup: <see cref="UiaAnnouncer.RaiseCore"/> が
+    /// <see cref="ObjectDisposedException"/> を投げる=Label 破棄直後 race の想定内経路を pin。
+    /// 個別 catch (silent 継続) が拾って trace には落とさない invariant を機械固定する。</summary>
+    private sealed class ObjectDisposedThrowingAnnouncer : UiaAnnouncer
+    {
+        public ObjectDisposedThrowingAnnouncer(Label label, IUiaTraceSink trace)
+            : base(label, clock: null, trace: trace) { }
+
+        protected override void RaiseCore(string message) =>
+            throw new ObjectDisposedException("test");
+    }
+
+    [Fact]
+    public void Say_RaiseThrowsObjectDisposedException_DoesNotFireTraceSink() =>
+        Sta.Run(() =>
+        {
+            // teardown race (ObjectDisposedException) は期待済み経路=trace に載せない invariant を pin。
+            // 将来の refactor で ObjectDisposedException が Exception catch に落ちて silent 継続 →
+            // trace 発火に変わっても、この test が落として気づけるようにする (UIA-L-2 I-1 fixup)。
+            using var label = new Label();
+            var trace = new FakeUiaTraceSink();
+            var announcer = new ObjectDisposedThrowingAnnouncer(label, trace);
+            announcer.Say("hello");
+            Assert.Empty(trace.Warnings);
+        });
+
     [Fact]
     public void Say_ThirdCall_AfterTrailingFires_RaisesImmediately() =>
         Sta.Run(() =>

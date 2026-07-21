@@ -156,7 +156,15 @@ internal class UiaAnnouncer : IAnnouncer
         catch (Exception ex)
         {
             // UIA-L-2: 想定外例外は trace に落として観測可能にしつつ silent 継続。
-            _trace?.Warn("raise-automation-notification", "label UIA notification failed", ex);
+            // I-1 fixup: trace sink 自身 (Debug/Trace listener I/O・formatting 等) が投げても
+            //            本体 (edit 経路) には影響させない=元 `catch { }` の握りつぶし契約を維持する。
+            try
+            {
+                _trace?.Warn("raise-automation-notification", "label UIA notification failed", ex);
+            }
+            catch
+            { /* trace sink 自身が投げても本体には影響させない (UIA-L-2 I-1 fixup) */
+            }
         }
     }
 

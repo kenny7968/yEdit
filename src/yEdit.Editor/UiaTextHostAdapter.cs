@@ -248,13 +248,21 @@ internal class UiaTextHostAdapter : IUiaTextHost
         catch (Exception ex)
         {
             // UIA-L-2: UIA サーバ側の失敗は本体に影響させない=trace で観測可能にしつつ silent 継続。
-            _trace?.Warn(
-                "raise-automation-event",
-                ev?.ProgrammaticName
-                    ?? ev?.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                    ?? "unknown",
-                ex
-            );
+            // I-1 fixup: trace sink 自身 (Debug/Trace listener I/O・formatting 等) が投げても
+            //            本体 (編集経路) には影響させない=元 `catch { }` の握りつぶし契約を維持する。
+            try
+            {
+                _trace?.Warn(
+                    "raise-automation-event",
+                    ev?.ProgrammaticName
+                        ?? ev?.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        ?? "unknown",
+                    ex
+                );
+            }
+            catch
+            { /* trace sink 自身が投げても本体には影響させない (UIA-L-2 I-1 fixup) */
+            }
         }
     }
 

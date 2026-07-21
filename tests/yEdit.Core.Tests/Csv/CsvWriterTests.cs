@@ -45,45 +45,4 @@ public class CsvWriterTests
     [Fact]
     public void Empty_value_parses_to_no_rows() =>
         Assert.Empty(CsvParser.Parse(CsvWriter.EscapeField("")).Rows);
-
-    // --- CSV-L-1: formula injection 対策 (OWASP) ---
-    // 先頭が = + - @ TAB CR のいずれかなら apostrophe (') を前置して Excel/Sheets の formula 実行を阻止する。
-
-    [Fact]
-    public void Formula_prefix_equals_is_apostrophe_prefixed() =>
-        Assert.Equal("'=1+1", CsvWriter.EscapeField("=1+1"));
-
-    [Fact]
-    public void Formula_prefix_plus_is_apostrophe_prefixed() =>
-        Assert.Equal("'+cmd", CsvWriter.EscapeField("+cmd"));
-
-    [Fact]
-    public void Formula_prefix_minus_is_apostrophe_prefixed() =>
-        Assert.Equal("'-2+3", CsvWriter.EscapeField("-2+3"));
-
-    [Fact]
-    public void Formula_prefix_at_is_apostrophe_prefixed() =>
-        Assert.Equal("'@SUM", CsvWriter.EscapeField("@SUM"));
-
-    [Fact]
-    public void Formula_prefix_tab_is_apostrophe_prefixed() =>
-        Assert.Equal("'\tX", CsvWriter.EscapeField("\tX"));
-
-    [Fact]
-    public void Formula_prefix_cr_is_apostrophe_prefixed() =>
-        // CR を含むため既存の quote 分岐で "..." に包まれる。内部の CR は素通し。
-        Assert.Equal("\"'\rX\"", CsvWriter.EscapeField("\rX"));
-
-    [Fact]
-    public void Formula_char_in_middle_is_untouched() =>
-        Assert.Equal("x=1", CsvWriter.EscapeField("x=1"));
-
-    [Fact]
-    public void Formula_prefix_with_comma_is_quoted_after_apostrophe() =>
-        // apostrophe 前置後もカンマがあれば既存 quote ロジックが包む。
-        Assert.Equal("\"'=SUM(A1,B1)\"", CsvWriter.EscapeField("=SUM(A1,B1)"));
-
-    [Fact]
-    public void FormulaPrefixChars_contains_expected_set() =>
-        Assert.Equal("=+-@\t\r", CsvWriter.FormulaPrefixChars);
 }

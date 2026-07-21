@@ -44,7 +44,19 @@ internal class UiaAnnouncer : IAnnouncer
     {
         _label.Text = message ?? ""; // 視覚フィードバックは無条件(晴眼/弱視も第一級)。空はクリア
         if (string.IsNullOrEmpty(message))
-            return; // 空は視覚クリアのみ(発声なし)
+        {
+            // 空=視覚クリアのみ(発声なし)。同時に pending trailing もキャンセルする=
+            // T=0 で Say("見つかりました") → T=25ms で Say("2 件目") が throttled/buffered された後
+            // T=30ms で Say("") が来た場合、pending を残すと T=75ms の trailing 発火で SR が古い
+            // "2 件目" を読み上げ、視覚(空)と乖離する。SR/視覚 parity のため trailing もここで潰す。
+            lock (_sync)
+            {
+                _pendingMessage = null;
+                _trailingTimer?.Dispose();
+                _trailingTimer = null;
+            }
+            return;
+        }
 
         var now = _clock.GetUtcNow().UtcDateTime;
         lock (_sync)
@@ -86,7 +98,7 @@ internal class UiaAnnouncer : IAnnouncer
             _lastSaidUtc = _clock.GetUtcNow().UtcDateTime;
         }
         if (msg is null)
-            return; // 併走で Say(null/empty) が入り pending が clear されていた場合の防御 (現契約では起きない)
+            return; // Say(empty) が timer arm と callback 発火の間で pending をキャンセルした場合ここに来る=silent no-op (SR/視覚 parity)。
         InvokeOnUiThread(() => Raise(msg));
     }
 
@@ -101,7 +113,11 @@ internal class UiaAnnouncer : IAnnouncer
         {
             _label.BeginInvoke(action);
         }
-        catch
+        // ObjectDisposedException は InvalidOperationException を継承するため、具体側を先に受ける。
+        catch (ObjectDisposedException)
+        { /* Label が Dispose された直後の race: 視覚のみに縮退 */
+        }
+        catch (InvalidOperationException)
         { /* ハンドル破棄との race: 無害に握り潰す (Raise 自体も try/catch で保護済み) */
         }
     }
@@ -119,8 +135,12 @@ internal class UiaAnnouncer : IAnnouncer
                 message
             );
         }
-        catch
-        { /* 通知非対応環境では視覚表示のみ */
+        // ObjectDisposedException は InvalidOperationException を継承するため、具体側を先に受ける。
+        catch (ObjectDisposedException)
+        { /* Label が Dispose された直後の race: 視覚のみに縮退 */
+        }
+        catch (InvalidOperationException)
+        { /* UIA 非対応環境では視覚表示のみ */
         }
     }
 }

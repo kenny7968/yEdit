@@ -165,6 +165,26 @@ public class AnnouncerTests
         });
 
     [Fact]
+    public void Say_Empty_CancelsPendingTrailingMessage() =>
+        Sta.Run(() =>
+        {
+            using var label = new Label();
+            var clock = new FakeTimeProvider(
+                new DateTimeOffset(2026, 7, 20, 0, 0, 0, TimeSpan.Zero)
+            );
+            var announcer = new RecordingAnnouncer(label, clock);
+            announcer.Say("見つかりました"); // 即 Raise
+            clock.Advance(TimeSpan.FromMilliseconds(25));
+            announcer.Say("2 件目"); // 窓内=throttled/buffered → pending 保持
+            clock.Advance(TimeSpan.FromMilliseconds(5));
+            announcer.Say(""); // 視覚クリア=pending trailing も同時にキャンセル
+            clock.Advance(TimeSpan.FromMilliseconds(100)); // trailing が発火し得た時間帯を大きく越えて進める
+            // trailing は起動しないはず=pending は Say("") でクリア済み。SR/視覚 parity。
+            Assert.Equal(new[] { "見つかりました" }, announcer.Spoken);
+            Assert.Equal("", label.Text);
+        });
+
+    [Fact]
     public void Say_ThirdCall_AfterTrailingFires_RaisesImmediately() =>
         Sta.Run(() =>
         {

@@ -1,18 +1,34 @@
 # セキュリティ強化 v0.11 設計書 — 2026-07-20
 
+## 改定履歴 (2026-07-21)
+
+実装途中で「妥当/過剰」の再分類レビューを実施した。判断基準は yEdit の実際の信頼境界:
+
+1. **他人が作れる入力** (開くファイルの中身・ファイル名) への対策 = 本物のセキュリティ → 維持
+2. **同一ユーザの別プロセス** (%APPDATA% への細工 JSON 配置・junction 作成等) への対策 = 攻撃者が既にユーザ権限でコード実行できている前提で Windows 上に境界はない → 「安価で無害な場合のみ」の防御的多層化に限定。正常運用を壊すリスクと引き換えにしない
+
+この基準で以下を改定した:
+
+- **PR-E**: 実装後に **CSV-L-1** (formula prefix・エディタ用途でデータ破壊) と **CSV-L-7** (AtomicFile reparse 拒否・OneDrive placeholder 誤検知リスク) を revert (コミット `26eccd0` / `68c6ed8`・PR #14)。最終スコープ 5 件
+- **PR-F**: **BK-L-3** (DPAPI 暗号化) をスコープ除外 → 5 件に縮小。初期監査の「over-engineering」判定を復元
+- **PR-G**: **UIA-L-4** (機密検索モード) を削除、**UIA-M-3** は設定 3 択をやめ設定なしの HomeRelative 既定化のみ (UX 改善扱い)、**UIA-M-1** から 80 文字切詰めを削除 (sanitize のみ)、**UIA-M-4** から dedupe を削除 (throttle + trailing timer のみ) → 6 件・新規設定項目ゼロ
+- **GHSA**: 起票を「信頼境界を跨ぐ修正」に限定し 5 件 → 2 件 (MD-M-2 / MD-M-4)
+
+詳細な根拠は各 PR 節と「対象外」節を参照。
+
 ## 背景
 
 `v0.2.0-sec` (HIGH 6 件・PR #2〜#6) と `v0.3.0-sec` (P0 MEDIUM 6 件・PR #7〜#11) で SECURITY.md 対象範囲の主要な穴は塞いだ。残りの MEDIUM/LOW は [`2026-07-19-security-hardening-medium-low.md`](./2026-07-19-security-hardening-medium-low.md) で再監査済みで、次リリース候補 (P1 MEDIUM 5)・対応推奨 LOW (3)・様子見 LOW (多数) に分類されていた。
 
-本設計書は、それらの中から **コード修正可能な全 26 件** を `v0.11` として一括で塞ぐ計画をまとめる。実装は別セッションで SDD (Subagent-Driven Development) により 4 PR に分けて実施する。
+本設計書は、それらの中から **コード修正可能な全 26 件** を `v0.11` として一括で塞ぐ計画をまとめる (2026-07-21 改定で 22 件に縮小 — 冒頭「改定履歴」参照)。実装は別セッションで SDD (Subagent-Driven Development) により 4 PR に分けて実施する。
 
 ## Goal
 
-`v0.11` として、audit doc で「コード対応可」と判定された 26 件 (P1 MEDIUM 5 + B 内コード可 2 + 対応推奨 LOW 3 + 様子見 LOW 16) の脆弱性/堅牢化項目を 4 PR に分割して塞ぎ、GitHub Releases へ zip + SHA256 を配布する。
+`v0.11` として、audit doc で「コード対応可」と判定された項目のうち **改定後 22 件** (当初 26 件 − 2026-07-21 改定での除外 4 件 = CSV-L-1 / CSV-L-7 / BK-L-3 / UIA-L-4) を 4 PR に分割して塞ぎ、GitHub Releases へ zip + SHA256 を配布する。
 
 ## 対象外
 
-以下は本 v0.11 スコープに含めない (audit doc で「仕様上不可避」判定):
+以下は本 v0.11 スコープに含めない (audit doc で「仕様上不可避」判定、または 2026-07-21 改定で過剰と判定):
 
 - **UIA-M-2**: `TextPattern.DocumentRange.GetText(-1)` による本文露出 — UIA の仕様
 - **UIA-L-5**: WebView2 Chromium 由来 UIA プロバイダ — Edge/Chrome 同等仕様、抑止不能
@@ -23,6 +39,13 @@
 - **CSV-L-9**: UtfUnknown detector timeout なし — 64KB prefix で入力上限あり (既に緩和)
 - **CSV-L-3**: `AtomicFile` の tmp 残骸 — 起動時 sweep で対応可 (v0.12 候補)
 
+2026-07-21 改定での除外 (過剰判定):
+
+- **CSV-L-1** (実装後 revert `26eccd0`): CsvWriter の apostrophe 前置は「Web アプリが信頼できないデータを Excel 向けにエクスポートする」場面の OWASP 対策で、ユーザが自分のデータを編集するエディタに常時 on で適用するとサイレントなデータ破壊になる (負数 `-5` が F2 確定で `'-5` に化ける)。formula injection は本来、表計算ソフト (開く側) の責務
+- **CSV-L-7** (実装後 revert `68c6ed8`): AtomicFile の reparse point 拒否は全保存経路に効くため、OneDrive Files On-Demand placeholder (`IO_REPARSE_TAG_CLOUD` 系) の誤検知で「保存できない」実害リスクがあり、symlink 経由編集の正規ワークフローも壊す。防いでいる攻撃は同一ユーザ書込権限が前提で境界がなく、利得が理論値。復元経路限定の BK-M-1 (OriginalPathValidator) は Untitled フォールバックで実害がないため維持
+- **BK-L-3** (DPAPI 暗号化): 初期監査の「テキストエディタとして over-engineering」判定を復元。`%APPDATA%` は既にユーザ ACL で保護済みで、DPAPI CurrentUser は同一ユーザのマルウェアには無力 (Unprotect を呼べる)。得られるのは「BitLocker なしディスク盗難」程度に対し、スキーマバージョニング + 移行 + プロファイル移動不可 + **プロファイル破損時にバックアップ全損**という新しい故障モードを持ち込み、クラッシュ復元の本来目的 (可用性) と相反する
+- **UIA-L-4** (grep 機密検索モード): UIA-M-2 の通り任意の UIA クライアントがエディタ本文を丸ごと読める仕様である以上、grep プレビューだけ隠しても防御にならない。設定肥大に見合わない
+
 これらは SECURITY.md に「仕様上の限界」節として明記して対応する。
 
 ## Architecture
@@ -31,17 +54,16 @@
 
 **PR 順序** (相互依存を最小化):
 
-1. **PR-D**: Markdown 防御強化 (7 件・最も独立性が高い)
-2. **PR-E**: CSV・Text 完備 (7 件)
-3. **PR-F**: Backup 暗号化+堅牢化 (6 件・DPAPI 導入で最大変更)
-4. **PR-G**: UIA 保護 (7 件・announcer 変更で L5 実機検証が濃い・最後にマージ)
+1. **PR-D**: Markdown 防御強化 (7 件 → 6 件・MD-L-5 は実装後 revert・PR #13 マージ済)
+2. **PR-E**: CSV・Text 完備 (7 件 → 5 件・CSV-L-1/L-7 は実装後 revert・PR #14)
+3. **PR-F**: Backup 堅牢化 (5 件・2026-07-21 改定で BK-L-3 DPAPI を除外)
+4. **PR-G**: UIA 保護 (6 件・2026-07-21 改定で UIA-L-4 を除外・announcer 変更で L5 実機検証が濃い・最後にマージ)
 
 **再利用する seam / helper**:
 
 - `SanitizeForDisplay` (Core.Text) — 全 PR で流用 (制御文字・BiDi・改行の除去)
 - `IReachabilityProbe` (App.Abstractions) — PR-E で流用の可能性 (実装で判断)
 - `PreviewNavigationPolicy` (App) — PR-D 拡張時に参照
-- 新規 seam: `IBackupEncryption` (Core.Backup) — PR-F のみ
 
 ## Tech Stack
 
@@ -53,9 +75,11 @@
 
 ---
 
-## PR-D: Markdown 防御強化 (7 件)
+## PR-D: Markdown 防御強化 (7 件 → 6 件・PR #13 マージ済)
 
-**対象**: MD-M-2 / MD-M-4 / MD-L-1 / MD-L-2 / MD-L-3 / MD-L-4 / MD-L-5
+**対象**: MD-M-2 / MD-M-4 / MD-L-1 / MD-L-2 / MD-L-3 / MD-L-4 / ~~MD-L-5~~
+
+> **注記**: MD-L-5 (拡張子ガード・下記 (5)) は PR #13 内で実装後に revert 済み (`0f0364e`・LOW 深刻度 + 「.txt でメモ→プレビュー」workflow を壊す UX コスト)。以下の設計記述は当初計画の snapshot として残す。
 
 ### 新規/変更ファイル
 
@@ -126,9 +150,11 @@
 
 ---
 
-## PR-E: CSV・Text 完備 (7 件)
+## PR-E: CSV・Text 完備 (7 件 → 改定後 5 件)
 
-**対象**: CSV-L-1 / CSV-L-4 / CSV-L-5 / CSV-L-6 / CSV-L-7 / CSV-L-8 / CSV-L-10
+**対象**: ~~CSV-L-1~~ / CSV-L-4 / CSV-L-5 / CSV-L-6 / ~~CSV-L-7~~ / CSV-L-8 / CSV-L-10
+
+> **改定 (2026-07-21)**: 実装完了後のレビューで CSV-L-1 (下記 (1)) と CSV-L-7 (下記 (5)) を revert した (コミット `26eccd0` / `68c6ed8`・理由は「対象外」節)。以下の設計記述は当初計画の snapshot として残す。
 
 ### 新規/変更ファイル
 
@@ -206,19 +232,17 @@
 
 ---
 
-## PR-F: Backup 暗号化+堅牢化 (6 件)
+## PR-F: Backup 堅牢化 (5 件)
 
-**対象**: BK-M-2 / BK-M-3 / BK-L-3 / BK-L-5 / BK-L-6 / BK-L-8
+**対象**: BK-M-2 / BK-M-3 / BK-L-5 / BK-L-6 / BK-L-8
+
+> **改定 (2026-07-21)**: BK-L-3 (DPAPI 暗号化) をスコープから除外 (理由は「対象外」節)。これに伴い `IBackupEncryption` seam / `DpapiBackupEncryption` / `BackupRecord` のスキーマ変更 (SchemaVersion + EncryptedContent) / Program.cs の DI 登録はすべて不要になり、PR-F は挙動保存的な堅牢化のみの低リスク PR になった。
 
 ### 新規/変更ファイル
 
-- Create: `src/yEdit.Core/Backup/IBackupEncryption.cs` (seam)
-- Create: `src/yEdit.App/DpapiBackupEncryption.cs` (本番実装)
-- Modify: `src/yEdit.Core/Backup/BackupRecord.cs` (SchemaVersion + EncryptedContent フィールド追加)
-- Modify: `src/yEdit.Core/Backup/BackupStore.cs` (session subdir + encryption + trace)
+- Modify: `src/yEdit.Core/Backup/BackupStore.cs` (session subdir + trace)
 - Modify: `src/yEdit.Core/Backup/BackupIdValidator.cs` (lowercase 厳格化)
 - Modify: `src/yEdit.App/BackupCoordinator.cs` (session id + size cap + SanitizeForDisplay 統合)
-- Modify: `src/yEdit.App/Program.cs` (DI 登録)
 - Test: Core.Tests / App.Tests に追記
 
 ### 主要な設計判断
@@ -238,18 +262,9 @@
 - ユーザ視点: 復元ダイアログには「(サイズ超過のため本文は保存されていません — 元ファイルから開き直してください)」と表示
 - 32 MB は「実運用で日常編集される最大 CSV」を大きく超える設定
 
-#### (3) BK-L-3: DPAPI 暗号化
+#### ~~(3) BK-L-3: DPAPI 暗号化~~ — 2026-07-21 改定で除外
 
-- 新 seam: `IBackupEncryption { byte[] Protect(byte[] plain); byte[] Unprotect(byte[] cipher); }`
-- 本番: `DpapiBackupEncryption` が `ProtectedData.Protect/Unprotect(scope: CurrentUser)` を呼ぶ
-- テスト: `FakeBackupEncryption` (XOR や pass-through) で単体テスト可能
-- **スキーマ変更**: `BackupRecord.Content` (string plain) の代替として `EncryptedContent` (byte[] DPAPI ciphertext) を追加。既存 `Content` は残す (backward compat 用に load 側で fallback)
-- **SchemaVersion フィールド追加**: `int SchemaVersion { get; init; } = 2` (v0.11 起点)
-  - v1 (SchemaVersion 未設定 or 1) = plain Content 使用
-  - v2 (SchemaVersion=2) = EncryptedContent 使用 + Content=null
-- 移行: 既存 v1 バックアップは load できる (plain Content を復号なしで使う) が、書込は必ず v2 (暗号化) で行う → 数日で自然に v1 は消える
-- **DPAPI 失敗時**: `Unprotect` 例外は BackupStore.LoadAll の per-file catch (BK-L-6 対応後) で警告ログ + そのレコード skip
-- **key portability**: DPAPI CurrentUser scope なのでユーザプロファイル移動不可 (仕様通り)。SECURITY.md に明記
+初期監査の「over-engineering」判定を復元 (詳細は「対象外」節)。バックアップは従来通り `%APPDATA%` に平文保存 (ユーザ ACL による保護) とし、SECURITY.md の「仕様上の限界」節に明記する。
 
 #### (4) BK-L-5: Trace CRLF injection
 
@@ -274,8 +289,6 @@
 - `BackupStoreTests.LoadAll_EnumeratesAllSessionSubdirs`
 - `BackupStoreTests.DeleteAll_OnlyDeletesOwnSession`
 - `BackupStoreTests.LoadAll_TriggersTraceSink_OnCorruptFile`
-- `DpapiBackupEncryptionTests` (round-trip + `FakeBackupEncryption` seam のテスト)
-- `BackupRecordTests.SchemaVersion_v1_UsesPlainContent`, `v2_UsesEncrypted`
 - `BackupIdValidatorTests.IsValid_False_ForUppercaseHex`
 - `BackupCoordinatorTests.Reconcile_FallsBackToPathOnly_WhenExceedsMaxSize`
 - Session-cleanup test は integration 寄りなので DateTime seam を fake で
@@ -284,62 +297,57 @@
 
 - 3 インスタンス同時起動 → 各セッション独立バックアップ確認 → 1 つで「すべて破棄」→ 他 2 つのライブ影響なし
 - 100 MB CSV を開く → path-only fallback がトレースに出て復元ダイアログでも「本文なし」表示
-- 暗号化: 別ユーザで %APPDATA% ファイルを読んで復号不可を確認 (テスト環境で secondary account 用意可能なら)
-- 復元ダイアログ: v1/v2 混在 backup をロード可能
+- 復元ダイアログ: 旧 flat 配置 (v0.3.0-sec 由来) と session subdir 混在の backup をロード可能
 
 ### 移行/リリースノート要点
 
-- v0.3.0-sec ユーザのバックアップは自動 migrate される (load 時 v1 として読む → write 時 v2 に切替)
-- 別 Windows ユーザプロファイル間で backup 移動は不可 (DPAPI CurrentUser scope)
+- v0.3.0-sec ユーザの既存 flat 配置バックアップは後方互換ロードされる (書込は session subdir へ移行)
 
 ### 想定テスト増分
 
-+30〜35 tests
++18〜24 tests
 
 ---
 
-## PR-G: UIA 保護 (7 件)
+## PR-G: UIA 保護 (6 件)
 
-**対象**: UIA-M-1 / UIA-M-3 / UIA-M-4 / UIA-L-1 / UIA-L-2 / UIA-L-3 / UIA-L-4
+**対象**: UIA-M-1 / UIA-M-3 / UIA-M-4 / UIA-L-1 / UIA-L-2 / UIA-L-3 (~~UIA-L-4~~ は 2026-07-21 改定で除外)
+
+> **改定 (2026-07-21)**: SR の中核 UX (「SR で全文が読めること」は yEdit の存在意義) を毀損しないよう縮小。UIA-M-1 の 80 文字切詰めと UIA-M-4 の dedupe を削除、UIA-M-3 は設定 3 択をやめ設定なしの HomeRelative 既定化 (UX 改善扱い)、UIA-L-4 は削除。**新規設定項目はゼロ**になり、SettingsDialog / SettingsData への変更は不要。
 
 ### 新規/変更ファイル
 
 - Modify: `src/yEdit.Core/Csv/CsvAnnounceFormatter.cs`
 - Modify: `src/yEdit.App/Speech/UiaAnnouncer.cs`
 - Modify: `src/yEdit.App/RestoreDialog.cs`
-- Modify: `src/yEdit.App/GrepResultsWindow.cs` (機密検索モード)
 - Modify: `src/yEdit.Accessibility/TextRangeProviderV2.cs` (FindText チャンク検索)
 - Modify: `src/yEdit.Editor/UiaTextHostAdapter.cs` (trace sink 挿入)
-- Modify: `src/yEdit.App/SettingsDialog.cs` (2 項目追加)
-- Modify: `src/yEdit.Core/Settings/SettingsData.cs` (2 設定項目追加)
 - Test: 各テスト追記
 
 ### 主要な設計判断
 
-#### (1) UIA-M-1: CSV セル発話のサニタイズ
+#### (1) UIA-M-1: CSV セル発話のサニタイズ (切詰めなし)
 
-- `CsvAnnounceFormatter.Cell(f)` 内で `f.Value` に `SanitizeForDisplay.OneLine(v, maxLength: 80)` を適用
+- `CsvAnnounceFormatter.Cell(f)` 内で `f.Value` に `SanitizeForDisplay` の制御文字/RLO 除去を適用
+- **長さ切詰めは行わない** (2026-07-21 改定): 長いセル (住所・備考欄) を全文読むのは SR ユーザの正当な操作であり、現行の発話長挙動を維持する
 - 制御文字を検出した場合は「制御文字を含みます: {先頭 60 文字}」の形式で発話 (完全な dedupe より攻撃気付きを優先)
-- **PR-F と共通の SanitizeForDisplay 拡張は不要** — 既存の `OneLine` で C0/C1/RLO/BOM は全て除去済み
-- テスト: `Cell_TruncatesTo80Chars`, `Cell_ReplacesControlCharsWithMarker`
+- **PR-F と共通の SanitizeForDisplay 拡張は不要** — 既存の `OneLine` で C0/C1/RLO/BOM は全て除去済み。切詰めなしのため `maxLength` は十分大きい値または切詰めなしオーバーロードで呼ぶ (実装で判断)
+- テスト: `Cell_PreservesFullLength_ForLongValues`, `Cell_ReplacesControlCharsWithMarker`
 
-#### (2) UIA-M-3: 復元ダイアログのパス表示縮退
+#### (2) UIA-M-3: 復元ダイアログのパス表示縮退 (設定なし・UX 改善扱い)
 
-- `SettingsData` に新項目 `RestorePathDisplayMode: enum { FullPath, HomeRelative, BasenameOnly }` を追加
-- 既定は `HomeRelative` (`~\Documents\...`)。SR 発話・視認バランス最良
-- `RestoreDialog.Describe` は選択に応じて表示パスを組み立てる
-- `%USERPROFILE%` 置換は `Environment.GetFolderPath(SpecialFolder.UserProfile)` + StartsWith ケース非依存で `~` に差替
-- `AccessibleDescription` は必ず縮退版と同じ文字列 (視覚 / SR の整合)
-- Settings ダイアログの「アクセシビリティ」タブに radio button 3 択で追加
+- **設定項目は追加しない** (2026-07-21 改定): UIA-M-2 の通り UIA クライアントは本文を丸ごと読めるため、パス表示の縮退にセキュリティ利得はない。位置づけは「SR 発話が短くなり、スピーカー越しの周囲漏れも減る」純粋な UX/プライバシー改善
+- `RestoreDialog.Describe` は常に HomeRelative (`~\Documents\...`) で表示。SR 発話・視認バランス最良
+- `%USERPROFILE%` 置換は `Environment.GetFolderPath(SpecialFolder.UserProfile)` + StartsWith ケース非依存で `~` に差替。ユーザプロファイル外のパスはフルパスのまま
+- `AccessibleDescription` は必ず表示と同じ文字列 (視覚 / SR の整合)
 
-#### (3) UIA-M-4: UiaAnnouncer rate limit
+#### (3) UIA-M-4: UiaAnnouncer rate limit (throttle + trailing・dedupe なし)
 
-- `UiaAnnouncer.Say(message)` に 2 段ガード:
-  - Step A: `_lastSaidUtc` から 50 ms 未満なら Label 更新のみ (`RaiseAutomationNotification` skip)
-  - Step B: 直前と同一メッセージなら Raise skip (Label は常に更新)
-- 内部フィールド: `DateTime _lastSaidUtc`, `string? _lastMessage`
-- `IClock` seam 導入で単体テスト可能 (既存 seam があれば流用・なければ新規)
-- テスト: `Say_ThrottlesRaise_When50msWithinPrevious`, `Say_DeduplicatesConsecutiveIdenticalMessages`
+- `UiaAnnouncer.Say(message)` に throttle ガード: `_lastSaidUtc` から 50 ms 未満なら Label 更新のみ (`RaiseAutomationNotification` skip)
+- **trailing timer 必須** (2026-07-21 改定): skip した場合は 50 ms 後に最後の 1 件を必ず Raise する。連打の最終メッセージが失われると「今どこにいるか」が SR に伝わらない
+- **dedupe (直前と同一メッセージなら skip) は行わない** (2026-07-21 改定): 同じセルを意図的に読み直すのは SR の基本操作であり、沈黙させてはならない
+- 内部フィールド: `DateTime _lastSaidUtc` + trailing 用 timer。`IClock` seam 導入で単体テスト可能 (既存 seam があれば流用・なければ新規)
+- テスト: `Say_ThrottlesRaise_When50msWithinPrevious`, `Say_RaisesTrailingMessage_AfterThrottleWindow`, `Say_RepeatsIdenticalMessage_WhenOutsideThrottleWindow`
 
 #### (4) UIA-L-1: FindText チャンク検索
 
@@ -362,37 +370,34 @@
 - 追加 comment in provider file で「hwnd 単位で一意」の invariant を明記
 - 回帰保護のみ (現状で問題なし)
 
-#### (7) UIA-L-4: GrepResultsWindow 機密検索モード
+#### ~~(7) UIA-L-4: GrepResultsWindow 機密検索モード~~ — 2026-07-21 改定で除外
 
-- `SettingsData` に新項目 `GrepSensitiveMode: bool` (既定 false)
-- true 時: preview 200 文字を「(内容非表示 — Enter でエディタジャンプ)」に置換
-- 発話も同様に縮退 (`UiaAnnouncer.Say` に流す text がすでに置換済み)
-- ジャンプ (Enter) 動作は変更なし
-- Settings ダイアログの「アクセシビリティ」タブに checkbox で追加
+UIA-M-2 (本文は UIA 経由で丸ごと読める仕様) により防御価値がなく、設定肥大に見合わない (詳細は「対象外」節)。
 
 ### テスト方針
 
-- Core: `CsvAnnounceFormatterTests` (新規 sanitize 系)
-- App: `UiaAnnouncerTests` (rate limit・dedupe + trace sink)、`RestoreDialogTests` (path display mode)、`GrepResultsWindowTests` (sensitive mode)、`SettingsDataTests` (2 項目デフォルト・serialize)
+- Core: `CsvAnnounceFormatterTests` (新規 sanitize 系・切詰めなし invariant)
+- App: `UiaAnnouncerTests` (throttle + trailing + trace sink)、`RestoreDialogTests` (HomeRelative 表示・AccessibleDescription 一致)
 - Accessibility: `TextRangeProviderV2Tests` (chunk search 境界)
 
 ### L5 実機検証 (必須 — SR 経路変更が濃い)
 
 - NVDA + 悪意 CSV セル: 制御文字を含む CSV でセル移動 → 「制御文字を含みます: ...」発話
-- 復元ダイアログ 3 モード切替 (FullPath/HomeRelative/BasenameOnly) → SR 発話と視覚表示が一致
-- 大量 grep ヒット (10k件) で `Say` 連呼 → SR 応答が遅延しない (rate limit 効果)
+- NVDA + 長文セル (数百文字): 全文が切詰めなしで発話される
+- 復元ダイアログ: HomeRelative 表示 (`~\Documents\...`) と SR 発話が一致
+- 大量 grep ヒット (10k件) で `Say` 連呼 → SR 応答が遅延しない (throttle 効果) かつ**最後の発話が必ず届く** (trailing 確認)
+- 同一セルへ移動し直し → 同じ内容が再発話される (dedupe を入れていないことの確認)
 - FindText で 100 MB テキスト → 検索完走・OOM 出ず
-- 機密検索モード on/off で grep preview 発話内容切替確認
 
 ### 想定テスト増分
 
-+30〜40 tests
++20〜28 tests
 
 ---
 
 ## リスク / 巻き戻し方針
 
-- **DPAPI 導入 (BK-L-3)** がロールバック困難な唯一の項目 → PR-F を PR-G より前にマージ・問題発生時は PR-F revert で v0.3.0-sec 同等に戻せる (BackupRecord に v1/v2 schema バージョンあり)
+- **BK-L-3 (DPAPI) の除外により、ロールバック困難な項目は消滅** (2026-07-21 改定)。全 PR が独立 revert 可能
 - **Session subdirectory (BK-M-2)** は既存 flat subdir を後方互換ロードすれば移行済ユーザも継続動作
 - **MD-M-2 の CSP HTTP ヘッダ配信** は WebResourceRequested 依存 → WebView2 未インストール環境では meta CSP fallback で機能維持
 - **CSV-L-10 (MaxTotalBytes 512 MB)** は超過ファイルを開けなくする変更 → リリースノートで明示・実運用影響は極稀
@@ -416,17 +421,16 @@ git push origin v0.11
 
 release.yml が発火 → zip + SHA256 → GitHub Releases 公開。
 
-### Step R.3: GitHub Security Advisory 起票 (P1 MEDIUM 5 件分)
+### Step R.3: GitHub Security Advisory 起票 (2 件)
 
-GitHub UI から Security → Advisories → New draft security advisory を 5 回。各 advisory は:
+> **改定 (2026-07-21)**: advisory は「信頼境界を跨ぐ修正」(悪意ファイルを開くだけで成立する攻撃面) に限定する。BK-M-2 (攻撃者経路なしの friendly-fire)・BK-M-3 (ユーザ自身の巨大ファイルが前提)・UIA-M-4 (弱シナリオの DoS 緩和) は advisory ノイズになるため起票せず、リリースノート記載に留める。
+
+GitHub UI から Security → Advisories → New draft security advisory を 2 回。各 advisory は:
 
 - タイトル: 対応した MEDIUM の要約
 - CWE 参照:
   - MD-M-2 (CSP 単層) = CWE-693 (Protection Mechanism Failure)
   - MD-M-4 (WebView2 UserDataFolder) = CWE-668 (Exposure of Resource to Wrong Sphere)
-  - BK-M-2 (複数インスタンス破棄) = CWE-284 (Improper Access Control)
-  - BK-M-3 (バックアップサイズ無制限) = CWE-400 (Uncontrolled Resource Consumption)
-  - UIA-M-4 (Announcer rate limit) = CWE-400
 - 影響バージョン: `< v0.11`
 - 修正版: `v0.11`
 - コミット SHA を各 advisory に貼る
@@ -441,33 +445,35 @@ LOW は advisory 起票せず SECURITY.md 記載で対応。
 + ### v0.11 (2026-07-XX) で修正済
 + - Markdown プレビューの CSP 複層化 (HTTP ヘッダ配信・data: 画像禁止)
 + - WebView2 UserDataFolder の per-form 化 (Cookie / IndexedDB / Service Worker の共有解消)
-+ - バックアップの DPAPI 暗号化 + セッション別サブディレクトリ + サイズ上限
-+ - UIA アナウンサーの rate limit + CSV 攻撃者制御コンテンツのサニタイズ
-+ - CSV Writer の formula injection 対策 + AtomicFile の symlink follow 抑止
-+ - その他 LOW 20 件 (詳細は docs/plans/2026-07-20-security-hardening-v011-design.md)
++ - バックアップのセッション別サブディレクトリ + サイズ上限
++ - UIA アナウンサーの rate limit (trailing 保証) + CSV 攻撃者制御コンテンツのサニタイズ
++ - その他 LOW (詳細は docs/plans/2026-07-20-security-hardening-v011-design.md)
 
-### 仕様上の限界 (コード修正不可 — 設計上の制約として明記)
+### 仕様上の限界 (コード修正不可 or 意図的に対応しない — 設計上の制約として明記)
 
 - UIA-M-2: UIA `TextPattern.DocumentRange.GetText(-1)` は同一ユーザ他プロセスから読める仕様 (Windows のアクセシビリティ設計)
 - UIA-L-5: WebView2 の Chromium 由来 UIA プロバイダはプレビュー DOM を露出する (Edge / Chrome と同等仕様・抑止不能)
 - UIA-L-6: `TextChangedEvent` 経由の keylogger 粒度 (IME 未確定は隠蔽済・Commit 単位が上限)
 - CSV-L-2: LineEnding 検出の 4 KB 窓 (Windows テキストエディタとして意図的挙動)
+- BK-L-3: バックアップは `%APPDATA%` に平文保存 (ユーザ ACL による保護。DPAPI は同一ユーザのマルウェアに無力で、プロファイル破損時のバックアップ全損リスクに見合わないため見送り)
+- CSV-L-1: CSV formula injection (先頭 `=` 等のセル) への apostrophe 前置は行わない (エディタがユーザデータを書き換えるのは有害。表計算ソフト側の責務)
+- CSV-L-7: symlink / junction / OneDrive placeholder 越しの保存は許容 (reparse point 拒否は OneDrive 誤検知・正規 symlink ワークフロー破壊のリスクが利得を上回る)
 + 詳細は GitHub Security Advisory を参照
 ```
 
 ### Step R.5: メモリ更新
 
-- `memory/security-hardening-v011-complete.md` を新規作成 (P1 MEDIUM 5 + LOW 21 全解消・PR/コミット SHA・実装期間・L5 結果・GHSA 番号)
+- `memory/security-hardening-v011-complete.md` を新規作成 (改定後 22 件 = P1 MEDIUM 5 + LOW 17 解消・見送り 4 件の理由・PR/コミット SHA・実装期間・L5 結果・GHSA 番号)
 - `MEMORY.md` の index に 1 行追加
 
 ## 完了条件
 
-- [ ] PR-D 〜 PR-G 全 4 PR が `main` にマージ済
+- [ ] PR-D 〜 PR-G 全 4 PR が `main` にマージ済 (PR-D #13 済・PR-E #14)
 - [ ] `tools/pre-merge-check.ps1` が最終状態で全緑・0 warnings
-- [ ] テスト数がベースライン +100〜130 (Core +60 / App +40 / Editor/Accessibility +20)
+- [ ] テスト数: PR-E 時点 1357 (Core 778 / Editor 262 / App 317) から PR-F/PR-G で +38〜52
 - [ ] `v0.11` タグ push・release CI 完走・zip + SHA256 が Releases に公開
-- [ ] GitHub Security Advisory 5 件公開 (P1 MEDIUM 分のみ)
-- [ ] SECURITY.md 更新 (対応済節 + 仕様上の限界節)
+- [ ] GitHub Security Advisory 2 件公開 (MD-M-2 / MD-M-4)
+- [ ] SECURITY.md 更新 (対応済節 + 仕様上の限界節・2026-07-21 改定の見送り 4 件を含む)
 - [ ] メモリ更新
 
 ## 実施しない事項 (明示的除外)

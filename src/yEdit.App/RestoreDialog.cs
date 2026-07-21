@@ -92,8 +92,11 @@ public sealed class RestoreDialog : Form
     /// 位置づけは「SR 発話が短くなり、スピーカー越しの周囲漏れも減る」純粋 UX/プライバシー改善
     /// (UIA クライアントは本文丸ごと読めるためセキュリティ利得はない=設計 §PR-G (2) 参照)。
     /// 判定は Windows のパス比較セマンティクスに合わせ <see cref="StringComparison.OrdinalIgnoreCase"/>。
-    /// 完全一致 or 直後がパス区切り (Path.DirectorySeparatorChar / AltDirectorySeparatorChar) でなければ
-    /// 縮退しない(例: home = "%USERPROFILE%" 直下の隣接プロファイル風パスを "~Friend\..." に化かさない)。
+    /// 完全一致 or 直後がパス区切り (Path.DirectorySeparatorChar) でなければ縮退しない
+    /// (例: home = "%USERPROFILE%" 直下の隣接プロファイル風パスを "~Friend\..." に化かさない)。
+    /// yEdit は net9.0-windows 単一 target で <see cref="Path.GetDirectoryName(string?)"/> は
+    /// AltDirectorySeparatorChar ('/') を返さないため、境界判定は '\\' のみで十分(untested な
+    /// alt-sep 分岐は M-1 fixup で除去済)。
     /// ホームプロファイル外のパスはそのまま返す。テスト都合で <c>internal</c>。
     /// </summary>
     internal static string HomeRelative(string dir)
@@ -109,7 +112,7 @@ public sealed class RestoreDialog : Form
         if (dir.Length == home.Length)
             return "~";
         char boundary = dir[home.Length];
-        if (boundary == Path.DirectorySeparatorChar || boundary == Path.AltDirectorySeparatorChar)
+        if (boundary == Path.DirectorySeparatorChar)
             return "~" + dir[home.Length..];
         // 「同名プレフィックス」の隣接プロファイル風パスは縮退しない(false positive 回避)。
         return dir;

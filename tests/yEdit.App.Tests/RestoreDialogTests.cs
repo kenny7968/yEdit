@@ -239,4 +239,19 @@ public class RestoreDialogTests
         var d = RestoreDialog.Describe(rec);
         Assert.DoesNotContain("~", d, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Describe_ExactUserProfilePath_YieldsBareTilde()
+    {
+        // %USERPROFILE% 直下に保存されたファイル → dir は home 完全一致 → 表示は "~"。
+        // HomeRelative の dir.Length == home.Length 分岐を機械固定 (境界チェック実装後の
+        // "" 返しへの regression を防ぐ)。
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrEmpty(home))
+            return; // 環境依存で home が空のときは skip 相当 (assert しない)
+        var rec = Rec(Path.Combine(home, "readme.txt"));
+        var d = RestoreDialog.Describe(rec);
+        // ElideMiddle は maxLen=60 以下ならそのまま返すので dir="~" が保持される。
+        Assert.Contains("— ~", d, StringComparison.Ordinal);
+    }
 }

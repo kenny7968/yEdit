@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Time.Testing;
+using yEdit.Accessibility;
 using yEdit.App.Speech;
+using FakeUiaTraceSink = yEdit.App.Tests.Fakes.FakeUiaTraceSink;
 
 namespace yEdit.App.Tests;
 
@@ -182,6 +184,55 @@ public class AnnouncerTests
             // trailing は起動しないはず=pending は Say("") でクリア済み。SR/視覚 parity。
             Assert.Equal(new[] { "見つかりました" }, announcer.Spoken);
             Assert.Equal("", label.Text);
+        });
+
+    // ===== UIA-L-2 (PR-G Task 5): Raise catch の可観測化 =====
+
+    /// <summary>UIA-L-2: <see cref="UiaAnnouncer.RaiseCore"/> が例外を投げても
+    /// <see cref="UiaAnnouncer.Raise"/> の catch で <see cref="IUiaTraceSink"/> に落ちる契約を pin する。
+    /// (RaiseAutomationNotification の Windows UIA インフラは opaque なため、RaiseCore seam を
+    /// override して deterministically に「投げる」ケースを作る。)</summary>
+    private sealed class ThrowingRaiseAnnouncer : UiaAnnouncer
+    {
+        public ThrowingRaiseAnnouncer(Label label, IUiaTraceSink? trace)
+            : base(label, clock: null, trace: trace) { }
+
+        // 意図的に「Raise の catch が拾わない」型 (=最終 base Exception catch に落ちる) を投げる。
+        // ObjectDisposedException / InvalidOperationException は個別 catch で silent 継続する契約
+        // (視覚のみに縮退) のため、trace には来ない=別テストで暗黙的に pin 済み (UiaAnnouncer_Say_...)。
+        protected override void RaiseCore(string message) =>
+            throw new NotSupportedException("simulated UIA notification failure");
+    }
+
+    [Fact]
+    public void Say_RaiseThrowsUnexpected_TraceSinkReceivesWarning() =>
+        Sta.Run(() =>
+        {
+            using var label = new Label();
+            var trace = new FakeUiaTraceSink();
+            var announcer = new ThrowingRaiseAnnouncer(label, trace);
+
+            announcer.Say("hello"); // Raise 経路で例外 → catch → trace.Warn
+
+            Assert.Single(trace.Warnings);
+            Assert.Equal("raise-automation-notification", trace.Warnings[0].Category);
+            Assert.Equal("label UIA notification failed", trace.Warnings[0].Detail);
+            Assert.IsType<NotSupportedException>(trace.Warnings[0].Exception);
+            // silent 継続の pin=Say 自体は例外を漏らさない (Assert.Single まで到達している時点で確認済み)。
+            // 視覚 (Label.Text) は Raise が失敗しても更新されている契約 (晴眼/弱視も第一級)。
+            Assert.Equal("hello", label.Text);
+        });
+
+    [Fact]
+    public void Say_RaiseThrows_WithoutTraceSink_StillSwallowsSilently() =>
+        Sta.Run(() =>
+        {
+            using var label = new Label();
+            var announcer = new ThrowingRaiseAnnouncer(label, trace: null);
+            // trace=null でも Say は例外を漏らさない=UIA-L-2 の後方互換性 pin
+            // (既存 caller `new UiaAnnouncer(label)` 経路は trace 未指定=null で本番挙動不変)。
+            announcer.Say("hello");
+            Assert.Equal("hello", label.Text);
         });
 
     [Fact]

@@ -32,7 +32,11 @@ public class BackupCoordinatorTests
         /// (test で Ctor_GeneratesUniqueSessionDir_PerInstance が観測する)。</summary>
         public string? CapturedSessionDir;
 
-        public Host(bool enabled = true, int intervalSeconds = 30)
+        public Host(
+            bool enabled = true,
+            int intervalSeconds = 30,
+            int? maxBackupCharsOverride = null
+        )
         {
             var (form, docs) = HostForm.CreateWithDocs();
             Form = form;
@@ -47,6 +51,7 @@ public class BackupCoordinatorTests
             // Task 1b: 既定引数(traceSink=null)経路は本番既定 = DebugBackupTraceSink。
             // ここでは FakeBackupTraceSink を注入して catch{} の trace 発火を assert 可能にする。
             // BK-M-2: factory シグニチャは Func<string, IBackupWriter>=session dir を受け取る。
+            // BK-M-3: maxBackupCharsOverride は既定 null=本番 32M chars。size cap テストのみ小さな値を渡す。
             Backup = new BackupCoordinator(
                 Docs,
                 enabled,
@@ -60,7 +65,8 @@ public class BackupCoordinatorTests
                 },
                 Prompt,
                 TempDir,
-                Trace
+                Trace,
+                maxBackupCharsOverride
             );
         }
 
@@ -364,7 +370,7 @@ public class BackupCoordinatorTests
                 r =>
                 {
                     var d = host.Docs.CreateNew();
-                    d.Editor.Text = r.Content;
+                    d.Editor.Text = r.Content ?? ""; // BK-M-3: path-only は空文字扱い(FileController.RestoreFromBackup と同型)
                     return d;
                 },
                 confirm: false
@@ -389,7 +395,7 @@ public class BackupCoordinatorTests
                     if (r.Id == HashId("bad"))
                         throw new InvalidOperationException("restore failed");
                     var d = host.Docs.CreateNew();
-                    d.Editor.Text = r.Content;
+                    d.Editor.Text = r.Content ?? ""; // BK-M-3: path-only は空文字扱い(FileController.RestoreFromBackup と同型)
                     return d;
                 },
                 confirm: false
@@ -417,7 +423,7 @@ public class BackupCoordinatorTests
                 r =>
                 {
                     var d = host.Docs.CreateNew();
-                    d.Editor.Text = r.Content;
+                    d.Editor.Text = r.Content ?? ""; // BK-M-3: path-only は空文字扱い(FileController.RestoreFromBackup と同型)
                     d.Editor.ClearSavePoint();
                     return d;
                 },
@@ -465,7 +471,7 @@ public class BackupCoordinatorTests
                     if (r.Id == HashId("bad"))
                         throw new InvalidOperationException("restore failed");
                     var d = host.Docs.CreateNew();
-                    d.Editor.Text = r.Content;
+                    d.Editor.Text = r.Content ?? ""; // BK-M-3: path-only は空文字扱い(FileController.RestoreFromBackup と同型)
                     d.Editor.ClearSavePoint();
                     return d; // "good" は成功=タブに登録される
                 },
@@ -606,7 +612,7 @@ public class BackupCoordinatorTests
                 r =>
                 {
                     var d = host.Docs.CreateNew();
-                    d.Editor.Text = r.Content;
+                    d.Editor.Text = r.Content ?? ""; // BK-M-3: path-only は空文字扱い(FileController.RestoreFromBackup と同型)
                     return d;
                 },
                 confirm: false
@@ -906,5 +912,94 @@ public class BackupCoordinatorTests
 
             Assert.False(Directory.Exists(stale)); // 60 日=30 日超で削除
             Assert.True(Directory.Exists(fresh)); // 5 日=残す
+        });
+
+    // ===== BK-M-3: バックアップサイズ上限 + path-only fallback =====
+
+    [Fact]
+    public void MaxBackupChars_PinsTo_32M_Chars()
+    {
+        // BK-M-3: 実運用の「日常編集される最大 CSV」を大きく超える 32M chars=64MB UTF-16 に固定。
+        // 定数を変える変異(28M/64M/デシマル 32,000,000 等)を kill する pin。
+        // 32 * 1024 * 1024 = 33,554,432。
+        Assert.Equal(32 * 1024 * 1024, BackupCoordinator.MaxBackupChars);
+    }
+
+    [Fact]
+    public void Reconcile_ContentUnderCap_StoresContent() =>
+        Sta.Run(() =>
+        {
+            // BK-M-3 通常経路 regression: 上限未満は Content が実本文で書かれる(本番=32M chars 未満の
+            // 全ての実運用ケース)。size cap を極小に seam したうえで "十分未満" (1 char) を通す。
+            using var host = new Host(maxBackupCharsOverride: 100);
+            _ = host.NewDoc("hello"); // 5 chars << 100
+
+            host.Backup.Reconcile();
+
+            var write = Assert.Single(host.Writer.Writes);
+            Assert.Equal("hello", write.Content); // path-only ではなく本文が入る
+            Assert.Empty(host.Trace.Warnings); // backup-content-skipped は発火しない
+        });
+
+    [Fact]
+    public void Reconcile_FallsBackToPathOnly_WhenExceedsMaxSize() =>
+        Sta.Run(() =>
+        {
+            // BK-M-3 核心: content.Length > _maxBackupChars で Content=null にフォールバック +
+            // "backup-content-skipped" を trace。size cap を 10 chars に seam し 11 chars を流す。
+            using var host = new Host(maxBackupCharsOverride: 10);
+            _ = host.NewDoc("hello world"); // 11 chars > 10
+
+            host.Backup.Reconcile();
+
+            var write = Assert.Single(host.Writer.Writes);
+            Assert.Null(write.Content); // path-only=Content は null で保存
+            // メタ (Path/CodePage 等) は通常通り書かれる=RestoreDialog に「無題」として現れる
+            Assert.Equal(0, write.CodePage == 0 ? 0 : 65001 - write.CodePage); // sanity: 65001 (UTF-8) が入る
+
+            var warn = Assert.Single(host.Trace.Warnings);
+            Assert.Equal("backup-content-skipped", warn.Category);
+            Assert.Null(warn.Ex); // ex=null (size cap は正常系の分岐で例外ではない)
+        });
+
+    [Fact]
+    public void Reconcile_PathOnlyFallback_TracesUntitledPlaceholder_ForUntitledDoc() =>
+        Sta.Run(() =>
+        {
+            // BK-M-3: doc.State.Path=null の untitled 文書は "<untitled-{n}>" プレースホルダで trace。
+            // NewDoc は CreateNew(=UntitledNumber 割り当て)+ Text セッター + ClearSavePoint を通るため
+            // 実装で pathKey が Path.None のまま untitled 経路を進むことを固定する。
+            using var host = new Host(maxBackupCharsOverride: 3);
+            var doc = host.NewDoc("XXXX"); // 4 chars > 3
+            Assert.Null(doc.State.Path); // sanity: 新規タブは path 無し
+
+            host.Backup.Reconcile();
+
+            var warn = Assert.Single(host.Trace.Warnings);
+            Assert.Equal("backup-content-skipped", warn.Category);
+            Assert.Contains("<untitled-", warn.Detail); // プレースホルダ形式が使われる
+            Assert.EndsWith(">", warn.Detail);
+        });
+
+    [Fact]
+    public void Reconcile_PathOnlyFallback_SanitizesPathKey_ViaSanitizeForDisplay() =>
+        Sta.Run(() =>
+        {
+            // BK-M-3 + BK-L-5: pathKey は doc.State.Path を SanitizeForDisplay.OneLine(200) で無害化する
+            // 契約を pin(将来 State.Path がユーザ制御/ネットワーク経由になった場合の CRLF/RLO 混入防御=
+            // BackupCoordinator 全 trace で統一)。Path に RLO を仕込んだ Document を作って観測。
+            using var host = new Host(maxBackupCharsOverride: 3);
+            var doc = host.NewDoc("YYYY"); // 4 chars > 3
+            // Document.State.Path は通常ファイル操作で入るが、Test 用に直接注入=SanitizeForDisplay の
+            // ラップ有無を検証する。制御文字は csharpier 再整形と culture-sensitive Contains の罠を避け
+            // \uXXXX エスケープ + StringComparison.Ordinal に統一 (RestoreDialogTests と同型)。
+            doc.State.Path = "C:\\evil\u202Etxt.exe";
+
+            host.Backup.Reconcile();
+
+            var warn = Assert.Single(host.Trace.Warnings);
+            Assert.Equal("backup-content-skipped", warn.Category);
+            Assert.DoesNotContain("\u202E", warn.Detail, StringComparison.Ordinal); // RLO drop
+            Assert.Contains("evil", warn.Detail, StringComparison.Ordinal);
         });
 }

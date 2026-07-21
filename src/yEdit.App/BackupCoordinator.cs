@@ -25,8 +25,21 @@ public sealed class BackupCoordinator : IDisposable
         public bool ForceWrite; // 前回の背景書込が失敗 → 次 tick で強制再書込(陳腐化・欠落を防ぐ)
     }
 
+    /// <summary>BK-M-3 (v0.11): バックアップに載せる本文の上限 (chars=UTF-16 code units)。
+    /// 32M chars = 64 MB UTF-16 相当。日常編集の CSV / ログを大きく超える。上限超過時は
+    /// <see cref="BackupRecord.Content"/>=null (path-only) にフォールバックし、
+    /// <see cref="_trace"/>.Warn("backup-content-skipped", ...) で診断可能にする。
+    /// テストから <see cref="Reconcile"/> の分岐を機械的に叩けるよう、ctor 経由で override 可能な
+    /// seam (<see cref="_maxBackupChars"/>) を追加している(既定=この定数)。</summary>
+    internal const int MaxBackupChars = 32 * 1024 * 1024;
+
     private readonly DocumentManager _docs;
     private readonly string _dir;
+
+    /// <summary>BK-M-3: 実行時の size cap。既定は <see cref="MaxBackupChars"/>。ctor の
+    /// optional 引数 <c>maxBackupCharsOverride</c> でテスト時に小さな値へ差し替え、実際に
+    /// 32M chars 相当のバッファを alloc せずに fallback 分岐を検証する。</summary>
+    private readonly int _maxBackupChars;
 
     /// <summary>BK-M-2: 自セッション用 subdirectory (<c>%APPDATA%\yEdit\backups\session-{Guid.N}\</c>)。
     /// ctor で生成しプロセス寿命で不変。SerialBackupWriter へ渡す書込先はこの subdir に閉じ、
@@ -58,7 +71,8 @@ public sealed class BackupCoordinator : IDisposable
         Func<string, IBackupWriter> writerFactory,
         IRestorePrompt restorePrompt,
         string? directory = null,
-        IBackupTraceSink? traceSink = null
+        IBackupTraceSink? traceSink = null,
+        int? maxBackupCharsOverride = null
     )
     {
         _docs = docs;
@@ -67,6 +81,10 @@ public sealed class BackupCoordinator : IDisposable
         _writerFactory = writerFactory;
         _restorePrompt = restorePrompt;
         _dir = directory ?? BackupStore.DefaultDirectory;
+        // BK-M-3: 既定は MaxBackupChars。テストが小さな値を渡すと Reconcile の fallback 分岐を
+        // 実際に 32M chars alloc せずに叩ける。負値は意図しない無効化を招くので 0 未満は defensive に
+        // 既定へ戻す(既定 32M chars = 実運用上ほぼ超えない=本番挙動不変)。
+        _maxBackupChars = maxBackupCharsOverride is int mo && mo >= 0 ? mo : MaxBackupChars;
         // BK-M-2: セッション別 subdir を ctor で生成 (プロセス寿命で不変)。
         // 別インスタンスと衝突しない一意名として Guid.N (32 桁 hex)。session- prefix で LoadAll /
         // SweepOldSessions が識別する契約(prefix を変えると sweep 対象から外れて孤児が溜まる)。
@@ -343,14 +361,30 @@ public sealed class BackupCoordinator : IDisposable
     }
 
     /// <summary>書込ジョブを投入する。失敗時は Adapter が OnWriteFailed 経由で Id を _failed へ積み、
-    /// 次 Reconcile で強制再書込する。</summary>
+    /// 次 Reconcile で強制再書込する。
+    /// BK-M-3: content.Length が上限 (<see cref="_maxBackupChars"/>) を超える場合は Content=null の
+    /// path-only record にフォールバックし、_trace に "backup-content-skipped" を出す。ContentSignature の
+    /// 判定は Reconcile 側で実 content から計算済みなので、ここで null に落としても sig(false-negative)
+    /// は起きない(次 tick で内容が上限以下に戻れば通常経路で Write が再走る)。</summary>
     private void EnqueueWrite(DocBackup info, Document doc, string content)
     {
-        var rec = BuildRecord(info.Id, doc, content);
+        string? persistContent = content;
+        if (content.Length > _maxBackupChars)
+        {
+            // pathKey: doc.State.Path が null (untitled) の場合はプレースホルダ。
+            // SanitizeForDisplay.OneLine(200) で BiDi/改行/過剰長を無害化 (BackupCoordinator 全 trace で統一)。
+            var pathKey = SanitizeForDisplay.OneLine(
+                doc.State.Path ?? $"<untitled-{doc.State.UntitledNumber}>",
+                200
+            );
+            _trace.Warn("backup-content-skipped", pathKey, ex: null);
+            persistContent = null;
+        }
+        var rec = BuildRecord(info.Id, doc, persistContent);
         _writer?.Write(rec);
     }
 
-    private BackupRecord BuildRecord(string id, Document doc, string content) =>
+    private BackupRecord BuildRecord(string id, Document doc, string? content) =>
         new(
             Id: id,
             OriginalPath: doc.State.Path,

@@ -79,6 +79,32 @@ public class BackupStoreTests
     }
 
     [Fact]
+    public void Write_then_LoadAll_roundtrips_null_content()
+    {
+        // BK-M-3 (v0.11): 巨大文書は BackupCoordinator で Content=null にフォールバックする。
+        // JSON round-trip で Content=null が保たれる契約を pin (Serialize は "Content": null を出し、
+        // Deserialize は string? = null を復元する)。File 名は正当な GUID N、メタ (Path/CodePage/etc.) は
+        // 通常通り保存されるため復元ダイアログにファイル名は表示され、本文欄のみが空となる。
+        using var t = new TempDir();
+        var rec = new BackupRecord(
+            Id: HashId("big-doc"),
+            OriginalPath: @"C:\docs\huge.csv",
+            UntitledNumber: 0,
+            CodePage: 65001,
+            HasBom: false,
+            LineEndingId: 0,
+            Content: null,
+            TimestampUtc: new DateTime(2026, 7, 21, 12, 0, 0, DateTimeKind.Utc)
+        );
+        BackupStore.Write(t.Root, rec);
+
+        var loaded = Assert.Single(BackupStore.LoadAll(t.Root));
+        Assert.Null(loaded.Content); // path-only fallback: 本文は null で保存・復元
+        Assert.Equal(@"C:\docs\huge.csv", loaded.OriginalPath); // メタは通常通り往復
+        Assert.Equal(HashId("big-doc"), loaded.Id);
+    }
+
+    [Fact]
     public void Write_same_id_overwrites_atomically()
     {
         using var t = new TempDir();

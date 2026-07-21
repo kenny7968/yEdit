@@ -58,23 +58,35 @@ public sealed class RestoreDialog : Form
     /// <see cref="SanitizeForDisplay.OneLine(string?, int)"/> で除去し、ファイル名スプーフィング
     /// と改行注入によるダイアログ表示崩しを塞ぐ(BK-L-4)。path traversal 側面は HIGH-2 側で
     /// 塞ぎ済みという前提で組み立てる。
+    /// BK-M-3 (v0.11): <see cref="BackupRecord.Content"/>=null (path-only fallback) の record は
+    /// 末尾に <see cref="PathOnlyMarker"/> を付加し、ユーザに「本文は保存されていない=元ファイルを
+    /// 開き直す」よう明示する。
     /// テストの都合で <c>internal</c>(<c>App.Tests</c> から Form を作らずに戻り値を検証する
     /// ため。<c>InternalsVisibleTo yEdit.App.Tests</c> で公開)。
     /// </summary>
     internal static string Describe(BackupRecord r)
     {
         string timestamp = $"（{r.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm}）";
+        // BK-M-3: Content=null の record は path-only fallback(サイズ上限超過)。
+        // 末尾に固定マーカーを添え、SR は timestamp の後に「本文なし」旨を読み上げる。
+        string suffix = r.Content is null ? " " + PathOnlyMarker : string.Empty;
         if (r.OriginalPath is null)
         {
             string untitled = r.UntitledNumber > 0 ? $"無題 {r.UntitledNumber}" : "無題";
-            return $"{untitled}{timestamp}";
+            return $"{untitled}{timestamp}{suffix}";
         }
         var fileName = SanitizeForDisplay.OneLine(Path.GetFileName(r.OriginalPath));
         var dir = SanitizeForDisplay.OneLine(Path.GetDirectoryName(r.OriginalPath) ?? string.Empty);
         // HIGH-2 視認性強化: フルパスを 1 行に併記し、復元先ディレクトリを利用者が識別できるようにする。
         // SR 互換のため OwnerDraw で 2 段化はせず、" — " 区切りの 1 行に留める(header 冒頭コメント準拠)。
-        return $"{fileName} — {ElideMiddle(dir, maxLen: 60)}{timestamp}";
+        return $"{fileName} — {ElideMiddle(dir, maxLen: 60)}{timestamp}{suffix}";
     }
+
+    /// <summary>BK-M-3: path-only fallback record の Describe 末尾に付ける marker。
+    /// Content=null (32M chars 超過で本文を保存できなかった record) をユーザに明示する。
+    /// テストからの assertion 用途で internal 公開(文字列直書きの複製を避ける)。</summary>
+    internal const string PathOnlyMarker =
+        "(サイズ超過のため本文は保存されていません — 元ファイルから開き直してください)";
 
     /// <summary>長すぎるディレクトリパスを「先頭…末尾」に省略する。maxLen 以下ならそのまま返す。</summary>
     private static string ElideMiddle(string s, int maxLen)

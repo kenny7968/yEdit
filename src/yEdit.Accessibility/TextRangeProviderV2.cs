@@ -80,7 +80,8 @@ internal sealed class TextRangeProviderV2 : ITextRangeProvider
     // OOM に至るため、64 KB chunks / 1 KB overlap で走査する。
     // overlap は「UIA 経由の検索語 max 512 chars 想定」の 2 倍余裕。
     // 検索語が overlap を越える異常入力に対しては step を text.Length - 1 まで広げて
-    // straddling match を保証する(それでも step <= 0 になる病理的入力は 1 で下限を打つ)。
+    // straddling match を保証する。needle が chunk サイズを越える場合は FindText 冒頭で
+    // 早期 null 返却する (UIA-L-1 M-1 fixup: 10^9 iterations DoS 回避)。
     private const int FindTextChunkSize = 64 * 1024;
     private const int FindTextOverlap = 1024;
 
@@ -91,6 +92,11 @@ internal sealed class TextRangeProviderV2 : ITextRangeProvider
         int e = System.Math.Clamp(_end, 0, host.TextLength);
         if (string.IsNullOrEmpty(text) || s >= e)
             return null!;
+        // 検索語が chunk サイズを超える場合、どの 1 chunk にも収まらないため必ずマッチ不能。
+        // オーバーサイズ needle を明示的に弾くことで、`text.Length > ChunkSize` 時に step=1 に
+        // 落ちて 10^9 回ループする DoS を防ぐ (UIA-L-1 M-1 fixup)。
+        if (text.Length > FindTextChunkSize)
+            return null!;
         var cmp = ignoreCase
             ? System.StringComparison.OrdinalIgnoreCase
             : System.StringComparison.Ordinal;
@@ -99,8 +105,11 @@ internal sealed class TextRangeProviderV2 : ITextRangeProvider
         // オーバーラップさせる。step が正になる範囲であることは Math.Max で保証。
         int overlap = System.Math.Max(FindTextOverlap, text.Length - 1);
         int step = FindTextChunkSize - overlap;
+        // 上のオーバーサイズ guard で text.Length <= FindTextChunkSize は保証済のため、
+        // step = FindTextChunkSize - max(Overlap, text.Length-1) >= 1 が数学的に成立する。
+        // 以下は belt-and-suspenders (万一定数が改変された時の前進停止防止)。
         if (step <= 0)
-            step = 1; // 極端に長い検索語のセーフガード(前進停止を防ぐ)
+            step = 1;
 
         if (!backward)
         {

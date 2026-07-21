@@ -204,6 +204,21 @@ public class TextRangeProviderV2Tests
         return sb.ToString();
     }
 
+    /// <summary>
+    /// 指定 2 オフセットに needle を埋め込んだ長さ totalLen のフィラー文字列を作る。
+    /// backward 検索が rightmost を返すかを差別化するための fixture。
+    /// </summary>
+    private static string BuildTextWithTwoNeedlesAt(int pos1, int pos2, string needle, int totalLen)
+    {
+        var sb = new System.Text.StringBuilder(totalLen);
+        sb.Append('A', totalLen);
+        for (int i = 0; i < needle.Length; i++)
+            sb[pos1 + i] = needle[i];
+        for (int i = 0; i < needle.Length; i++)
+            sb[pos2 + i] = needle[i];
+        return sb.ToString();
+    }
+
     [Fact]
     public void FindText_Forward_MatchAcrossChunkBoundary()
     {
@@ -301,6 +316,59 @@ public class TextRangeProviderV2Tests
             System.Windows.Automation.Text.TextPatternRangeEndpoint.Start
         );
         Assert.Equal(needleAt, startOffset);
+    }
+
+    [Fact]
+    public void FindText_Backward_ReturnsRightmostMatch_AcrossChunks()
+    {
+        // 2 個の needle を配置 (offset 100, 150000) → backward 検索は右側 (150000) を返す。
+        // totalLen=200000 での backward chunk 訪問順は [134464,200000) → [69952,135488) → ...
+        // rightmost needle 150000 は最初に訪問する chunk 内、leftmost needle 100 は最後に
+        // 訪問する chunk 内。backward loop が右→左に走査していない (buggy 左→右) 場合は
+        // 100 が返って test が落ちる = backward semantics を機械固定 (UIA-L-1 M-1 fixup)。
+        const string needle = "yedit";
+        int leftAt = 100;
+        int rightAt = 150_000;
+        int totalLen = 200_000;
+        string text = BuildTextWithTwoNeedlesAt(leftAt, rightAt, needle, totalLen);
+        var p = MakeProvider(text);
+        var r = new TextRangeProviderV2(p, 0, text.Length);
+
+        var found = r.FindText(needle, true, false) as TextRangeProviderV2;
+
+        Assert.NotNull(found);
+        Assert.Equal(needle, found!.GetText(int.MaxValue));
+        var anchor = new TextRangeProviderV2(p, 0, 0);
+        int startOffset = found.CompareEndpoints(
+            TextPatternRangeEndpoint.Start,
+            anchor,
+            TextPatternRangeEndpoint.Start
+        );
+        Assert.Equal(rightAt, startOffset);
+    }
+
+    [Fact]
+    public void FindText_EmptyRange_ReturnsNull()
+    {
+        // s == e (0-length range) は早期 null 返却 (chunk loop に入らない invariant を pin)。
+        var p = MakeProvider("hello world");
+        var r = new TextRangeProviderV2(p, 5, 5);
+        var found = r.FindText("h", false, false);
+        Assert.Null(found);
+    }
+
+    [Fact]
+    public void FindText_NeedleLongerThanChunkSize_ReturnsNull_WithoutSpinning()
+    {
+        // text.Length > FindTextChunkSize は必ず null 返却 (10^9 iterations の DoS 回避 = M-1 fixup)。
+        // 100 KB のバッファを 'a' で埋め、needle は 70 KB (> 64 KB chunk) の 'a' 連鎖。
+        // 早期 return が無いと step=1 で e-s 回近くループするため、test 時間が長引く=間接的にも検知。
+        var buffer = new string('a', 100_000);
+        var p = MakeProvider(buffer);
+        var r = new TextRangeProviderV2(p, 0, buffer.Length);
+        var needle = new string('a', 70_000);
+        var found = r.FindText(needle, false, false);
+        Assert.Null(found);
     }
 
     [Fact]

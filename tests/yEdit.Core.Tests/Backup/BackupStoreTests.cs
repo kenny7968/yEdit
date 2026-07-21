@@ -321,6 +321,189 @@ public class BackupStoreTests
         Assert.Equal(HashId("good"), loaded.Id);
     }
 
+    // -------------------------------------------------------------------------
+    // BK-M-2: セッション別 subdir + 30 日 sweep(BackupStore)
+    // -------------------------------------------------------------------------
+    // 現状のフラット配置(%APPDATA%\yEdit\backups\ 直下)は、複数 yEdit インスタンス同時起動時に
+    // 別インスタンスが「すべて破棄」を選ぶと自インスタンスのライブ backup が消える問題があった。
+    // BK-M-2 は書込先を %APPDATA%\yEdit\backups\session-{Guid.N}\ へ移し、
+    // - LoadAll: 全 session-* subdir + flat 後方互換を列挙(復元候補は全部見せる)
+    // - DeleteSessionDir: 自セッション subdir 限定削除(他インスタンスのライブを守る)
+    // - SweepOldSessions: 30 日以上古い session-* subdir を削除(孤児掃除)
+    // という 3 表面で invariant を保つ。
+
+    [Fact]
+    public void LoadAll_EnumeratesAllSessionSubdirs()
+    {
+        using var t = new TempDir();
+        var sessionA = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        var sessionB = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(sessionA);
+        Directory.CreateDirectory(sessionB);
+        BackupStore.Write(sessionA, Rec("r-a", null, "content-a"));
+        BackupStore.Write(sessionB, Rec("r-b", null, "content-b"));
+
+        var all = BackupStore.LoadAll(t.Root);
+
+        // session-A + session-B の 2 件が集約列挙される(順序不問)。
+        Assert.Equal(2, all.Count);
+        Assert.Contains(all, r => r.Content == "content-a");
+        Assert.Contains(all, r => r.Content == "content-b");
+    }
+
+    [Fact]
+    public void LoadAll_MixesSessionSubdir_AndFlatCompat()
+    {
+        using var t = new TempDir();
+        // v0.3.0-sec 由来の flat 配置 + BK-M-2 の session subdir が混在するケース。
+        // 両方から復元候補を集める(後方互換の中核 invariant)。
+        BackupStore.Write(t.Root, Rec("flat", null, "flat-content"));
+        var session = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(session);
+        BackupStore.Write(session, Rec("session", null, "session-content"));
+
+        var all = BackupStore.LoadAll(t.Root);
+
+        Assert.Equal(2, all.Count);
+        Assert.Contains(all, r => r.Content == "flat-content");
+        Assert.Contains(all, r => r.Content == "session-content");
+    }
+
+    [Fact]
+    public void LoadAll_IgnoresNonSessionSubdirs()
+    {
+        using var t = new TempDir();
+        // "session-" prefix でない subdir はユーザが手で置いた/他アプリの残置物の可能性がある。
+        // 列挙対象外にする invariant を pin(過剰列挙で他アプリの状態を見せない)。
+        var other = Path.Combine(t.Root, "other-dir");
+        Directory.CreateDirectory(other);
+        BackupStore.Write(other, Rec("misplaced", null, "misplaced-content"));
+
+        var all = BackupStore.LoadAll(t.Root);
+
+        Assert.Empty(all);
+    }
+
+    [Fact]
+    public void LoadAll_FlatCompat_LoadsFromBaseDir_WhenNoSessionSubdirs()
+    {
+        using var t = new TempDir();
+        // v0.3.0-sec ユーザの既存 flat 配置(session-* 無し)が引き続き読める。
+        BackupStore.Write(t.Root, Rec("legacy", null, "legacy-content"));
+
+        var all = BackupStore.LoadAll(t.Root);
+
+        var loaded = Assert.Single(all);
+        Assert.Equal("legacy-content", loaded.Content);
+    }
+
+    [Fact]
+    public void DeleteSessionDir_RemovesOnlyGivenSession()
+    {
+        using var t = new TempDir();
+        var sessionA = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        var sessionB = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(sessionA);
+        Directory.CreateDirectory(sessionB);
+        BackupStore.Write(sessionA, Rec("r-a", null, "content-a"));
+        BackupStore.Write(sessionB, Rec("r-b", null, "content-b"));
+
+        BackupStore.DeleteSessionDir(sessionA);
+
+        // session-A の中身と(空になった) session-A dir 自体が消える。session-B は無傷。
+        Assert.False(Directory.Exists(sessionA));
+        Assert.True(Directory.Exists(sessionB));
+        var remaining = BackupStore.LoadAll(t.Root);
+        Assert.Single(remaining);
+        Assert.Equal("content-b", remaining[0].Content);
+    }
+
+    [Fact]
+    public void DeleteSessionDir_RemovesTmpResiduals_AsWell()
+    {
+        using var t = new TempDir();
+        var session = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(session);
+        BackupStore.Write(session, Rec("r", null, "ok"));
+        // クラッシュ由来の *.tmp を模擬(AtomicFile が書込中に落ちた残骸)。
+        File.WriteAllText(Path.Combine(session, "stale.tmp"), "incomplete");
+
+        BackupStore.DeleteSessionDir(session);
+
+        // 空になった dir 自体も消える(*.tmp も掃除対象)。
+        Assert.False(Directory.Exists(session));
+    }
+
+    [Fact]
+    public void DeleteSessionDir_OnMissing_IsHarmless()
+    {
+        using var t = new TempDir();
+        var missing = Path.Combine(t.Root, "session-does-not-exist");
+
+        // 存在しない session dir に対して呼んでも例外を投げない(shutdown 経路の冪等性)。
+        Assert.Null(Record.Exception(() => BackupStore.DeleteSessionDir(missing)));
+    }
+
+    [Fact]
+    public void SweepOldSessions_RemovesOnlyDirsOlderThanMaxAge()
+    {
+        using var t = new TempDir();
+        var now = new DateTime(2026, 07, 21, 12, 0, 0, DateTimeKind.Utc);
+        var fresh = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        var recent = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        var stale = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(fresh);
+        Directory.CreateDirectory(recent);
+        Directory.CreateDirectory(stale);
+        // それぞれ 1 日/10 日/60 日前の最終書込時刻に設定(seam=Directory.SetLastWriteTimeUtc)。
+        Directory.SetLastWriteTimeUtc(fresh, now - TimeSpan.FromDays(1));
+        Directory.SetLastWriteTimeUtc(recent, now - TimeSpan.FromDays(10));
+        Directory.SetLastWriteTimeUtc(stale, now - TimeSpan.FromDays(60));
+
+        BackupStore.SweepOldSessions(t.Root, now, TimeSpan.FromDays(30));
+
+        Assert.True(Directory.Exists(fresh)); // 1 日=残す
+        Assert.True(Directory.Exists(recent)); // 10 日=残す
+        Assert.False(Directory.Exists(stale)); // 60 日=削除(30 日超)
+    }
+
+    [Fact]
+    public void SweepOldSessions_IgnoresFlatFilesAndNonSessionDirs()
+    {
+        using var t = new TempDir();
+        var now = new DateTime(2026, 07, 21, 12, 0, 0, DateTimeKind.Utc);
+        // flat 配置の record(v0.3.0-sec 由来)は保護される=SweepOldSessions は触らない。
+        BackupStore.Write(t.Root, Rec("flat", null, "flat-content"));
+        // "session-" prefix でない古い subdir も保護される(他アプリ/ユーザ手動作成の残置物)。
+        var other = Path.Combine(t.Root, "other-old-dir");
+        Directory.CreateDirectory(other);
+        Directory.SetLastWriteTimeUtc(other, now - TimeSpan.FromDays(365));
+        // 比較対象=非常に古い session-*=これは消える。
+        var stale = Path.Combine(t.Root, "session-stale-guid");
+        Directory.CreateDirectory(stale);
+        Directory.SetLastWriteTimeUtc(stale, now - TimeSpan.FromDays(365));
+
+        BackupStore.SweepOldSessions(t.Root, now, TimeSpan.FromDays(30));
+
+        Assert.False(Directory.Exists(stale));
+        Assert.True(Directory.Exists(other)); // 副作用ゼロ(他アプリ dir を巻き添えにしない)
+        Assert.Single(Directory.GetFiles(t.Root, "*.json")); // flat 配置の json は無傷
+    }
+
+    [Fact]
+    public void SweepOldSessions_OnMissingBaseDir_IsHarmless()
+    {
+        var missing = Path.Combine(
+            Path.GetTempPath(),
+            "yedit_bak_missing_" + Guid.NewGuid().ToString("N")
+        );
+        Assert.Null(
+            Record.Exception(() =>
+                BackupStore.SweepOldSessions(missing, DateTime.UtcNow, TimeSpan.FromDays(30))
+            )
+        );
+    }
+
     [Fact]
     public void Write_AllowsCanonicalGuidN()
     {

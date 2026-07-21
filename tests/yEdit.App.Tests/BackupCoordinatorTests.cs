@@ -28,6 +28,10 @@ public class BackupCoordinatorTests
         public string TempDir { get; }
         public int WriterFactoryCalls;
 
+        /// <summary>BK-M-2: factory が受け取った session dir を capture する
+        /// (test で Ctor_GeneratesUniqueSessionDir_PerInstance が観測する)。</summary>
+        public string? CapturedSessionDir;
+
         public Host(bool enabled = true, int intervalSeconds = 30)
         {
             var (form, docs) = HostForm.CreateWithDocs();
@@ -42,14 +46,16 @@ public class BackupCoordinatorTests
             Directory.CreateDirectory(TempDir);
             // Task 1b: 既定引数(traceSink=null)経路は本番既定 = DebugBackupTraceSink。
             // ここでは FakeBackupTraceSink を注入して catch{} の trace 発火を assert 可能にする。
+            // BK-M-2: factory シグニチャは Func<string, IBackupWriter>=session dir を受け取る。
             Backup = new BackupCoordinator(
                 Docs,
                 enabled,
                 intervalSeconds,
                 Clock,
-                () =>
+                sessionDir =>
                 {
                     WriterFactoryCalls++;
+                    CapturedSessionDir = sessionDir;
                     return Writer;
                 },
                 Prompt,
@@ -835,5 +841,70 @@ public class BackupCoordinatorTests
 
             Assert.Empty(host.Writer.Deletes); // ガード発火(:270)
             Assert.Equal(1, host.Writer.DisposeCount); // Shutdown は writer を必ず Dispose する
+        });
+
+    // ===== BK-M-2: セッション別 subdir(factory シグニチャ + 30 日 sweep) =====
+
+    [Fact]
+    public void Ctor_PassesSessionSubdir_ToWriterFactory() =>
+        Sta.Run(() =>
+        {
+            // BK-M-2: factory シグニチャ Func<string, IBackupWriter>=writer は session dir を
+            // ctor で受け取る。ctor が渡すのは base dir(TempDir)ではなく "session-{Guid.N}" prefix の
+            // 直接子 subdir(_dir と混同したまま呼ぶ変異を kill する pin)。
+            using var host = new Host(enabled: true);
+
+            Assert.Equal(1, host.WriterFactoryCalls);
+            Assert.NotNull(host.CapturedSessionDir);
+            var expectedPrefix = Path.Combine(host.TempDir, "session-");
+            Assert.StartsWith(expectedPrefix, host.CapturedSessionDir!);
+            Assert.NotEqual(host.TempDir, host.CapturedSessionDir); // base dir 直渡しは NG
+            // "session-{Guid.N}" の 32 桁 hex 部分が実際に付いていることを確認。
+            var suffix = Path.GetFileName(host.CapturedSessionDir!)?.Substring("session-".Length);
+            Assert.Equal(32, suffix?.Length);
+        });
+
+    [Fact]
+    public void Ctor_GeneratesUniqueSessionDir_PerInstance() =>
+        Sta.Run(() =>
+        {
+            // BK-M-2: プロセス内で複数 Coordinator を生成しても session dir が衝突しない
+            // (Guid.NewGuid で生成=同時 2 インスタンス起動シナリオのモック)。
+            // Host は base dir(TempDir)を各々別に生成するため、full path 比較は
+            // 「Guid を hardcode に変えた」変異を kill できない。session-* subdir の
+            // 名前部分(session-{Guid.N})を切り出して比較=Guid 部分が実際に別値であることを pin。
+            using var host1 = new Host(enabled: true);
+            using var host2 = new Host(enabled: true);
+
+            Assert.NotNull(host1.CapturedSessionDir);
+            Assert.NotNull(host2.CapturedSessionDir);
+            var name1 = Path.GetFileName(host1.CapturedSessionDir!);
+            var name2 = Path.GetFileName(host2.CapturedSessionDir!);
+            Assert.NotEqual(name1, name2); // "session-{Guid.N}" 部分が衝突しない
+        });
+
+    [Fact]
+    public void OfferRestoreOnStartup_SweepsOldSessions_OlderThan30Days() =>
+        Sta.Run(() =>
+        {
+            // BK-M-2: 30 日以上更新のない session-* subdir が OfferRestoreOnStartup 冒頭で消える。
+            // 時計は FakeTimeProvider で FixedNow(2026-07-14)固定=SetLastWriteTimeUtc で
+            // 60 日前に相当する古い session dir を植える(seam=Directory.SetLastWriteTimeUtc)。
+            using var host = new Host();
+            var stale = Path.Combine(host.TempDir, "session-stale-guid");
+            var fresh = Path.Combine(host.TempDir, "session-fresh-guid");
+            Directory.CreateDirectory(stale);
+            Directory.CreateDirectory(fresh);
+            Directory.SetLastWriteTimeUtc(stale, FixedNow.UtcDateTime - TimeSpan.FromDays(60));
+            Directory.SetLastWriteTimeUtc(fresh, FixedNow.UtcDateTime - TimeSpan.FromDays(5));
+
+            host.Backup.OfferRestoreOnStartup(
+                host.Form,
+                r => throw new Xunit.Sdk.XunitException("restore must not be called"),
+                confirm: true
+            );
+
+            Assert.False(Directory.Exists(stale)); // 60 日=30 日超で削除
+            Assert.True(Directory.Exists(fresh)); // 5 日=残す
         });
 }

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.IO;
 using System.Linq;
 using yEdit.Core.Backup;
 using yEdit.Core.Text;
@@ -26,8 +27,14 @@ public sealed class BackupCoordinator : IDisposable
 
     private readonly DocumentManager _docs;
     private readonly string _dir;
+
+    /// <summary>BK-M-2: 自セッション用 subdirectory (<c>%APPDATA%\yEdit\backups\session-{Guid.N}\</c>)。
+    /// ctor で生成しプロセス寿命で不変。SerialBackupWriter へ渡す書込先はこの subdir に閉じ、
+    /// 復元列挙 (LoadAll) と 30 日 sweep (SweepOldSessions) は <see cref="_dir"/> (base dir) に対して行う。
+    /// </summary>
+    private readonly string _sessionDir;
     private readonly TimeProvider _clock;
-    private readonly Func<IBackupWriter> _writerFactory;
+    private readonly Func<string, IBackupWriter> _writerFactory;
     private readonly IRestorePrompt _restorePrompt;
     private readonly IBackupTraceSink _trace; // Task 1b: silent catch を診断可能に(既定=DebugBackupTraceSink)
     private bool _enabled; // UpdateSettings で実行時に切替可能
@@ -37,6 +44,9 @@ public sealed class BackupCoordinator : IDisposable
     private readonly ConcurrentQueue<string> _failed = new(); // 背景書込が失敗した Id(UI スレッドで回収)
     private bool _shutDown;
 
+    /// <summary>BK-M-2: 起動時 sweep の age 閾値。30 日以上更新のない session-* subdir を削除する。</summary>
+    private static readonly TimeSpan SessionSweepMaxAge = TimeSpan.FromDays(30);
+
     /// <summary>テスト観測用: 現在の Timer.Interval(ms)。UpdateSettings/ctor の Clamp 結果を assert 化する seam。</summary>
     internal int TimerIntervalMs => _timer.Interval;
 
@@ -45,7 +55,7 @@ public sealed class BackupCoordinator : IDisposable
         bool enabled,
         int intervalSeconds,
         TimeProvider clock,
-        Func<IBackupWriter> writerFactory,
+        Func<string, IBackupWriter> writerFactory,
         IRestorePrompt restorePrompt,
         string? directory = null,
         IBackupTraceSink? traceSink = null
@@ -57,6 +67,10 @@ public sealed class BackupCoordinator : IDisposable
         _writerFactory = writerFactory;
         _restorePrompt = restorePrompt;
         _dir = directory ?? BackupStore.DefaultDirectory;
+        // BK-M-2: セッション別 subdir を ctor で生成 (プロセス寿命で不変)。
+        // 別インスタンスと衝突しない一意名として Guid.N (32 桁 hex)。session- prefix で LoadAll /
+        // SweepOldSessions が識別する契約(prefix を変えると sweep 対象から外れて孤児が溜まる)。
+        _sessionDir = Path.Combine(_dir, "session-" + Guid.NewGuid().ToString("N"));
         // Task 1b: 既定は Trace.TraceWarning に流す DebugBackupTraceSink。MainForm は既定引数のまま呼ぶ
         // ため本番挙動は不変(silent catch → Trace 出力あり、例外は依然握り潰す)。
         _trace = traceSink ?? new DebugBackupTraceSink();
@@ -73,10 +87,12 @@ public sealed class BackupCoordinator : IDisposable
         _timer.Start();
     }
 
-    /// <summary>writer を factory で生成し、失敗通知フックを配線する(遅延生成の意味論を保存)。</summary>
+    /// <summary>writer を factory で生成し、失敗通知フックを配線する(遅延生成の意味論を保存)。
+    /// BK-M-2: factory シグニチャは <c>Func&lt;string, IBackupWriter&gt;</c>=書込先の session dir を
+    /// 明示的に渡す(base dir と混同するミスを compile-time で防ぐ seam)。</summary>
     private IBackupWriter CreateWriter()
     {
-        var w = _writerFactory();
+        var w = _writerFactory(_sessionDir);
         w.OnWriteFailed = OnBackgroundWriteFailed;
         return w;
     }
@@ -127,6 +143,20 @@ public sealed class BackupCoordinator : IDisposable
             return 0;
         try
         {
+            // BK-M-2: 30 日以上更新のない孤児 session-* subdir を掃除する(前回異常終了/古いインスタンス由来)。
+            // 時計は TimeProvider seam 経由でテスト可能。失敗は無害(次回起動で再挑戦)。
+            BackupStore.SweepOldSessions(_dir, _clock.GetUtcNow().UtcDateTime, SessionSweepMaxAge);
+        }
+        catch (Exception ex)
+        {
+            _trace.Warn("sweep-old-sessions", SanitizeForDisplay.OneLine(_dir, 200), ex);
+        }
+        try
+        {
+            // BK-M-2: 自セッション dir と base dir 直下(flat 後方互換)の両方で *.tmp 残骸を掃除。
+            // session dir は初回書込前だと存在しないが、SweepTempFiles は Directory.Exists=false で
+            // 無害 return する。base dir は v0.3.0-sec 由来の残置対策。
+            BackupStore.SweepTempFiles(_sessionDir);
             BackupStore.SweepTempFiles(_dir);
         }
         catch (Exception ex)

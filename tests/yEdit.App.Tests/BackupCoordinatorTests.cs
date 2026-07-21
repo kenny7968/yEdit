@@ -499,7 +499,8 @@ public class BackupCoordinatorTests
             var warn = Assert.Single(host.Trace.Warnings); // 1 レコード=1 warn
             Assert.Equal("restore-item-later", warn.Category);
             Assert.Same(ex, warn.Ex); // 例外実体まで trace へ渡す
-            // detail は SafeIdForLog(rec.Id): GUID N は無害化しても不変=生 Id と一致
+            // Task 3 (BK-L-5): detail は SanitizeForDisplay.OneLine(rec.Id, 200) 経由。
+            // 正当な GUID N (32 桁 lowercase hex) は sanitize しても不変 = 生 Id と一致。
             Assert.Equal(HashId("bad"), warn.Detail);
         });
 
@@ -524,8 +525,59 @@ public class BackupCoordinatorTests
             var warn = Assert.Single(host.Trace.Warnings);
             Assert.Equal("restore-item", warn.Category);
             Assert.Same(ex, warn.Ex);
-            // detail は SafeIdForLog(rec.Id): GUID N は無害化しても不変=生 Id と一致
+            // Task 3 (BK-L-5): detail は SanitizeForDisplay.OneLine(rec.Id, 200) 経由。
+            // 正当な GUID N (32 桁 lowercase hex) は sanitize しても不変 = 生 Id と一致。
             Assert.Equal(HashId("bad"), warn.Detail);
+        });
+
+    [Fact]
+    public void OfferRestoreOnStartup_ConfirmTrue_RestoreThrows_SanitizesId_ViaSanitizeForDisplay() =>
+        Sta.Run(() =>
+        {
+            // Task 3 (BK-L-5): restore-item catch の detail は SanitizeForDisplay.OneLine(rec.Id, 200)
+            // で無害化する契約を pin する。攻撃者は BackupRecord.Id に BiDi override (U+202E) や
+            // 制御文字/過剰長を仕込める。LoadAll 経路は BackupIdValidator が reject するが、
+            // Prompt の outcome.Checked 経路は validator を通らず、悪意 Id を直接注入できる。
+            // 本テストは (a) BiDi/制御文字 drop、(b) 200 文字超は "…" 切詰め、
+            // (c) 旧 SafeIdForLog (非 hex を '?' 置換) に戻す変異を kill する三役を担う。
+            using var host = new Host();
+            // LoadAll が非空を返すよう有効な record を 1 件 plant (無いと records.Count==0 で早期 return)。
+            PlantBackup(host.TempDir, Rec("dummy", "x"));
+
+            // outcome.Checked に載せる悪意 Id: BiDi override + CRLF + 300 文字超。
+            // BackupStore.Write は BackupIdValidator で reject するため、Write 経由では入れられない。
+            // \u202E = RIGHT-TO-LEFT OVERRIDE (Format cat) → SanitizeForDisplay で drop される。
+            var maliciousId = "abc\u202Edef\r\nGET /evil" + new string('x', 300);
+            var maliciousRec = new BackupRecord(
+                Id: maliciousId,
+                OriginalPath: null,
+                UntitledNumber: 1,
+                CodePage: 65001,
+                HasBom: false,
+                LineEndingId: 0,
+                Content: "boom",
+                TimestampUtc: FixedNow.UtcDateTime
+            );
+            host.Prompt.NextOutcome = new RestoreOutcome(
+                RestoreAction.Restore,
+                new[] { maliciousRec }
+            );
+
+            var ex = new InvalidOperationException("restore failed");
+            host.Backup.OfferRestoreOnStartup(host.Form, r => throw ex, confirm: true);
+
+            var warn = Assert.Single(host.Trace.Warnings);
+            Assert.Equal("restore-item", warn.Category);
+            Assert.Same(ex, warn.Ex);
+            // detail == SanitizeForDisplay.OneLine(maliciousId, 200) の厳密一致で契約を pin。
+            Assert.Equal(yEdit.Core.Text.SanitizeForDisplay.OneLine(maliciousId, 200), warn.Detail);
+            // 直接的な健全性 assert (契約破りをすぐに読み取れるように):
+            // char overload は Contains(char) 経由で ordinal 比較。string overload は CurrentCulture 下で
+            // ‮ (Cf/Format) を無視可能扱いにするため sanitize 済みでも常に赤化する罠がある。
+            Assert.DoesNotContain('\u202E', warn.Detail); // BiDi override (RLO) drop
+            Assert.DoesNotContain('\r', warn.Detail); // CR drop → 空白畳み込み
+            Assert.DoesNotContain('\n', warn.Detail); // LF drop → 空白畳み込み
+            Assert.True(warn.Detail.Length <= 200, "detail length should be <=200");
         });
 
     [Fact]

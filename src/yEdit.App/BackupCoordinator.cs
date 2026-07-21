@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Linq;
 using yEdit.Core.Backup;
+using yEdit.Core.Text;
 
 namespace yEdit.App;
 
@@ -130,7 +131,10 @@ public sealed class BackupCoordinator : IDisposable
         }
         catch (Exception ex)
         {
-            _trace.Warn("sweep-temp", _dir, ex);
+            // BK-L-5: 将来的に _dir がユーザ設定で可変化された場合の CRLF injection / BiDi 混入
+            // 防御として SanitizeForDisplay.OneLine(200) を通す(現状 %APPDATA%\yEdit\backups は
+            // 非攻撃者制御だが、防御の invariant を BackupCoordinator 全 trace で統一する)。
+            _trace.Warn("sweep-temp", SanitizeForDisplay.OneLine(_dir, 200), ex);
         } // 残骸掃除失敗は無害・診断のため trace
 
         IReadOnlyList<BackupRecord> records;
@@ -142,19 +146,20 @@ public sealed class BackupCoordinator : IDisposable
             // 攻撃者制御下にあり得る(RLO 混入等)ため、SanitizeForDisplay.OneLine で 1 行化してから
             // trace に載せる。kind (例外型名 / "invalid-id" / "null-record") はコード側の enum 相当なので
             // detail 末尾へコロン結合する(Option A: 既存 3 引数 sink API を無変更で維持)。
+            // maxLength=200 は BK-L-5 の統一値(設計 §PR-F (4))=BackupCoordinator 全 trace で揃える。
             records = BackupStore.LoadAll(
                 _dir,
                 (file, kind) =>
                     _trace.Warn(
                         "backup-load-failed",
-                        yEdit.Core.Text.SanitizeForDisplay.OneLine(file, 260) + ":" + kind,
+                        SanitizeForDisplay.OneLine(file, 200) + ":" + kind,
                         ex: null
                     )
             );
         }
         catch (Exception ex)
         {
-            _trace.Warn("load-all", _dir, ex);
+            _trace.Warn("load-all", SanitizeForDisplay.OneLine(_dir, 200), ex);
             return 0;
         }
         if (records.Count == 0)
@@ -182,7 +187,10 @@ public sealed class BackupCoordinator : IDisposable
                 catch (Exception ex)
                 {
                     // 1 件の不正レコードで全復元を巻き添えにしない。失敗分はバックアップを残し再挑戦可能に。
-                    _trace.Warn("restore-item-later", SafeIdForLog(rec.Id), ex);
+                    // BK-L-5: rec.Id は攻撃者 JSON 由来の可能性(LoadAll 経路は validator で reject 済み
+                    // だが防御は薄く重ねる)+ prompt outcome 経路は validator を通らないため、
+                    // 全 trace で SanitizeForDisplay.OneLine(200) 統一で無害化する。
+                    _trace.Warn("restore-item-later", SanitizeForDisplay.OneLine(rec.Id, 200), ex);
                 }
             }
             return restored;
@@ -208,7 +216,10 @@ public sealed class BackupCoordinator : IDisposable
                     catch (Exception ex)
                     {
                         // 1 件の不正レコードで全復元を巻き添えにしない。失敗分はバックアップを残し再挑戦可能に。
-                        _trace.Warn("restore-item", SafeIdForLog(rec.Id), ex);
+                        // BK-L-5: outcome.Checked 経路は BackupIdValidator を通らないため、
+                        // 攻撃者が Prompt から悪意 Id を注入し得る。SanitizeForDisplay.OneLine(200) で
+                        // 制御文字/BiDi/過剰長を無害化する(BackupCoordinator 全 trace で統一)。
+                        _trace.Warn("restore-item", SanitizeForDisplay.OneLine(rec.Id, 200), ex);
                     }
                 }
                 // チェックしなかった項目は削除しない(SR 誤操作での消失を避け、次回再提案)。
@@ -352,24 +363,5 @@ public sealed class BackupCoordinator : IDisposable
         _timer.Stop();
         _timer.Dispose();
         _writer?.Dispose();
-    }
-
-    /// <summary>
-    /// HIGH-1: trace ログへ流す BackupRecord.Id を無害化する。
-    /// 攻撃者が植えた JSON の Id は制御文字/ANSI エスケープ/双方向 override 等を
-    /// 仕込める(壊れたログで隠蔽・端末破壊)ため、32 桁上限で切り、GUID N の hex
-    /// 文字以外は '?' に置換して trace ログを無害化する(bidi/format 文字含む全非 hex
-    /// を掃除する=whitelist 方式で char.IsControl の見落としを塞ぐ)。
-    /// 正当な GUID N (32 桁 hex) は不変。
-    /// </summary>
-    private static string SafeIdForLog(string? id)
-    {
-        if (string.IsNullOrEmpty(id))
-            return "<empty>";
-        var truncated = id.Length > 32 ? id[..32] : id;
-        var sb = new System.Text.StringBuilder(truncated.Length);
-        foreach (var c in truncated)
-            sb.Append(char.IsAsciiHexDigit(c) ? c : '?');
-        return sb.ToString();
     }
 }

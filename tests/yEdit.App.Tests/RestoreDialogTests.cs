@@ -1,3 +1,4 @@
+using System.IO;
 using yEdit.Core.Backup;
 
 namespace yEdit.App.Tests;
@@ -160,5 +161,82 @@ public class RestoreDialogTests
         var rec = RecWithContent(@"C:\docs\empty.txt", content: "");
         var d = RestoreDialog.Describe(rec);
         Assert.DoesNotContain(RestoreDialog.PathOnlyMarker, d, StringComparison.Ordinal);
+    }
+
+    // ---------- UIA-M-3: HomeRelative path display (設定なし・UX 改善) ----------
+    // 設計 §PR-G (2): UIA クライアントは本文丸ごと読めるため縮退にセキュリティ利得はない。
+    // 位置づけは「SR 発話が短くなり、スピーカー越しの周囲漏れも減る」純粋 UX/プライバシー改善。
+    // ホーム下は "~\..." 縮退・home 外はフルパスのまま・home 判定は case-insensitive を pin する。
+    // ローカルパス literal は tools/check-no-local-paths.ps1 に引っかかるため、home は必ず
+    // Environment.GetFolderPath から取り、Path.Combine で組み立てる(literal を書かない)。
+
+    [Fact]
+    public void Describe_ReplacesUserProfilePrefix_WithTilde()
+    {
+        // %USERPROFILE%\Documents\a.txt を Describe に食わせると、ディレクトリ部分は
+        // "~\Documents" に縮退し、生の home 文字列は含まれない。
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        Assert.False(string.IsNullOrEmpty(home)); // 前提: 開発/CI で必ず取得できる
+        var rec = Rec(Path.Combine(home, "Documents", "a.txt"));
+        var d = RestoreDialog.Describe(rec);
+        Assert.Contains(@"~\Documents", d, StringComparison.Ordinal);
+        Assert.DoesNotContain(home, d, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Describe_UserProfilePrefixMatch_IsCaseInsensitive()
+    {
+        // Windows のパス比較セマンティクスに合わせ home 判定は StringComparison.OrdinalIgnoreCase。
+        // home と case が異なる path でも縮退される invariant を pin する。
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        Assert.False(string.IsNullOrEmpty(home));
+        string cased = home.ToUpperInvariant();
+        if (cased == home)
+        {
+            // home が既に全 upper(まれ)の環境では lower に振る。invariant は「case が違うこと」。
+            cased = home.ToLowerInvariant();
+        }
+        Assert.NotEqual(home, cased); // case を確実に反転させたことの sanity
+        var rec = Rec(Path.Combine(cased, "Documents", "a.txt"));
+        var d = RestoreDialog.Describe(rec);
+        Assert.Contains(@"~\Documents", d, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Describe_PathOutsideUserProfile_IsUnchanged()
+    {
+        // home 外(別ドライブ)のパスはフルパス表示のまま。誤って tilde 化しない invariant を pin。
+        var rec = Rec(@"D:\Data\file.txt");
+        var d = RestoreDialog.Describe(rec);
+        Assert.Contains(@"D:\Data", d, StringComparison.Ordinal);
+        Assert.DoesNotContain("~", d, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Describe_UserProfilePrefixMatch_RequiresPathBoundary()
+    {
+        // false positive 回避 pin: home が "%USERPROFILE%" のとき、末尾に文字を継ぎ足した
+        // 「隣接プロファイル」風のパス (home + "Friend" のような形) を "~Friend\..." に
+        // 縮退しない。home 直後は パス区切り or 文字列終端でなければマッチしない invariant。
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        Assert.False(string.IsNullOrEmpty(home));
+        // home 末尾に文字を足しただけの「隣接プロファイル」風パスを合成する。
+        // Path.Combine では境界を跨げないので、末尾 basename を suffix で膨らませる方式を使う。
+        string sibling = home + "Friend";
+        var rec = Rec(Path.Combine(sibling, "Documents", "a.txt"));
+        var d = RestoreDialog.Describe(rec);
+        Assert.DoesNotContain("~", d, StringComparison.Ordinal);
+        // ディレクトリ部分に sibling がそのまま載る(縮退しない)
+        Assert.Contains(sibling, d, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Describe_UntitledRecord_DoesNotContainTilde()
+    {
+        // regression pin: OriginalPath=null(無題)経路は Describe の dir 変換を通らないので
+        // "~" が混入しない。UIA-M-3 で dir 変換を追加した後もこの invariant を維持する。
+        var rec = Rec(path: null, untitled: 3);
+        var d = RestoreDialog.Describe(rec);
+        Assert.DoesNotContain("~", d, StringComparison.Ordinal);
     }
 }

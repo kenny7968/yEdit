@@ -76,6 +76,14 @@ internal sealed class TextRangeProviderV2 : ITextRangeProvider
 
     public ITextRangeProvider FindAttribute(int attribute, object value, bool backward) => null!;
 
+    // PR-G Task 4 (UIA-L-1): 全範囲を一括で string 化すると本文が巨大(数百 MB〜GB)なとき
+    // OOM に至るため、64 KB chunks / 1 KB overlap で走査する。
+    // overlap は「UIA 経由の検索語 max 512 chars 想定」の 2 倍余裕。
+    // 検索語が overlap を越える異常入力に対しては step を text.Length - 1 まで広げて
+    // straddling match を保証する(それでも step <= 0 になる病理的入力は 1 で下限を打つ)。
+    private const int FindTextChunkSize = 64 * 1024;
+    private const int FindTextOverlap = 1024;
+
     public ITextRangeProvider FindText(string text, bool backward, bool ignoreCase)
     {
         var host = _owner.Host;
@@ -83,14 +91,63 @@ internal sealed class TextRangeProviderV2 : ITextRangeProvider
         int e = System.Math.Clamp(_end, 0, host.TextLength);
         if (string.IsNullOrEmpty(text) || s >= e)
             return null!;
-        string hay = host.GetTextRange(s, e - s);
         var cmp = ignoreCase
             ? System.StringComparison.OrdinalIgnoreCase
             : System.StringComparison.Ordinal;
-        int idx = backward ? hay.LastIndexOf(text, cmp) : hay.IndexOf(text, cmp);
-        if (idx < 0)
+
+        // chunk 境界を跨ぐヒットを取りこぼさないため、隣接 chunk と max(Overlap, text.Length-1) 分だけ
+        // オーバーラップさせる。step が正になる範囲であることは Math.Max で保証。
+        int overlap = System.Math.Max(FindTextOverlap, text.Length - 1);
+        int step = FindTextChunkSize - overlap;
+        if (step <= 0)
+            step = 1; // 極端に長い検索語のセーフガード(前進停止を防ぐ)
+
+        if (!backward)
+        {
+            int pos = s;
+            while (pos < e)
+            {
+                int chunkEnd = System.Math.Min(e, pos + FindTextChunkSize);
+                int chunkLen = chunkEnd - pos;
+                string chunk = host.GetTextRange(pos, chunkLen);
+                int idx = chunk.IndexOf(text, cmp);
+                if (idx >= 0)
+                {
+                    int hitStart = pos + idx;
+                    int hitEnd = hitStart + text.Length;
+                    if (hitEnd <= e)
+                        return new TextRangeProviderV2(_owner, hitStart, hitEnd);
+                    return null!;
+                }
+                if (chunkEnd >= e)
+                    break;
+                pos += step;
+            }
             return null!;
-        return new TextRangeProviderV2(_owner, s + idx, s + idx + text.Length);
+        }
+        else
+        {
+            int pos = e;
+            while (pos > s)
+            {
+                int chunkStart = System.Math.Max(s, pos - FindTextChunkSize);
+                int chunkLen = pos - chunkStart;
+                string chunk = host.GetTextRange(chunkStart, chunkLen);
+                int idx = chunk.LastIndexOf(text, cmp);
+                if (idx >= 0)
+                {
+                    int hitStart = chunkStart + idx;
+                    int hitEnd = hitStart + text.Length;
+                    if (hitStart >= s && hitEnd <= e)
+                        return new TextRangeProviderV2(_owner, hitStart, hitEnd);
+                    return null!;
+                }
+                if (chunkStart <= s)
+                    break;
+                pos -= step;
+            }
+            return null!;
+        }
     }
 
     public object GetAttributeValue(int attribute) => AutomationElement.NotSupported;

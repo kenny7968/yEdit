@@ -180,4 +180,239 @@ public class TextRangeProviderV2Tests
         Assert.NotNull(found);
         Assert.Equal("bb", found!.GetText(int.MaxValue));
     }
+
+    // ---------- PR-G Task 4 (UIA-L-1): chunked FindText ----------
+    // 実装は 64 KB chunks / 1 KB overlap で走査する。以下のテストは
+    //   ・chunk 境界跨ぎ / 境界丁度 / 複数 chunk 越え (forward)
+    //   ・chunk 境界跨ぎ (backward)
+    //   ・1 GB 相当の fake buffer で単一 GetTextRange が 64 KB を越えないこと
+    // を機械固定する。
+
+    private const int ChunkSize = 64 * 1024; // TextRangeProviderV2.FindText と合わせる
+    private const int Overlap = 1024;
+
+    /// <summary>
+    /// 指定オフセットに needle を埋め込んだ長さ length のフィラー文字列を作る。
+    /// フィラーは 'A' 一色にして、needle と誤ヒットしないようにする。
+    /// </summary>
+    private static string BuildTextWithNeedleAt(int length, int needleOffset, string needle)
+    {
+        var sb = new System.Text.StringBuilder(length);
+        sb.Append('A', length);
+        for (int i = 0; i < needle.Length; i++)
+            sb[needleOffset + i] = needle[i];
+        return sb.ToString();
+    }
+
+    [Fact]
+    public void FindText_Forward_MatchAcrossChunkBoundary()
+    {
+        // needle "needle" (6 chars) が index ChunkSize-2 = 65534 に置かれる。
+        // これは 1 chunk 目 [0, 65536) と 2 chunk 目 [64512, 130048) に跨る。
+        const string needle = "needle";
+        int needleAt = ChunkSize - 2; // 65534
+        string text = BuildTextWithNeedleAt(ChunkSize + Overlap + 16, needleAt, needle);
+        var p = MakeProvider(text);
+        var r = new TextRangeProviderV2(p, 0, text.Length);
+
+        var found = r.FindText(needle, false, false) as TextRangeProviderV2;
+
+        Assert.NotNull(found);
+        Assert.Equal(needle, found!.GetText(int.MaxValue));
+        // CompareEndpoints で絶対 offset を検証(Start endpoint 同士の差 = needleAt)
+        var anchor = new TextRangeProviderV2(p, 0, 0);
+        int startOffset = found.CompareEndpoints(
+            System.Windows.Automation.Text.TextPatternRangeEndpoint.Start,
+            anchor,
+            System.Windows.Automation.Text.TextPatternRangeEndpoint.Start
+        );
+        Assert.Equal(needleAt, startOffset);
+    }
+
+    [Fact]
+    public void FindText_Forward_MatchExactlyAtChunkBoundary()
+    {
+        // needle が index ChunkSize = 65536 ちょうどに始まる。
+        // 1 chunk 目 [0, 65536) には含まれず、2 chunk 目 [64512, 130048) の
+        // 内側 offset 1024 に位置する。
+        const string needle = "needle";
+        int needleAt = ChunkSize; // 65536
+        string text = BuildTextWithNeedleAt(ChunkSize * 2, needleAt, needle);
+        var p = MakeProvider(text);
+        var r = new TextRangeProviderV2(p, 0, text.Length);
+
+        var found = r.FindText(needle, false, false) as TextRangeProviderV2;
+
+        Assert.NotNull(found);
+        Assert.Equal(needle, found!.GetText(int.MaxValue));
+        var anchor = new TextRangeProviderV2(p, 0, 0);
+        int startOffset = found.CompareEndpoints(
+            System.Windows.Automation.Text.TextPatternRangeEndpoint.Start,
+            anchor,
+            System.Windows.Automation.Text.TextPatternRangeEndpoint.Start
+        );
+        Assert.Equal(needleAt, startOffset);
+    }
+
+    [Fact]
+    public void FindText_Forward_MatchInThirdChunk()
+    {
+        // needle が index 200000 に位置する = 3 chunk 越え。
+        // step = ChunkSize - Overlap = 64512 のため、chunk 開始位置は
+        // 0, 64512, 129024, 193536, ... のいずれか。200000 は 193536 chunk 内。
+        const string needle = "needle";
+        int needleAt = 200000;
+        string text = BuildTextWithNeedleAt(needleAt + needle.Length + 128, needleAt, needle);
+        var p = MakeProvider(text);
+        var r = new TextRangeProviderV2(p, 0, text.Length);
+
+        var found = r.FindText(needle, false, false) as TextRangeProviderV2;
+
+        Assert.NotNull(found);
+        Assert.Equal(needle, found!.GetText(int.MaxValue));
+        var anchor = new TextRangeProviderV2(p, 0, 0);
+        int startOffset = found.CompareEndpoints(
+            System.Windows.Automation.Text.TextPatternRangeEndpoint.Start,
+            anchor,
+            System.Windows.Automation.Text.TextPatternRangeEndpoint.Start
+        );
+        Assert.Equal(needleAt, startOffset);
+    }
+
+    [Fact]
+    public void FindText_Backward_MatchAcrossChunkBoundary()
+    {
+        // backward 走査でも chunk 境界跨ぎがヒットすること。
+        // needle を index 65534 に置いた 200000 chars の buffer を後方検索する。
+        const string needle = "needle";
+        int needleAt = ChunkSize - 2; // 65534
+        string text = BuildTextWithNeedleAt(200000, needleAt, needle);
+        var p = MakeProvider(text);
+        var r = new TextRangeProviderV2(p, 0, text.Length);
+
+        var found = r.FindText(needle, true, false) as TextRangeProviderV2;
+
+        Assert.NotNull(found);
+        Assert.Equal(needle, found!.GetText(int.MaxValue));
+        var anchor = new TextRangeProviderV2(p, 0, 0);
+        int startOffset = found.CompareEndpoints(
+            System.Windows.Automation.Text.TextPatternRangeEndpoint.Start,
+            anchor,
+            System.Windows.Automation.Text.TextPatternRangeEndpoint.Start
+        );
+        Assert.Equal(needleAt, startOffset);
+    }
+
+    [Fact]
+    public void FindText_IgnoreCase_StillWorksAcrossChunkBoundary()
+    {
+        // ignoreCase フラグが chunk 走査でも生きること。
+        const string needleUpper = "NEEDLE";
+        const string needleLower = "needle";
+        int needleAt = ChunkSize - 3;
+        string text = BuildTextWithNeedleAt(ChunkSize + Overlap + 16, needleAt, needleLower);
+        var p = MakeProvider(text);
+        var r = new TextRangeProviderV2(p, 0, text.Length);
+
+        var found = r.FindText(needleUpper, false, true) as TextRangeProviderV2;
+
+        Assert.NotNull(found);
+        Assert.Equal(needleLower, found!.GetText(int.MaxValue));
+    }
+
+    /// <summary>
+    /// 1 GB 相当のフェイクバッファ。GetTextRange の呼び出しごとに
+    /// 要求長を記録し、実データは要求長分の 'A' を返す(=needle 'Q' は絶対ヒットしない)。
+    /// </summary>
+    private sealed class LargeSyntheticHost : IUiaTextHost
+    {
+        // 同一長の要求を繰り返す chunked scan で毎回 alloc しないよう cache する。
+        private static readonly string ChunkFiller = new string('A', 64 * 1024);
+
+        public LargeSyntheticHost(int textLength)
+        {
+            TextLength = textLength;
+        }
+
+        public int MaxRequestedLength { get; private set; }
+        public int GetTextRangeCalls { get; private set; }
+
+        public string GetTextRange(int start, int length)
+        {
+            GetTextRangeCalls++;
+            if (length > MaxRequestedLength)
+                MaxRequestedLength = length;
+            if (length <= 0)
+                return string.Empty;
+            if (length == ChunkFiller.Length)
+                return ChunkFiller;
+            if (length < ChunkFiller.Length)
+                return ChunkFiller.Substring(0, length);
+            // 実装が chunked に切っていれば ここには来ない(64 KB を越える単一要求は仕様外)。
+            // ここに来た場合は明示的に失敗させる(大きな alloc の兆候)。
+            throw new System.InvalidOperationException(
+                $"GetTextRange length={length} exceeds 64 KB chunk"
+            );
+        }
+
+        public int TextLength { get; }
+
+        public (int Start, int End) GetSelection() => (0, 0);
+
+        public void SetSelection(int s, int e) { }
+
+        public int NextChar(int o) => System.Math.Min(o + 1, TextLength);
+
+        public int PrevChar(int o) => System.Math.Max(o - 1, 0);
+
+        public int LineStartOf(int o) => 0;
+
+        public int LineEnd(int o) => TextLength;
+
+        public int LineEndNoBreakOf(int o) => TextLength;
+
+        public int WordStart(int o) => 0;
+
+        public int WordEnd(int o) => TextLength;
+
+        public int NextWordStart(int o) => TextLength;
+
+        public int PrevWordStart(int o) => 0;
+
+        public System.Windows.Rect BoundingRectangle => System.Windows.Rect.Empty;
+
+        public double[] GetBoundingRectangles(int s, int e) => System.Array.Empty<double>();
+
+        public int OffsetFromScreenPoint(double x, double y) => 0;
+
+        public nint Handle => System.IntPtr.Zero;
+        public bool HasFocus => false;
+        public int ControlTypeId => System.Windows.Automation.ControlType.Document.Id;
+        public string Name => "本文";
+        public string AutomationId => "editor";
+
+        public void SetFocus() { }
+    }
+
+    [Fact]
+    public void FindText_LargeRange_NoOom_MaxSingleReadIsChunkBounded()
+    {
+        // 1 GB 相当の fake buffer を全走査しても、単一の GetTextRange 要求長が
+        // 64 KB を越えないことを機械固定する(旧実装は host.GetTextRange(0, 1 GB) を
+        // 呼び出して OOM に至る)。
+        const int OneGiB = 1_073_741_824;
+        var host = new LargeSyntheticHost(OneGiB);
+        var root = new TextControlProviderV2(host);
+        var provider = new TextProviderImplV2(host, root);
+        var range = new TextRangeProviderV2(provider, 0, OneGiB);
+
+        var found = range.FindText("Q", false, false);
+
+        Assert.Null(found);
+        Assert.True(
+            host.MaxRequestedLength <= ChunkSize,
+            $"Expected MaxRequestedLength <= {ChunkSize} but got {host.MaxRequestedLength}"
+        );
+        Assert.True(host.GetTextRangeCalls > 0);
+    }
 }

@@ -7,6 +7,6 @@ namespace yEdit.App;
 /// </summary>
 public interface IBackupTraceSink
 {
-    /// <summary>非致命な失敗を通知する。category は "sweep-temp"/"load-all"/"restore-item"/"restore-item-later" のいずれか。</summary>
+    /// <summary>非致命な失敗を通知する。category は "sweep-temp"/"load-all"/"restore-item"/"restore-item-later"/"backup-load-failed" (BK-L-6) のいずれか。</summary>
     void Warn(string category, string detail, Exception? ex);
 }

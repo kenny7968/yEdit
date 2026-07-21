@@ -41,8 +41,20 @@ public static class BackupStore
         IO.AtomicFile.Write(path, JsonSerializer.SerializeToUtf8Bytes(record, Options));
     }
 
-    /// <summary>ディレクトリ内の全バックアップを読み込む（破損・読めないファイルはスキップ）。</summary>
-    public static IReadOnlyList<BackupRecord> LoadAll(string dir)
+    /// <summary>ディレクトリ内の全バックアップを読み込む（破損・読めないファイルはスキップ）。
+    /// BK-L-6: optional <paramref name="traceSink"/> で破棄理由を可視化する。破棄自体は従来通り
+    /// (LoadAll は落ちない・skip 挙動は変えない)が、silent catch では JSON パース失敗/攻撃者
+    /// 植え込みの JSON が診断不能だったため kind 別に通知する:
+    /// - kind = 例外の型名(JsonException / IOException / UnauthorizedAccessException …) — 破損 catch
+    /// - kind = "invalid-id" — <see cref="BackupIdValidator"/>.IsValid=false のレコード
+    /// - kind = "null-record" — JSON のトップレベルが null の場合
+    /// file パスは攻撃者制御下にある可能性があるため、Core 層では sanitize せず素の値を渡す。
+    /// UI/ログ表示側(BackupCoordinator)で SanitizeForDisplay.OneLine による無害化を行う契約。
+    /// traceSink=null(既定)では旧来の silent 挙動を完全維持する。</summary>
+    public static IReadOnlyList<BackupRecord> LoadAll(
+        string dir,
+        Action<string, string>? traceSink = null
+    )
     {
         var list = new List<BackupRecord>();
         if (!Directory.Exists(dir))
@@ -53,12 +65,27 @@ public static class BackupStore
             try
             {
                 var rec = JsonSerializer.Deserialize<BackupRecord>(File.ReadAllText(file), Options);
-                if (rec is null || !BackupIdValidator.IsValid(rec.Id))
-                    continue; // HIGH-1: 攻撃者が植えた不正 Id は復元候補から捨てる(パストラバーサル入口の遮断)
+                if (rec is null)
+                {
+                    // JSON トップレベルが `null` (System.Text.Json の Deserialize<T> は null を返し得る)。
+                    // 破棄自体は従来通りだが、攻撃者が意図的に空 JSON を植えた痕跡として trace は出す。
+                    traceSink?.Invoke(file, "null-record");
+                    continue;
+                }
+                if (!BackupIdValidator.IsValid(rec.Id))
+                {
+                    // HIGH-1: 攻撃者が植えた不正 Id は復元候補から捨てる(パストラバーサル入口の遮断)。
+                    // BK-L-6: 破棄理由 "invalid-id" を trace で可視化(silent 破棄からの差分)。
+                    traceSink?.Invoke(file, "invalid-id");
+                    continue;
+                }
                 list.Add(rec);
             }
-            catch
-            { /* 破損・途中書き込みは無視（次回のクリーン書き込みで上書きされる） */
+            catch (Exception ex)
+            {
+                // 破損・途中書き込み(JsonException / IOException 等)は無視(次回のクリーン書き込みで上書きされる)。
+                // BK-L-6: kind として例外型名を渡す(sanitize は上位 App 層で SanitizeForDisplay.OneLine)。
+                traceSink?.Invoke(file, ex.GetType().Name);
             }
         }
         return list;

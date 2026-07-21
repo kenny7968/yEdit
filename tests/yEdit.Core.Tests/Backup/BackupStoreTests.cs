@@ -238,6 +238,89 @@ public class BackupStoreTests
         Assert.Equal(before, Directory.GetFiles(t.Root, "*.json")); // 副作用ゼロ
     }
 
+    // -------------------------------------------------------------------------
+    // BK-L-6: LoadAll per-file catch を optional trace sink 経由で可視化する
+    // -------------------------------------------------------------------------
+    // 現状 catch { /* 無視 */ } は破損 JSON/JSON パース失敗を診断できず、攻撃者が植えた
+    // 壊れ JSON を silent に握り潰していた。BK-L-6 では LoadAll に
+    // `Action<string, string>? traceSink` を追加し、(file, kind) を通知する。
+    // - kind = ex.GetType().Name (JsonException / IOException / …) — 破損 catch
+    // - kind = "invalid-id" — BackupIdValidator.IsValid=false のレコード
+    // - kind = "null-record" — JSON トップレベルが `null` の場合(rec is null)
+    // 破損ファイル自体は従来通り skip(LoadAll 全体は落とさない=既存挙動維持)。
+    // sanitize は上位 App 層(BackupCoordinator)が SanitizeForDisplay.OneLine で行う契約。
+
+    [Fact]
+    public void LoadAll_InvokesTraceSink_OnCorruptFile()
+    {
+        using var t = new TempDir();
+        // 既存 valid record を 1 件 + 破損 JSON を 1 件並べる=trace 併存(skip でなく)を検証。
+        BackupStore.Write(t.Root, Rec("good", null, "ok"));
+        string brokenPath = Path.Combine(t.Root, "broken.json");
+        File.WriteAllText(brokenPath, "{ this is not valid json ");
+
+        var traced = new List<(string File, string Kind)>();
+        var all = BackupStore.LoadAll(t.Root, (file, kind) => traced.Add((file, kind)));
+
+        // 破損側は trace に上がり、valid 側は従来通り load される。
+        var loaded = Assert.Single(all);
+        Assert.Equal(HashId("good"), loaded.Id);
+        var entry = Assert.Single(traced);
+        Assert.Equal(brokenPath, entry.File);
+        // kind は JSON パーサ例外の型名(JsonException 派生)。実装差分に強くするため
+        // 型名を厳格固定せず「破損 JSON なら null-record/invalid-id ではない=例外型名」で検証。
+        Assert.NotEqual("invalid-id", entry.Kind);
+        Assert.NotEqual("null-record", entry.Kind);
+        Assert.Contains("Exception", entry.Kind); // JsonException 等の Exception 派生の型名
+    }
+
+    [Fact]
+    public void LoadAll_InvokesTraceSink_OnRecordWithMaliciousId()
+    {
+        // HIGH-1 と対称: BackupIdValidator.IsValid=false のレコードは復元候補から捨てる契約は保ちつつ、
+        // 破棄理由(kind="invalid-id")と file 名を trace で観測可能にする。
+        using var t = new TempDir();
+        var poison = new BackupRecord(
+            Id: @"..\..\..\..\Windows\Temp\evil", // 白リスト違反
+            OriginalPath: null,
+            UntitledNumber: 1,
+            CodePage: 65001,
+            HasBom: false,
+            LineEndingId: 0,
+            Content: "x",
+            TimestampUtc: DateTime.UtcNow
+        );
+        var file = Path.Combine(t.Root, Guid.NewGuid().ToString("N") + ".json");
+        File.WriteAllText(file, System.Text.Json.JsonSerializer.Serialize(poison));
+
+        var traced = new List<(string File, string Kind)>();
+        var loaded = BackupStore.LoadAll(t.Root, (f, k) => traced.Add((f, k)));
+
+        Assert.Empty(loaded); // 攻撃 Id は復元ダイアログに現れない(既存 invariant を保つ)
+        var entry = Assert.Single(traced);
+        Assert.Equal(file, entry.File);
+        Assert.Equal("invalid-id", entry.Kind);
+    }
+
+    [Fact]
+    public void LoadAll_WithoutTraceSink_KeepsSilentSkip()
+    {
+        // 旧 API 互換: traceSink=null(引数省略)では破損 JSON でも例外は投げず、trace も呼ばれない。
+        // 既存呼び出し箇所(テスト・将来の別呼び出し側)の silent 継続を lock in する。
+        using var t = new TempDir();
+        BackupStore.Write(t.Root, Rec("good", null, "ok"));
+        File.WriteAllText(Path.Combine(t.Root, "broken.json"), "{ this is not valid json ");
+
+        // 引数 1 個で呼ぶ=optional traceSink=null が明示されない経路。
+        var ex = Record.Exception(() => BackupStore.LoadAll(t.Root));
+        Assert.Null(ex);
+
+        // 明示 null でも同じ(引数 2 個の呼び方でも例外は投げない)。
+        var all = BackupStore.LoadAll(t.Root, traceSink: null);
+        var loaded = Assert.Single(all);
+        Assert.Equal(HashId("good"), loaded.Id);
+    }
+
     [Fact]
     public void Write_AllowsCanonicalGuidN()
     {

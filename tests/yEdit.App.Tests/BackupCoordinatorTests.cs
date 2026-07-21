@@ -529,6 +529,44 @@ public class BackupCoordinatorTests
         });
 
     [Fact]
+    public void OfferRestoreOnStartup_TriggersTraceSink_OnCorruptBackup() =>
+        Sta.Run(() =>
+        {
+            // Task 2 (BK-L-6): BackupStore.LoadAll の per-file catch を trace sink 経由に。
+            // 破損 JSON を仕込んだ状態で OfferRestoreOnStartup を叩き、valid record は復元される
+            // (既存挙動維持=一部破損で他を巻き添えにしない)一方で破損側は
+            // FakeBackupTraceSink.Warnings に category="backup-load-failed" として届くことを assert。
+            using var host = new Host();
+            PlantBackup(host.TempDir, Rec("good", "ok")); // valid: 復元される
+            File.WriteAllText(
+                Path.Combine(host.TempDir, "broken.json"),
+                "{ this is not valid json "
+            );
+
+            int restored = host.Backup.OfferRestoreOnStartup(
+                host.Form,
+                r =>
+                {
+                    var d = host.Docs.CreateNew();
+                    d.Editor.Text = r.Content;
+                    return d;
+                },
+                confirm: false
+            );
+
+            Assert.Equal(1, restored); // valid は復元される(破損で巻き添えにならない)
+            var warn = Assert.Single(host.Trace.Warnings);
+            Assert.Equal("backup-load-failed", warn.Category);
+            Assert.Null(warn.Ex); // detail に kind をコロン結合するため Exception 実体は渡さない
+            // detail = "<sanitized file path>:<kind>" 形式(SanitizeForDisplay.OneLine + ":" + kind)
+            Assert.Contains("broken.json", warn.Detail);
+            Assert.Contains(":", warn.Detail);
+            // BackupIdValidator/null-record ではなく破損 JSON 由来の例外型名
+            Assert.DoesNotContain("invalid-id", warn.Detail);
+            Assert.DoesNotContain("null-record", warn.Detail);
+        });
+
+    [Fact]
     public void OfferRestore_ConfirmTrue_DiscardAll_InvokesWriterDeleteAll() =>
         Sta.Run(() =>
         {

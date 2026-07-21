@@ -136,7 +136,21 @@ public sealed class BackupCoordinator : IDisposable
         IReadOnlyList<BackupRecord> records;
         try
         {
-            records = BackupStore.LoadAll(_dir);
+            // BK-L-6: per-file の破損 catch / invalid-id / null-record を trace で可視化する。
+            // file パスは JSON の内容(攻撃者制御可能)ではなくディレクトリ列挙で得た値だが、
+            // %APPDATA%\yEdit\backups 配下に置かれるファイル名は「.json」拡張子と Directory 名以外は
+            // 攻撃者制御下にあり得る(RLO 混入等)ため、SanitizeForDisplay.OneLine で 1 行化してから
+            // trace に載せる。kind (例外型名 / "invalid-id" / "null-record") はコード側の enum 相当なので
+            // detail 末尾へコロン結合する(Option A: 既存 3 引数 sink API を無変更で維持)。
+            records = BackupStore.LoadAll(
+                _dir,
+                (file, kind) =>
+                    _trace.Warn(
+                        "backup-load-failed",
+                        yEdit.Core.Text.SanitizeForDisplay.OneLine(file, 260) + ":" + kind,
+                        ex: null
+                    )
+            );
         }
         catch (Exception ex)
         {

@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Windows.Forms.Automation;
+using yEdit.Accessibility;
 
 namespace yEdit.App.Speech;
 
@@ -23,6 +24,10 @@ internal class UiaAnnouncer : IAnnouncer
     protected readonly Label _label;
     private readonly TimeProvider _clock;
 
+    /// <summary>UIA-L-2: RaiseAutomationNotification 失敗の観測用 trace sink。既定 <c>null</c> で silent 継続
+    /// (視覚のみに縮退)=本番挙動は不変。テストでは Fake を注入して「例外が Trace に落ちる」ことを assert する。</summary>
+    private readonly IUiaTraceSink? _trace;
+
     /// <summary>Say/TrailingCallback が触る mutable state (_lastSaidUtc / _pendingMessage / _trailingTimer)
     /// の排他。Say は UI スレッド、TrailingCallback は本番では ThreadPool、テストでは Advance の呼出元
     /// スレッドから走るため、共有 field の可視性を lock で保証する。</summary>
@@ -32,12 +37,14 @@ internal class UiaAnnouncer : IAnnouncer
     private ITimer? _trailingTimer;
 
     /// <summary>backward-compat: 既存 <c>new UiaAnnouncer(label)</c> 経路は <paramref name="clock"/>=null
-    /// で <see cref="TimeProvider.System"/> にフォールバック=本番挙動は不変。テストは FakeTimeProvider
-    /// を渡し throttle 窓と trailing timer を deterministically 駆動する。</summary>
-    public UiaAnnouncer(Label label, TimeProvider? clock = null)
+    /// で <see cref="TimeProvider.System"/> にフォールバック・<paramref name="trace"/>=null で silent 継続
+    /// =本番挙動は不変。テストは <see cref="FakeTimeProvider"/> で throttle を deterministically 駆動し、
+    /// Fake <see cref="IUiaTraceSink"/> で UIA 失敗の観測を検証する。</summary>
+    public UiaAnnouncer(Label label, TimeProvider? clock = null, IUiaTraceSink? trace = null)
     {
         _label = label;
         _clock = clock ?? TimeProvider.System;
+        _trace = trace;
     }
 
     public void Say(string message)
@@ -125,15 +132,19 @@ internal class UiaAnnouncer : IAnnouncer
     /// <summary>確定済み(非空)メッセージを Label の UIA プロバイダから通知として上げる。
     /// 空ガードと視覚表示は <see cref="Say"/> が済ませているため、ここでは message が非空であることが前提。
     /// テストではオーバーライドして発声呼び出しを観測する(発声手段の seam)。</summary>
+    /// <remarks>
+    /// UIA-L-2: 実際の <see cref="RaiseCore"/> 呼び出しは try/catch で保護される。
+    /// - <see cref="ObjectDisposedException"/> / <see cref="InvalidOperationException"/> は
+    ///   Label 破棄後 race / UIA 非対応環境の想定内失敗として個別 catch し、silent 継続 (視覚のみ縮退)。
+    /// - それ以外の例外は base <c>Exception</c> でまとめて捕捉し、<see cref="_trace"/> があれば
+    ///   "raise-automation-notification" カテゴリで通知した上で silent 継続する
+    ///   (SR キューの詰まりでも本体の Say を落とさない=元 <c>catch { }</c> の握りつぶし契約を pin)。
+    /// </remarks>
     protected virtual void Raise(string message)
     {
         try
         {
-            _label.AccessibilityObject.RaiseAutomationNotification(
-                AutomationNotificationKind.ActionCompleted,
-                AutomationNotificationProcessing.MostRecent,
-                message
-            );
+            RaiseCore(message);
         }
         // ObjectDisposedException は InvalidOperationException を継承するため、具体側を先に受ける。
         catch (ObjectDisposedException)
@@ -142,5 +153,22 @@ internal class UiaAnnouncer : IAnnouncer
         catch (InvalidOperationException)
         { /* UIA 非対応環境では視覚表示のみ */
         }
+        catch (Exception ex)
+        {
+            // UIA-L-2: 想定外例外は trace に落として観測可能にしつつ silent 継続。
+            _trace?.Warn("raise-automation-notification", "label UIA notification failed", ex);
+        }
+    }
+
+    /// <summary>UIA-L-2: <see cref="Raise"/> の try 内で実行する「実際の RaiseAutomationNotification 呼出」の seam。
+    /// テストではこれを override して「Raise の catch/trace 経路」を deterministically に駆動する
+    /// (<see cref="Raise"/> 自体を override すると catch も差し替わってしまうため 1 段挟む)。</summary>
+    protected virtual void RaiseCore(string message)
+    {
+        _label.AccessibilityObject.RaiseAutomationNotification(
+            AutomationNotificationKind.ActionCompleted,
+            AutomationNotificationProcessing.MostRecent,
+            message
+        );
     }
 }

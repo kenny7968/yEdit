@@ -34,11 +34,19 @@ using yEdit.Core.Layout;
 
 namespace yEdit.Editor;
 
-internal sealed class UiaTextHostAdapter : IUiaTextHost
+// UIA-L-2 (PR-G Task 5): sealed を外す=RaiseUia の PerformRaiseAutomationEvent seam を
+// テスト subclass から override して「AutomationInteropProvider.RaiseAutomationEvent が例外を
+// 投げたときに _trace に落ちる」経路を deterministically に駆動できるようにするため。
+// internal は維持=外部 assembly から派生不可・InternalsVisibleTo (Editor.Tests) 経由のみ。
+internal class UiaTextHostAdapter : IUiaTextHost
 {
     // === 依存 (readonly = 差替不可) ===
     private readonly EditorControl _host;
     private readonly CaretController _caret;
+
+    // UIA-L-2: AutomationInteropProvider.RaiseAutomationEvent 失敗の観測用 trace sink。
+    // 既定 null で silent 継続=本番挙動は不変 (視覚のみに縮退)。
+    private readonly IUiaTraceSink? _trace;
 
     // === 12 field: Uia 系 state の単一所有 (Task 3d) ===
 
@@ -84,10 +92,19 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
 
     // === ctor ===
 
-    public UiaTextHostAdapter(EditorControl host, CaretController caret)
+    /// <summary>
+    /// UIA-L-2: <paramref name="trace"/>=null で silent 継続 (本番挙動不変)。テストは Fake
+    /// <see cref="IUiaTraceSink"/> を注入して UIA raise 失敗の観測を検証する。
+    /// </summary>
+    public UiaTextHostAdapter(
+        EditorControl host,
+        CaretController caret,
+        IUiaTraceSink? trace = null
+    )
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _caret = caret ?? throw new ArgumentNullException(nameof(caret));
+        _trace = trace;
     }
 
     // === UI thread 側からの通知経路 ===
@@ -204,7 +221,12 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
         RaiseUia(AutomationElementIdentifiers.AutomationFocusChangedEvent);
 
     /// <summary>UIA イベントを発火する共通ヘルパ。プロバイダ未生成・SR 未リッスン時はスキップ。</summary>
-    /// <remarks>元 EditorControl.Uia.cs の RaiseUia を bit-perfect 移設。</remarks>
+    /// <remarks>
+    /// 元 EditorControl.Uia.cs の RaiseUia を bit-perfect 移設。
+    /// UIA-L-2 (PR-G Task 5): 元 <c>catch { }</c> の握りつぶしを <see cref="_trace"/> 経由の可観測化に差替。
+    /// 本体に影響させない silent 継続の契約は維持しつつ、trace があれば失敗を "raise-automation-event"
+    /// カテゴリで通知する (SR キューの詰まり・UIA サーバ側 race を運用側で観察可能に)。
+    /// </remarks>
     private void RaiseUia(AutomationEvent ev)
     {
         if (_provider is null)
@@ -215,11 +237,7 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
             return;
         try
         {
-            AutomationInteropProvider.RaiseAutomationEvent(
-                ev,
-                _provider,
-                new AutomationEventArgs(ev)
-            );
+            PerformRaiseAutomationEvent(ev, _provider, new AutomationEventArgs(ev));
             if (ev == TextPatternIdentifiers.TextChangedEvent)
                 _uiaTextChangedCount++;
             else if (ev == TextPatternIdentifiers.TextSelectionChangedEvent)
@@ -227,9 +245,29 @@ internal sealed class UiaTextHostAdapter : IUiaTextHost
             else if (ev == AutomationElementIdentifiers.AutomationFocusChangedEvent)
                 _uiaFocusChangedCount++;
         }
-        catch
-        { /* UIA サーバ側の失敗は本体に影響させない */
+        catch (Exception ex)
+        {
+            // UIA-L-2: UIA サーバ側の失敗は本体に影響させない=trace で観測可能にしつつ silent 継続。
+            _trace?.Warn(
+                "raise-automation-event",
+                ev?.ProgrammaticName
+                    ?? ev?.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    ?? "unknown",
+                ex
+            );
         }
+    }
+
+    /// <summary>UIA-L-2: <see cref="RaiseUia"/> の try 内で走る「実際の RaiseAutomationEvent 呼出」の seam。
+    /// テストではこれを override して「RaiseUia の catch/trace 経路」を deterministically に駆動する
+    /// (Windows UIA インフラは opaque なため本物の失敗を作れない)。</summary>
+    protected internal virtual void PerformRaiseAutomationEvent(
+        AutomationEvent ev,
+        IRawElementProviderSimple provider,
+        AutomationEventArgs args
+    )
+    {
+        AutomationInteropProvider.RaiseAutomationEvent(ev, provider, args);
     }
 
     /// <summary>event counters の一括リセット (Test hook 経由)。</summary>

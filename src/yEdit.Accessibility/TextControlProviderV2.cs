@@ -67,6 +67,15 @@ public sealed class TextControlProviderV2 : IRawElementProviderFragmentRoot
     public IRawElementProviderSimple[] GetEmbeddedFragmentRoots() => null;
 #pragma warning restore S1168
 
+    /// <summary>
+    /// UIA runtime id = { AppendRuntimeId, 1 }。UIA サーバが AppendRuntimeId を検出すると
+    /// hwnd を append する仕様のため、TextControlProviderV2 は自動的に hwnd 単位で一意化される
+    /// (同一プロセス内の複数 EditorControl でも provider インスタンス取り違えが起きない)。
+    /// 定数 1 は fragment root の id (子要素なし = 1 で十分)。
+    /// </summary>
+    /// <remarks>UIA-L-3 (2026-07-20 v0.11): 回帰保護テスト
+    /// <see cref="yEdit.Core.Tests.Accessibility.TextControlProviderV2Tests.GetRuntimeId_ReturnsAppendRuntimeIdContract"/> で pin。
+    /// </remarks>
     public int[] GetRuntimeId() => new int[] { AutomationInteropProvider.AppendRuntimeId, 1 };
 
     public IRawElementProviderFragment Navigate(NavigateDirection direction) => null; // 子なし・親は host 経由

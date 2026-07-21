@@ -10,6 +10,11 @@ namespace yEdit.App;
 /// 書込(Write)の失敗のみは OnWriteFailed に record.Id を渡して UI スレッド側に通知し、
 /// 次 Reconcile で強制再書込を促す(Stage 5 で IBackupWriter を実装)。
 /// Dispose で投入を締め切り、保留ジョブをドレインしてから戻る。
+/// BK-M-2: <c>_dir</c> は base backup directory ではなく **自セッション用 subdirectory** を保持する
+/// (<c>%APPDATA%\yEdit\backups\session-{Guid.N}\</c>)。<see cref="DeleteAll"/> は
+/// <see cref="BackupStore.DeleteSessionDir(string)"/> 経由で自セッション dir のみを掃除する
+/// ため、他インスタンスのライブは無傷。base dir 側の LoadAll / SweepOldSessions は
+/// BackupCoordinator が別途担当する。
 /// </summary>
 public sealed class SerialBackupWriter : IBackupWriter
 {
@@ -21,9 +26,13 @@ public sealed class SerialBackupWriter : IBackupWriter
     /// <inheritdoc/>
     public Action<string>? OnWriteFailed { get; set; }
 
-    public SerialBackupWriter(string directory)
+    /// <summary>BK-M-2: <paramref name="sessionDirectory"/> は自セッション専用の subdirectory
+    /// (<c>%APPDATA%\yEdit\backups\session-{Guid.N}\</c>)。base dir を渡すと flat 配置に戻り
+    /// 別インスタンス影響を再導入するため、呼び出し側 (BackupCoordinator) 責務で必ず session dir
+    /// を渡す契約。</summary>
+    public SerialBackupWriter(string sessionDirectory)
     {
-        _dir = directory;
+        _dir = sessionDirectory;
         _worker = new Thread(Run) { IsBackground = true, Name = "yEdit backup writer" };
         _worker.Start();
     }
@@ -58,7 +67,8 @@ public sealed class SerialBackupWriter : IBackupWriter
         {
             try
             {
-                BackupStore.DeleteAll(_dir);
+                // BK-M-2: session dir のみを掃除する(他インスタンスの session-* / flat 配置は無傷)。
+                BackupStore.DeleteSessionDir(_dir);
             }
             catch
             { /* 一括削除失敗は致命でない・無音 */

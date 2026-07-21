@@ -95,4 +95,70 @@ public class RestoreDialogTests
         // 内容は 1 行として存在(改行崩壊しない)
         Assert.Single(d.Split('\n'));
     }
+
+    // ---------- BK-M-3: path-only fallback marker ----------
+
+    private static BackupRecord RecWithContent(string? path, string? content, int untitled = 0) =>
+        new(
+            Id: Guid.NewGuid().ToString("N"),
+            OriginalPath: path,
+            UntitledNumber: untitled,
+            CodePage: 65001,
+            HasBom: false,
+            LineEndingId: 0,
+            Content: content,
+            TimestampUtc: new DateTime(2026, 7, 19, 12, 34, 56, DateTimeKind.Utc)
+        );
+
+    [Fact]
+    public void Describe_ShowsPathOnlyMarker_WhenContentIsNull_ForPathRecord()
+    {
+        // BK-M-3: 上限超過で Content=null にフォールバックした record は、Describe 末尾に
+        // 「本文なし=元ファイルから開き直してください」旨の marker を付ける契約を pin。
+        // OriginalPath 有りの record は fileName/dir/timestamp の後に marker が来る。
+        var rec = RecWithContent(@"C:\docs\huge.csv", content: null);
+        var d = RestoreDialog.Describe(rec);
+        Assert.Contains(RestoreDialog.PathOnlyMarker, d, StringComparison.Ordinal);
+        Assert.EndsWith(RestoreDialog.PathOnlyMarker, d, StringComparison.Ordinal);
+        Assert.Contains("huge.csv", d, StringComparison.Ordinal); // ファイル名は通常通り表示
+    }
+
+    [Fact]
+    public void Describe_ShowsPathOnlyMarker_WhenContentIsNull_ForUntitledRecord()
+    {
+        // BK-M-3: 無題タブの path-only fallback も marker を付ける(OriginalPath=null 経路)。
+        var rec = RecWithContent(path: null, content: null, untitled: 7);
+        var d = RestoreDialog.Describe(rec);
+        Assert.Contains(RestoreDialog.PathOnlyMarker, d, StringComparison.Ordinal);
+        Assert.EndsWith(RestoreDialog.PathOnlyMarker, d, StringComparison.Ordinal);
+        Assert.Contains("無題 7", d, StringComparison.Ordinal); // 無題ラベルは通常通り
+    }
+
+    [Fact]
+    public void Describe_DoesNotShowPathOnlyMarker_WhenContentIsPresent()
+    {
+        // 通常経路 regression: Content が非 null(=通常サイズ) の record には marker は付かない。
+        var recPath = RecWithContent(@"C:\docs\normal.txt", content: "本文あり");
+        Assert.DoesNotContain(
+            RestoreDialog.PathOnlyMarker,
+            RestoreDialog.Describe(recPath),
+            StringComparison.Ordinal
+        );
+        var recUntitled = RecWithContent(path: null, content: "本文あり", untitled: 3);
+        Assert.DoesNotContain(
+            RestoreDialog.PathOnlyMarker,
+            RestoreDialog.Describe(recUntitled),
+            StringComparison.Ordinal
+        );
+    }
+
+    [Fact]
+    public void Describe_DoesNotShowPathOnlyMarker_WhenContentIsEmpty()
+    {
+        // Content="" (空文字) は「意図した空ファイルの通常保存」= marker 対象外。
+        // marker は Content is null=path-only fallback のみに付く契約を pin。
+        var rec = RecWithContent(@"C:\docs\empty.txt", content: "");
+        var d = RestoreDialog.Describe(rec);
+        Assert.DoesNotContain(RestoreDialog.PathOnlyMarker, d, StringComparison.Ordinal);
+    }
 }

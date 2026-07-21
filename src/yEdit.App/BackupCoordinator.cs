@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
+using System.IO;
 using System.Linq;
 using yEdit.Core.Backup;
+using yEdit.Core.Text;
 
 namespace yEdit.App;
 
@@ -23,10 +25,29 @@ public sealed class BackupCoordinator : IDisposable
         public bool ForceWrite; // 前回の背景書込が失敗 → 次 tick で強制再書込(陳腐化・欠落を防ぐ)
     }
 
+    /// <summary>BK-M-3 (v0.11): バックアップに載せる本文の上限 (chars=UTF-16 code units)。
+    /// 32M chars = 64 MB UTF-16 相当。日常編集の CSV / ログを大きく超える。上限超過時は
+    /// <see cref="BackupRecord.Content"/>=null (path-only) にフォールバックし、
+    /// <see cref="_trace"/>.Warn("backup-content-skipped", ...) で診断可能にする。
+    /// テストから <see cref="Reconcile"/> の分岐を機械的に叩けるよう、ctor 経由で override 可能な
+    /// seam (<see cref="_maxBackupChars"/>) を追加している(既定=この定数)。</summary>
+    internal const int MaxBackupChars = 32 * 1024 * 1024;
+
     private readonly DocumentManager _docs;
     private readonly string _dir;
+
+    /// <summary>BK-M-3: 実行時の size cap。既定は <see cref="MaxBackupChars"/>。ctor の
+    /// optional 引数 <c>maxBackupCharsOverride</c> でテスト時に小さな値へ差し替え、実際に
+    /// 32M chars 相当のバッファを alloc せずに fallback 分岐を検証する。</summary>
+    private readonly int _maxBackupChars;
+
+    /// <summary>BK-M-2: 自セッション用 subdirectory (<c>%APPDATA%\yEdit\backups\session-{Guid.N}\</c>)。
+    /// ctor で生成しプロセス寿命で不変。SerialBackupWriter へ渡す書込先はこの subdir に閉じ、
+    /// 復元列挙 (LoadAll) と 30 日 sweep (SweepOldSessions) は <see cref="_dir"/> (base dir) に対して行う。
+    /// </summary>
+    private readonly string _sessionDir;
     private readonly TimeProvider _clock;
-    private readonly Func<IBackupWriter> _writerFactory;
+    private readonly Func<string, IBackupWriter> _writerFactory;
     private readonly IRestorePrompt _restorePrompt;
     private readonly IBackupTraceSink _trace; // Task 1b: silent catch を診断可能に(既定=DebugBackupTraceSink)
     private bool _enabled; // UpdateSettings で実行時に切替可能
@@ -36,6 +57,9 @@ public sealed class BackupCoordinator : IDisposable
     private readonly ConcurrentQueue<string> _failed = new(); // 背景書込が失敗した Id(UI スレッドで回収)
     private bool _shutDown;
 
+    /// <summary>BK-M-2: 起動時 sweep の age 閾値。30 日以上更新のない session-* subdir を削除する。</summary>
+    private static readonly TimeSpan SessionSweepMaxAge = TimeSpan.FromDays(30);
+
     /// <summary>テスト観測用: 現在の Timer.Interval(ms)。UpdateSettings/ctor の Clamp 結果を assert 化する seam。</summary>
     internal int TimerIntervalMs => _timer.Interval;
 
@@ -44,10 +68,11 @@ public sealed class BackupCoordinator : IDisposable
         bool enabled,
         int intervalSeconds,
         TimeProvider clock,
-        Func<IBackupWriter> writerFactory,
+        Func<string, IBackupWriter> writerFactory,
         IRestorePrompt restorePrompt,
         string? directory = null,
-        IBackupTraceSink? traceSink = null
+        IBackupTraceSink? traceSink = null,
+        int? maxBackupCharsOverride = null
     )
     {
         _docs = docs;
@@ -56,6 +81,14 @@ public sealed class BackupCoordinator : IDisposable
         _writerFactory = writerFactory;
         _restorePrompt = restorePrompt;
         _dir = directory ?? BackupStore.DefaultDirectory;
+        // BK-M-3: 既定は MaxBackupChars。テストが小さな値を渡すと Reconcile の fallback 分岐を
+        // 実際に 32M chars alloc せずに叩ける。負値は意図しない無効化を招くので 0 未満は defensive に
+        // 既定へ戻す(既定 32M chars = 実運用上ほぼ超えない=本番挙動不変)。
+        _maxBackupChars = maxBackupCharsOverride is int mo && mo >= 0 ? mo : MaxBackupChars;
+        // BK-M-2: セッション別 subdir を ctor で生成 (プロセス寿命で不変)。
+        // 別インスタンスと衝突しない一意名として Guid.N (32 桁 hex)。session- prefix で LoadAll /
+        // SweepOldSessions が識別する契約(prefix を変えると sweep 対象から外れて孤児が溜まる)。
+        _sessionDir = Path.Combine(_dir, "session-" + Guid.NewGuid().ToString("N"));
         // Task 1b: 既定は Trace.TraceWarning に流す DebugBackupTraceSink。MainForm は既定引数のまま呼ぶ
         // ため本番挙動は不変(silent catch → Trace 出力あり、例外は依然握り潰す)。
         _trace = traceSink ?? new DebugBackupTraceSink();
@@ -72,10 +105,12 @@ public sealed class BackupCoordinator : IDisposable
         _timer.Start();
     }
 
-    /// <summary>writer を factory で生成し、失敗通知フックを配線する(遅延生成の意味論を保存)。</summary>
+    /// <summary>writer を factory で生成し、失敗通知フックを配線する(遅延生成の意味論を保存)。
+    /// BK-M-2: factory シグニチャは <c>Func&lt;string, IBackupWriter&gt;</c>=書込先の session dir を
+    /// 明示的に渡す(base dir と混同するミスを compile-time で防ぐ seam)。</summary>
     private IBackupWriter CreateWriter()
     {
-        var w = _writerFactory();
+        var w = _writerFactory(_sessionDir);
         w.OnWriteFailed = OnBackgroundWriteFailed;
         return w;
     }
@@ -126,21 +161,53 @@ public sealed class BackupCoordinator : IDisposable
             return 0;
         try
         {
+            // BK-M-2: 30 日以上更新のない孤児 session-* subdir を掃除する(前回異常終了/古いインスタンス由来)。
+            // 時計は TimeProvider seam 経由でテスト可能。失敗は無害(次回起動で再挑戦)。
+            BackupStore.SweepOldSessions(_dir, _clock.GetUtcNow().UtcDateTime, SessionSweepMaxAge);
+        }
+        catch (Exception ex)
+        {
+            _trace.Warn("sweep-old-sessions", SanitizeForDisplay.OneLine(_dir, 200), ex);
+        }
+        try
+        {
+            // BK-M-2: 自セッション dir と base dir 直下(flat 後方互換)の両方で *.tmp 残骸を掃除。
+            // session dir は初回書込前だと存在しないが、SweepTempFiles は Directory.Exists=false で
+            // 無害 return する。base dir は v0.3.0-sec 由来の残置対策。
+            BackupStore.SweepTempFiles(_sessionDir);
             BackupStore.SweepTempFiles(_dir);
         }
         catch (Exception ex)
         {
-            _trace.Warn("sweep-temp", _dir, ex);
+            // BK-L-5: 将来的に _dir がユーザ設定で可変化された場合の CRLF injection / BiDi 混入
+            // 防御として SanitizeForDisplay.OneLine(200) を通す(現状 %APPDATA%\yEdit\backups は
+            // 非攻撃者制御だが、防御の invariant を BackupCoordinator 全 trace で統一する)。
+            _trace.Warn("sweep-temp", SanitizeForDisplay.OneLine(_dir, 200), ex);
         } // 残骸掃除失敗は無害・診断のため trace
 
         IReadOnlyList<BackupRecord> records;
         try
         {
-            records = BackupStore.LoadAll(_dir);
+            // BK-L-6: per-file の破損 catch / invalid-id / null-record を trace で可視化する。
+            // file パスは JSON の内容(攻撃者制御可能)ではなくディレクトリ列挙で得た値だが、
+            // %APPDATA%\yEdit\backups 配下に置かれるファイル名は「.json」拡張子と Directory 名以外は
+            // 攻撃者制御下にあり得る(RLO 混入等)ため、SanitizeForDisplay.OneLine で 1 行化してから
+            // trace に載せる。kind (例外型名 / "invalid-id" / "null-record") はコード側の enum 相当なので
+            // detail 末尾へコロン結合する(Option A: 既存 3 引数 sink API を無変更で維持)。
+            // maxLength=200 は BK-L-5 の統一値(設計 §PR-F (4))=BackupCoordinator 全 trace で揃える。
+            records = BackupStore.LoadAll(
+                _dir,
+                (file, kind) =>
+                    _trace.Warn(
+                        "backup-load-failed",
+                        SanitizeForDisplay.OneLine(file, 200) + ":" + kind,
+                        ex: null
+                    )
+            );
         }
         catch (Exception ex)
         {
-            _trace.Warn("load-all", _dir, ex);
+            _trace.Warn("load-all", SanitizeForDisplay.OneLine(_dir, 200), ex);
             return 0;
         }
         if (records.Count == 0)
@@ -168,7 +235,10 @@ public sealed class BackupCoordinator : IDisposable
                 catch (Exception ex)
                 {
                     // 1 件の不正レコードで全復元を巻き添えにしない。失敗分はバックアップを残し再挑戦可能に。
-                    _trace.Warn("restore-item-later", SafeIdForLog(rec.Id), ex);
+                    // BK-L-5: rec.Id は攻撃者 JSON 由来の可能性(LoadAll 経路は validator で reject 済み
+                    // だが防御は薄く重ねる)+ prompt outcome 経路は validator を通らないため、
+                    // 全 trace で SanitizeForDisplay.OneLine(200) 統一で無害化する。
+                    _trace.Warn("restore-item-later", SanitizeForDisplay.OneLine(rec.Id, 200), ex);
                 }
             }
             return restored;
@@ -194,7 +264,10 @@ public sealed class BackupCoordinator : IDisposable
                     catch (Exception ex)
                     {
                         // 1 件の不正レコードで全復元を巻き添えにしない。失敗分はバックアップを残し再挑戦可能に。
-                        _trace.Warn("restore-item", SafeIdForLog(rec.Id), ex);
+                        // BK-L-5: outcome.Checked 経路は BackupIdValidator を通らないため、
+                        // 攻撃者が Prompt から悪意 Id を注入し得る。SanitizeForDisplay.OneLine(200) で
+                        // 制御文字/BiDi/過剰長を無害化する(BackupCoordinator 全 trace で統一)。
+                        _trace.Warn("restore-item", SanitizeForDisplay.OneLine(rec.Id, 200), ex);
                     }
                 }
                 // チェックしなかった項目は削除しない(SR 誤操作での消失を避け、次回再提案)。
@@ -288,14 +361,32 @@ public sealed class BackupCoordinator : IDisposable
     }
 
     /// <summary>書込ジョブを投入する。失敗時は Adapter が OnWriteFailed 経由で Id を _failed へ積み、
-    /// 次 Reconcile で強制再書込する。</summary>
+    /// 次 Reconcile で強制再書込する。
+    /// BK-M-3: content.Length が上限 (<see cref="_maxBackupChars"/>) を超える場合は Content=null の
+    /// path-only record にフォールバックし、_trace に "backup-content-skipped" を出す。ContentSignature の
+    /// 判定は Reconcile 側で実 content から計算済みなので、ここで null に落としても sig(false-negative)
+    /// は起きない(次 tick で内容が上限以下に戻れば通常経路で Write が再走る)。</summary>
     private void EnqueueWrite(DocBackup info, Document doc, string content)
     {
-        var rec = BuildRecord(info.Id, doc, content);
+        string? persistContent = content;
+        if (content.Length > _maxBackupChars)
+        {
+            // pathKey: doc.State.Path が null (untitled) の場合はプレースホルダ。
+            // SanitizeForDisplay.OneLine(200) で BiDi/改行/過剰長を無害化 (BackupCoordinator 全 trace で統一)。
+            var pathKey = SanitizeForDisplay.OneLine(
+                doc.State.Path ?? $"<untitled-{doc.State.UntitledNumber}>",
+                200
+            );
+            // BK-M-3 I-1: sizeChars を detail に折り込む(閾値ぎりぎり vs 遥かに超えの区別が付き
+            // 閾値チューニング診断が可能になる)。追加する " (Nchars)" は自コード生成 = sanitize 不要。
+            _trace.Warn("backup-content-skipped", pathKey + $" ({content.Length}chars)", ex: null);
+            persistContent = null;
+        }
+        var rec = BuildRecord(info.Id, doc, persistContent);
         _writer?.Write(rec);
     }
 
-    private BackupRecord BuildRecord(string id, Document doc, string content) =>
+    private BackupRecord BuildRecord(string id, Document doc, string? content) =>
         new(
             Id: id,
             OriginalPath: doc.State.Path,
@@ -338,24 +429,5 @@ public sealed class BackupCoordinator : IDisposable
         _timer.Stop();
         _timer.Dispose();
         _writer?.Dispose();
-    }
-
-    /// <summary>
-    /// HIGH-1: trace ログへ流す BackupRecord.Id を無害化する。
-    /// 攻撃者が植えた JSON の Id は制御文字/ANSI エスケープ/双方向 override 等を
-    /// 仕込める(壊れたログで隠蔽・端末破壊)ため、32 桁上限で切り、GUID N の hex
-    /// 文字以外は '?' に置換して trace ログを無害化する(bidi/format 文字含む全非 hex
-    /// を掃除する=whitelist 方式で char.IsControl の見落としを塞ぐ)。
-    /// 正当な GUID N (32 桁 hex) は不変。
-    /// </summary>
-    private static string SafeIdForLog(string? id)
-    {
-        if (string.IsNullOrEmpty(id))
-            return "<empty>";
-        var truncated = id.Length > 32 ? id[..32] : id;
-        var sb = new System.Text.StringBuilder(truncated.Length);
-        foreach (var c in truncated)
-            sb.Append(char.IsAsciiHexDigit(c) ? c : '?');
-        return sb.ToString();
     }
 }

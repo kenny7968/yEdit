@@ -116,7 +116,10 @@ public sealed partial class MainForm : Form
             _settings.BackupEnabled,
             _settings.BackupIntervalSeconds,
             TimeProvider.System,
-            () => new SerialBackupWriter(BackupStore.DefaultDirectory),
+            // BK-M-2: session dir は BackupCoordinator ctor 内で生成し factory に渡す
+            // (Func<string, IBackupWriter> シグニチャ)。ここで DefaultDirectory を直埋めしない=
+            // base dir と混同するミスを compile-time で防ぐ。
+            sessionDir => new SerialBackupWriter(sessionDir),
             new WinFormsRestorePrompt()
         );
         _csv = new CsvController(

@@ -79,6 +79,32 @@ public class BackupStoreTests
     }
 
     [Fact]
+    public void Write_then_LoadAll_roundtrips_null_content()
+    {
+        // BK-M-3 (v0.11): 巨大文書は BackupCoordinator で Content=null にフォールバックする。
+        // JSON round-trip で Content=null が保たれる契約を pin (Serialize は "Content": null を出し、
+        // Deserialize は string? = null を復元する)。File 名は正当な GUID N、メタ (Path/CodePage/etc.) は
+        // 通常通り保存されるため復元ダイアログにファイル名は表示され、本文欄のみが空となる。
+        using var t = new TempDir();
+        var rec = new BackupRecord(
+            Id: HashId("big-doc"),
+            OriginalPath: @"C:\docs\huge.csv",
+            UntitledNumber: 0,
+            CodePage: 65001,
+            HasBom: false,
+            LineEndingId: 0,
+            Content: null,
+            TimestampUtc: new DateTime(2026, 7, 21, 12, 0, 0, DateTimeKind.Utc)
+        );
+        BackupStore.Write(t.Root, rec);
+
+        var loaded = Assert.Single(BackupStore.LoadAll(t.Root));
+        Assert.Null(loaded.Content); // path-only fallback: 本文は null で保存・復元
+        Assert.Equal(@"C:\docs\huge.csv", loaded.OriginalPath); // メタは通常通り往復
+        Assert.Equal(HashId("big-doc"), loaded.Id);
+    }
+
+    [Fact]
     public void Write_same_id_overwrites_atomically()
     {
         using var t = new TempDir();
@@ -236,6 +262,272 @@ public class BackupStoreTests
         var ex = Assert.Throws<ArgumentException>(() => BackupStore.Delete(t.Root, invalidId));
         Assert.Equal("id", ex.ParamName);
         Assert.Equal(before, Directory.GetFiles(t.Root, "*.json")); // 副作用ゼロ
+    }
+
+    // -------------------------------------------------------------------------
+    // BK-L-6: LoadAll per-file catch を optional trace sink 経由で可視化する
+    // -------------------------------------------------------------------------
+    // 現状 catch { /* 無視 */ } は破損 JSON/JSON パース失敗を診断できず、攻撃者が植えた
+    // 壊れ JSON を silent に握り潰していた。BK-L-6 では LoadAll に
+    // `Action<string, string>? traceSink` を追加し、(file, kind) を通知する。
+    // - kind = ex.GetType().Name (JsonException / IOException / …) — 破損 catch
+    // - kind = "invalid-id" — BackupIdValidator.IsValid=false のレコード
+    // - kind = "null-record" — JSON トップレベルが `null` の場合(rec is null)
+    // 破損ファイル自体は従来通り skip(LoadAll 全体は落とさない=既存挙動維持)。
+    // sanitize は上位 App 層(BackupCoordinator)が SanitizeForDisplay.OneLine で行う契約。
+
+    [Fact]
+    public void LoadAll_InvokesTraceSink_OnCorruptFile()
+    {
+        using var t = new TempDir();
+        // 既存 valid record を 1 件 + 破損 JSON を 1 件並べる=trace 併存(skip でなく)を検証。
+        BackupStore.Write(t.Root, Rec("good", null, "ok"));
+        string brokenPath = Path.Combine(t.Root, "broken.json");
+        File.WriteAllText(brokenPath, "{ this is not valid json ");
+
+        var traced = new List<(string File, string Kind)>();
+        var all = BackupStore.LoadAll(t.Root, (file, kind) => traced.Add((file, kind)));
+
+        // 破損側は trace に上がり、valid 側は従来通り load される。
+        var loaded = Assert.Single(all);
+        Assert.Equal(HashId("good"), loaded.Id);
+        var entry = Assert.Single(traced);
+        Assert.Equal(brokenPath, entry.File);
+        // kind は JSON パーサ例外の型名(JsonException 派生)。実装差分に強くするため
+        // 型名を厳格固定せず「破損 JSON なら null-record/invalid-id ではない=例外型名」で検証。
+        Assert.NotEqual("invalid-id", entry.Kind);
+        Assert.NotEqual("null-record", entry.Kind);
+        Assert.Contains("Exception", entry.Kind); // JsonException 等の Exception 派生の型名
+    }
+
+    [Fact]
+    public void LoadAll_InvokesTraceSink_OnRecordWithMaliciousId()
+    {
+        // HIGH-1 と対称: BackupIdValidator.IsValid=false のレコードは復元候補から捨てる契約は保ちつつ、
+        // 破棄理由(kind="invalid-id")と file 名を trace で観測可能にする。
+        using var t = new TempDir();
+        var poison = new BackupRecord(
+            Id: @"..\..\..\..\Windows\Temp\evil", // 白リスト違反
+            OriginalPath: null,
+            UntitledNumber: 1,
+            CodePage: 65001,
+            HasBom: false,
+            LineEndingId: 0,
+            Content: "x",
+            TimestampUtc: DateTime.UtcNow
+        );
+        var file = Path.Combine(t.Root, Guid.NewGuid().ToString("N") + ".json");
+        File.WriteAllText(file, System.Text.Json.JsonSerializer.Serialize(poison));
+
+        var traced = new List<(string File, string Kind)>();
+        var loaded = BackupStore.LoadAll(t.Root, (f, k) => traced.Add((f, k)));
+
+        Assert.Empty(loaded); // 攻撃 Id は復元ダイアログに現れない(既存 invariant を保つ)
+        var entry = Assert.Single(traced);
+        Assert.Equal(file, entry.File);
+        Assert.Equal("invalid-id", entry.Kind);
+    }
+
+    [Fact]
+    public void LoadAll_WithoutTraceSink_KeepsSilentSkip()
+    {
+        // 旧 API 互換: traceSink=null(引数省略)では破損 JSON でも例外は投げず、trace も呼ばれない。
+        // 既存呼び出し箇所(テスト・将来の別呼び出し側)の silent 継続を lock in する。
+        using var t = new TempDir();
+        BackupStore.Write(t.Root, Rec("good", null, "ok"));
+        File.WriteAllText(Path.Combine(t.Root, "broken.json"), "{ this is not valid json ");
+
+        // 引数 1 個で呼ぶ=optional traceSink=null が明示されない経路。
+        var ex = Record.Exception(() => BackupStore.LoadAll(t.Root));
+        Assert.Null(ex);
+
+        // 明示 null でも同じ(引数 2 個の呼び方でも例外は投げない)。
+        var all = BackupStore.LoadAll(t.Root, traceSink: null);
+        var loaded = Assert.Single(all);
+        Assert.Equal(HashId("good"), loaded.Id);
+    }
+
+    // -------------------------------------------------------------------------
+    // BK-M-2: セッション別 subdir + 30 日 sweep(BackupStore)
+    // -------------------------------------------------------------------------
+    // 現状のフラット配置(%APPDATA%\yEdit\backups\ 直下)は、複数 yEdit インスタンス同時起動時に
+    // 別インスタンスが「すべて破棄」を選ぶと自インスタンスのライブ backup が消える問題があった。
+    // BK-M-2 は書込先を %APPDATA%\yEdit\backups\session-{Guid.N}\ へ移し、
+    // - LoadAll: 全 session-* subdir + flat 後方互換を列挙(復元候補は全部見せる)
+    // - DeleteSessionDir: 自セッション subdir 限定削除(他インスタンスのライブを守る)
+    // - SweepOldSessions: 30 日以上古い session-* subdir を削除(孤児掃除)
+    // という 3 表面で invariant を保つ。
+
+    [Fact]
+    public void LoadAll_EnumeratesAllSessionSubdirs()
+    {
+        using var t = new TempDir();
+        var sessionA = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        var sessionB = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(sessionA);
+        Directory.CreateDirectory(sessionB);
+        BackupStore.Write(sessionA, Rec("r-a", null, "content-a"));
+        BackupStore.Write(sessionB, Rec("r-b", null, "content-b"));
+
+        var all = BackupStore.LoadAll(t.Root);
+
+        // session-A + session-B の 2 件が集約列挙される(順序不問)。
+        Assert.Equal(2, all.Count);
+        Assert.Contains(all, r => r.Content == "content-a");
+        Assert.Contains(all, r => r.Content == "content-b");
+    }
+
+    [Fact]
+    public void LoadAll_MixesSessionSubdir_AndFlatCompat()
+    {
+        using var t = new TempDir();
+        // v0.3.0-sec 由来の flat 配置 + BK-M-2 の session subdir が混在するケース。
+        // 両方から復元候補を集める(後方互換の中核 invariant)。
+        BackupStore.Write(t.Root, Rec("flat", null, "flat-content"));
+        var session = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(session);
+        BackupStore.Write(session, Rec("session", null, "session-content"));
+
+        var all = BackupStore.LoadAll(t.Root);
+
+        Assert.Equal(2, all.Count);
+        Assert.Contains(all, r => r.Content == "flat-content");
+        Assert.Contains(all, r => r.Content == "session-content");
+    }
+
+    [Fact]
+    public void LoadAll_IgnoresNonSessionSubdirs()
+    {
+        using var t = new TempDir();
+        // "session-" prefix でない subdir はユーザが手で置いた/他アプリの残置物の可能性がある。
+        // 列挙対象外にする invariant を pin(過剰列挙で他アプリの状態を見せない)。
+        var other = Path.Combine(t.Root, "other-dir");
+        Directory.CreateDirectory(other);
+        BackupStore.Write(other, Rec("misplaced", null, "misplaced-content"));
+
+        var all = BackupStore.LoadAll(t.Root);
+
+        Assert.Empty(all);
+    }
+
+    [Fact]
+    public void LoadAll_FlatCompat_LoadsFromBaseDir_WhenNoSessionSubdirs()
+    {
+        using var t = new TempDir();
+        // v0.3.0-sec ユーザの既存 flat 配置(session-* 無し)が引き続き読める。
+        BackupStore.Write(t.Root, Rec("legacy", null, "legacy-content"));
+
+        var all = BackupStore.LoadAll(t.Root);
+
+        var loaded = Assert.Single(all);
+        Assert.Equal("legacy-content", loaded.Content);
+    }
+
+    [Fact]
+    public void DeleteSessionDir_RemovesOnlyGivenSession()
+    {
+        using var t = new TempDir();
+        var sessionA = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        var sessionB = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(sessionA);
+        Directory.CreateDirectory(sessionB);
+        BackupStore.Write(sessionA, Rec("r-a", null, "content-a"));
+        BackupStore.Write(sessionB, Rec("r-b", null, "content-b"));
+
+        BackupStore.DeleteSessionDir(sessionA);
+
+        // session-A の中身と(空になった) session-A dir 自体が消える。session-B は無傷。
+        Assert.False(Directory.Exists(sessionA));
+        Assert.True(Directory.Exists(sessionB));
+        var remaining = BackupStore.LoadAll(t.Root);
+        Assert.Single(remaining);
+        Assert.Equal("content-b", remaining[0].Content);
+    }
+
+    [Fact]
+    public void DeleteSessionDir_RemovesTmpResiduals_AsWell()
+    {
+        using var t = new TempDir();
+        var session = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(session);
+        BackupStore.Write(session, Rec("r", null, "ok"));
+        // クラッシュ由来の *.tmp を模擬(AtomicFile が書込中に落ちた残骸)。
+        File.WriteAllText(Path.Combine(session, "stale.tmp"), "incomplete");
+
+        BackupStore.DeleteSessionDir(session);
+
+        // 空になった dir 自体も消える(*.tmp も掃除対象)。
+        Assert.False(Directory.Exists(session));
+    }
+
+    [Fact]
+    public void DeleteSessionDir_OnMissing_IsHarmless()
+    {
+        using var t = new TempDir();
+        var missing = Path.Combine(t.Root, "session-does-not-exist");
+
+        // 存在しない session dir に対して呼んでも例外を投げない(shutdown 経路の冪等性)。
+        Assert.Null(Record.Exception(() => BackupStore.DeleteSessionDir(missing)));
+    }
+
+    [Fact]
+    public void SweepOldSessions_RemovesOnlyDirsOlderThanMaxAge()
+    {
+        using var t = new TempDir();
+        var now = new DateTime(2026, 07, 21, 12, 0, 0, DateTimeKind.Utc);
+        var fresh = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        var recent = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        var stale = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(fresh);
+        Directory.CreateDirectory(recent);
+        Directory.CreateDirectory(stale);
+        // それぞれ 1 日/10 日/60 日前の最終書込時刻に設定(seam=Directory.SetLastWriteTimeUtc)。
+        Directory.SetLastWriteTimeUtc(fresh, now - TimeSpan.FromDays(1));
+        Directory.SetLastWriteTimeUtc(recent, now - TimeSpan.FromDays(10));
+        Directory.SetLastWriteTimeUtc(stale, now - TimeSpan.FromDays(60));
+
+        BackupStore.SweepOldSessions(t.Root, now, TimeSpan.FromDays(30));
+
+        Assert.True(Directory.Exists(fresh)); // 1 日=残す
+        Assert.True(Directory.Exists(recent)); // 10 日=残す
+        Assert.False(Directory.Exists(stale)); // 60 日=削除(30 日超)
+    }
+
+    [Fact]
+    public void SweepOldSessions_IgnoresFlatFilesAndNonSessionDirs()
+    {
+        using var t = new TempDir();
+        var now = new DateTime(2026, 07, 21, 12, 0, 0, DateTimeKind.Utc);
+        // flat 配置の record(v0.3.0-sec 由来)は保護される=SweepOldSessions は触らない。
+        BackupStore.Write(t.Root, Rec("flat", null, "flat-content"));
+        // "session-" prefix でない古い subdir も保護される(他アプリ/ユーザ手動作成の残置物)。
+        var other = Path.Combine(t.Root, "other-old-dir");
+        Directory.CreateDirectory(other);
+        Directory.SetLastWriteTimeUtc(other, now - TimeSpan.FromDays(365));
+        // 比較対象=非常に古い session-*=これは消える。
+        var stale = Path.Combine(t.Root, "session-stale-guid");
+        Directory.CreateDirectory(stale);
+        Directory.SetLastWriteTimeUtc(stale, now - TimeSpan.FromDays(365));
+
+        BackupStore.SweepOldSessions(t.Root, now, TimeSpan.FromDays(30));
+
+        Assert.False(Directory.Exists(stale));
+        Assert.True(Directory.Exists(other)); // 副作用ゼロ(他アプリ dir を巻き添えにしない)
+        Assert.Single(Directory.GetFiles(t.Root, "*.json")); // flat 配置の json は無傷
+    }
+
+    [Fact]
+    public void SweepOldSessions_OnMissingBaseDir_IsHarmless()
+    {
+        var missing = Path.Combine(
+            Path.GetTempPath(),
+            "yedit_bak_missing_" + Guid.NewGuid().ToString("N")
+        );
+        Assert.Null(
+            Record.Exception(() =>
+                BackupStore.SweepOldSessions(missing, DateTime.UtcNow, TimeSpan.FromDays(30))
+            )
+        );
     }
 
     [Fact]

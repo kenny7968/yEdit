@@ -481,7 +481,7 @@ public sealed partial class MainForm : Form
             null,
             (_, _) =>
                 MessageBox.Show(
-                    "yEdit v0.1",
+                    "yEdit v0.11",
                     "バージョン情報",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information

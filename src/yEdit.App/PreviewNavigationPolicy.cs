@@ -10,8 +10,10 @@ namespace yEdit.App;
 /// 呼ばれる。Process.Start の副作用や WebView2 依存を持たないため単体テスト可能。
 /// </para>
 /// <para>
-/// 攻撃面(audit doc MD-M-1 / MD-M-5):
+/// 攻撃面(audit doc MD-H-1 / MD-M-1 / MD-M-5):
 /// <list type="bullet">
+///   <item>同梱 <c>https://yedit.preview/*.html</c>/<c>.svg</c> への in-frame 遷移を Block
+///     (attacker フォルダ由来の CSP 未適用ドキュメントが same-origin でスクリプト実行するのを塞ぐ・MD-H-1)。</item>
 ///   <item>外部 http/https は in-frame ナビゲートさせず既定ブラウザへ逃がす
 ///     (プレビュー窓の title を保ったまま偽サイトが表示される phishing 防止)。</item>
 ///   <item><c>file://</c> UNC は Windows が SMB 経由で NTLM 認証を通してしまうため
@@ -26,7 +28,7 @@ public static class PreviewNavigationPolicy
     /// <summary>ナビゲーション分類。</summary>
     public enum Classification
     {
-        /// <summary>preview 内で許可 (about:blank + https://yedit.preview/*)。</summary>
+        /// <summary>preview 内で許可 (about:blank のみ)。MD-H-1 以降 https://yedit.preview/* は Block。</summary>
         AllowIntra,
 
         /// <summary>既定ブラウザ/アプリで開く安全 scheme (http/https 非 preview, mailto)。</summary>
@@ -71,11 +73,17 @@ public static class PreviewNavigationPolicy
         string scheme = parsed.Scheme.ToLowerInvariant();
         return scheme switch
         {
-            // https は preview 仮想ホスト一致のみ intra 扱い。それ以外は既定ブラウザへ逃がす。
+            // https + preview 仮想ホストは全面 Block (MD-H-1)。
+            // yedit.preview は実ホストではないので LaunchExternal (既定ブラウザ起動) しても無意味。
+            // preview 本体は NavigateToString (data: URI) 経由、CSS/画像は WebResourceRequested
+            // のサブリソース経由で届くため、正当な top-level ナビゲーションがこのホストを対象にする
+            // ことは無い。ここを AllowIntra にすると、攻撃者が .md と同梱した CSP 未適用の
+            // .html/.svg への相対リンク click が in-frame 遷移し、same-origin でスクリプト実行
+            // (兄弟ファイル fetch + 外部 exfiltration) されてしまう。よって Block する。
             // http は preview として認めない (strict): 仮想ホストマッピングは https のみで張っている。
             "https"
                 when string.Equals(parsed.Host, PreviewHost, StringComparison.OrdinalIgnoreCase) =>
-                Classification.AllowIntra,
+                Classification.Block,
             "http" or "https" => Classification.LaunchExternal,
             "mailto" => Classification.LaunchExternal,
             // file:// UNC は Windows が SMB で NTLM 認証を通してしまうため全面 Block (MD-M-5)。

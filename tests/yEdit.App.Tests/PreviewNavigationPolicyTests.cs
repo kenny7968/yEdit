@@ -7,7 +7,7 @@ namespace yEdit.App.Tests;
 /// 分類ルール:
 ///   - null / 空 → Block
 ///   - about:blank (大小区別なし) → AllowIntra (NavigateToString の初回 origin)
-///   - https://yedit.preview/* (大小区別なし) → AllowIntra (仮想ホスト経由の相対リソース)
+///   - https://yedit.preview/* (大小区別なし) → Block (MD-H-1: 同梱 .html/.svg の same-origin 実行防止)
 ///   - http/https 非 preview → LaunchExternal (既定ブラウザへ逃がす)
 ///   - mailto → LaunchExternal
 ///   - file / ftp / data / javascript / vbscript / その他 → Block
@@ -48,17 +48,34 @@ public class PreviewNavigationPolicyTests
         );
 
     [Fact]
-    public void Classify_HttpsPreviewHost_ReturnsAllowIntra() =>
+    public void Classify_HttpsPreviewHost_ReturnsBlock() =>
         Assert.Equal(
-            PreviewNavigationPolicy.Classification.AllowIntra,
+            PreviewNavigationPolicy.Classification.Block,
             PreviewNavigationPolicy.Classify("https://yedit.preview/foo/bar.md")
         );
 
     [Fact]
-    public void Classify_HttpsPreviewHost_UpperCase_ReturnsAllowIntra() =>
+    public void Classify_HttpsPreviewHost_UpperCase_ReturnsBlock() =>
         Assert.Equal(
-            PreviewNavigationPolicy.Classification.AllowIntra,
+            PreviewNavigationPolicy.Classification.Block,
             PreviewNavigationPolicy.Classify("HTTPS://YEDIT.PREVIEW/x")
+        );
+
+    /// <summary>MD-H-1: 同梱 .html への in-frame 遷移 (相対リンク click) は Block。
+    /// CSP 未適用の attacker HTML が same-origin でスクリプト実行するのを塞ぐ。</summary>
+    [Fact]
+    public void Classify_HttpsPreviewHost_HtmlFile_ReturnsBlock() =>
+        Assert.Equal(
+            PreviewNavigationPolicy.Classification.Block,
+            PreviewNavigationPolicy.Classify("https://yedit.preview/setup.html")
+        );
+
+    /// <summary>MD-H-1: 同梱 .svg への in-frame 遷移も Block (svg 内 script の same-origin 実行防止)。</summary>
+    [Fact]
+    public void Classify_HttpsPreviewHost_SvgFile_ReturnsBlock() =>
+        Assert.Equal(
+            PreviewNavigationPolicy.Classification.Block,
+            PreviewNavigationPolicy.Classify("https://yedit.preview/evil.svg")
         );
 
     [Fact]

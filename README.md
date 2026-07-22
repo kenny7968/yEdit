@@ -76,7 +76,7 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 
 - `dotnet tool restore` — CSharpier / Husky.Net を `.config/dotnet-tools.json` から復元
-- `dotnet husky install` — `.husky/pre-commit` を Git hook として有効化 (commit 時に staged `*.cs` を自動整形)
+- `dotnet husky install` — `.husky/pre-commit` を Git hook として有効化 (commit 時に staged `*.cs` を自動整形+staged ファイルのローカルパス検出)
 - `git config blame.ignoreRevsFile ...` — 一括整形 commit を `git blame` の対象から除外
 
 CI (`.github/workflows/ci.yml`) でも `dotnet csharpier check` が実行されるため、
@@ -103,13 +103,18 @@ dotnet test tests/yEdit.App.Tests    -c Release --no-build
 
 ### main マージ前ゲート
 
-`tools/pre-merge-check.ps1` を実行し、以下がすべて緑であることを確認する (CI と同じゲート):
+`tools/pre-merge-check.ps1` を実行し、以下がすべて緑であることを確認する:
 
 ```powershell
 powershell -File tools\pre-merge-check.ps1
 ```
 
 Format check → Release ビルド (0 警告) → 3 テストプロジェクト全緑、で PASS。
+
+CI (`ci.yml`) とほぼ同一のゲートだが、次の 2 点だけ異なる:
+
+- ローカルパス検出 (`tools/check-no-local-paths.ps1`) は本スクリプトに含まれない (CI と pre-commit フックが実行する)。
+- `Category=LocalOnly` のテストは CI では除外されるが、本スクリプトはフィルタなしで全件実行する。
 
 ### 実行
 

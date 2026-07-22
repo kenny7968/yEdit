@@ -127,6 +127,37 @@ public static class SanitizeForDisplay
         return sb.ToString();
     }
 
+    /// <summary>
+    /// <paramref name="value"/> に「サニタイズ対象の制御文字」(<see cref="OneLine"/> /
+    /// <see cref="MultiLine"/> が除去または空白へ置換する rune) が 1 個以上含まれるかを判定する。
+    /// 判定対象は UnicodeCategory の Format / LineSeparator / ParagraphSeparator / Control
+    /// (BiDi/format 系・ZW*・BOM・U+2028/U+2029・C0/C1/DEL・CR/LF/TAB 含む)。
+    /// null または空文字列は false。
+    /// </summary>
+    /// <remarks>
+    /// UIA-M-1 で「攻撃 CSV セルにマーカーを付けるか否か」を明確に切り分けるために追加。
+    /// OneLine/MultiLine とロジックが 1:1 対応するよう同じカテゴリ集合で判定する。
+    /// </remarks>
+    public static bool ContainsSanitizableControlChar(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return false;
+        foreach (var rune in value.EnumerateRunes())
+        {
+            var cat = CharUnicodeInfo.GetUnicodeCategory(rune.Value);
+            if (
+                cat == UnicodeCategory.Format
+                || cat == UnicodeCategory.LineSeparator
+                || cat == UnicodeCategory.ParagraphSeparator
+                || cat == UnicodeCategory.Control
+            )
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static void AppendRune(StringBuilder sb, Rune rune)
     {
         Span<char> buf = stackalloc char[2];

@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\yEdit.Accessibility\yEdit.Accessibility.csproj" />
     <ProjectReference Include="..\yEdit.Editor\yEdit.Editor.csproj" />
     <ProjectReference Include="..\yEdit.Core\yEdit.Core.csproj" />
   </ItemGroup>

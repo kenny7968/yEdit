@@ -1,7 +1,8 @@
 namespace yEdit.App.Tests;
 
 /// <summary>
-/// audit doc `docs/plans/2026-07-19-security-hardening-medium-low.md` §MD-M-1 / §MD-M-5。
+/// audit doc `docs/plans/2026-07-19-security-hardening-medium-low.md` §MD-M-1 / §MD-M-5、
+/// および設計 doc `docs/plans/2026-07-22-preview-intra-nav-hardening-design.md` §MD-H-1。
 /// MarkdownPreviewForm の WebView2 ナビゲーション対象 URI 分類の期待挙動を機械固定する。
 ///
 /// 分類ルール:

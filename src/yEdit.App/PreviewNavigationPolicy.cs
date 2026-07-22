@@ -10,7 +10,8 @@ namespace yEdit.App;
 /// 呼ばれる。Process.Start の副作用や WebView2 依存を持たないため単体テスト可能。
 /// </para>
 /// <para>
-/// 攻撃面(audit doc MD-H-1 / MD-M-1 / MD-M-5):
+/// 攻撃面(audit doc MD-M-1 / MD-M-5、および設計 doc
+/// <c>docs/plans/2026-07-22-preview-intra-nav-hardening-design.md</c> MD-H-1):
 /// <list type="bullet">
 ///   <item>同梱 <c>https://yedit.preview/*.html</c>/<c>.svg</c> への in-frame 遷移を Block
 ///     (attacker フォルダ由来の CSP 未適用ドキュメントが same-origin でスクリプト実行するのを塞ぐ・MD-H-1)。</item>
@@ -39,8 +40,9 @@ public static class PreviewNavigationPolicy
     }
 
     /// <summary>
-    /// preview 内で許可する仮想ホスト。MarkdownRenderer 側の VirtualHost マッピング
-    /// (App の SetVirtualHostNameToFolderMapping) と単一の source of truth を共有する。
+    /// preview 仮想ホスト。この host への top-level ナビゲーションは Block する (MD-H-1)。
+    /// MarkdownRenderer 側の VirtualHost マッピング (App の SetVirtualHostNameToFolderMapping)
+    /// と単一の source of truth を共有し、host 名の判定基準がずれないようにする。
     /// </summary>
     private static readonly string PreviewHost = MarkdownRenderer.PreviewVirtualHost;
 

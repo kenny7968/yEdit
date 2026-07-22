@@ -76,7 +76,7 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 
 - `dotnet tool restore` — CSharpier / Husky.Net を `.config/dotnet-tools.json` から復元
-- `dotnet husky install` — `.husky/pre-commit` を Git hook として有効化 (commit 時に staged `*.cs` を自動整形)
+- `dotnet husky install` — `.husky/pre-commit` を Git hook として有効化 (commit 時に staged `*.cs` を自動整形+staged ファイルのローカルパス検出)
 - `git config blame.ignoreRevsFile ...` — 一括整形 commit を `git blame` の対象から除外
 
 CI (`.github/workflows/ci.yml`) でも `dotnet csharpier check` が実行されるため、

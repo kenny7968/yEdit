@@ -1,0 +1,129 @@
+# CLAUDE.md
+
+yEdit を Claude Code で開発する際のプロセス規範。誰が・どのセッションで作業しても
+同じ進め方になることを目的とする。
+
+**役割分担**: 環境構築・ビルド/テストコマンド・アーキテクチャは [README.md](./README.md)、
+Lint/Format の詳細は [docs/lint-format-setup.md](./docs/lint-format-setup.md) を参照。
+本書はプロセス(進め方)のみを定める。
+
+**原則**: 本書には一時状態(未 push の commit 数・open 中の PR 番号・進行中タスク等)を書かない。
+それらは Issue / PR / セッションメモリーで管理する。
+
+## 1. 言語規範
+
+- ユーザーとの会話・Issue / PR の description とコメント・コミットメッセージ本文は**日本語**で書く。
+- コード・識別子・技術用語は英語のまま。
+
+## 2. プロジェクト原則(不変条件)
+
+- **晴眼・弱視ユーザーも第一級**。yEdit は SR(スクリーンリーダー)対応エディタだが全盲専用ではない。
+  「SR の読み上げに効くか」を機能価値のゲート条件にしない。
+- **a11y 鉄則**:
+  - UIA プロバイダは RPC スレッドから呼ばれる。RPC スレッドからエディタ内部(UI スレッド専有)に
+    触らない。UI スレッドで保持するスナップショットで即答する。
+  - SR の実発声は自動テストでは検証できない。実機 SR 検証(L5)でのみ確認できる。
+  - 現行の読み上げターゲットは NVDA 単一(PC-Talker 対応廃止の経緯は README「補足」参照)。
+- **リファクタ・基盤変更は挙動不変が原則**。意図的な挙動変更・計画からの逸脱は、
+  設計書または PR description に必ず文書化する。
+
+## 3. 開発フロー
+
+機能追加・リファクタ・セキュリティ修正は、規模を問わず次の工程を踏む。
+
+1. **ブレインストーミング** — 要件・設計をユーザーと対話的に確定する。
+2. **設計書** — `docs/plans/YYYY-MM-DD-<topic>-design.md` に保存し、ユーザー承認を得てから commit。
+3. **実装計画** — `docs/plans/YYYY-MM-DD-<topic>.md`。タスク分割・完全なコード・検証コマンドを含める。
+4. **タスク分割実装** — 各タスク = 実装 → 仕様レビュー → コード品質レビューの 2 段レビュー。
+   指摘を反映してから次タスクへ進む。
+5. **最終ブランチレビュー** — ブランチ全体を別エージェントがレビューし、指摘は fixup commit で反映。
+6. **品質ゲート(§6)→ PR(§7)**。
+
+superpowers プラグイン導入環境では各工程を対応スキルで実施する(推奨・必須ではない):
+
+| 工程 | スキル |
+|------|--------|
+| 1 | superpowers:brainstorming |
+| 3 | superpowers:writing-plans |
+| 4 | superpowers:subagent-driven-development |
+| 5 | superpowers:requesting-code-review / receiving-code-review |
+| 6 以降 | superpowers:finishing-a-development-branch |
+
+**簡略化の基準**: 数十行規模・単一ファイルの小変更は、実装を 1 タスクに統合し単一 commit でよい。
+ただし別エージェントレビューと品質ゲートは省略しない。
+
+## 4. レビュー標準
+
+- マージ前に**別エージェントによるコードレビューを必ず**行う。
+- 指摘は鵜呑みにしない。技術的に検証し、妥当でない指摘は理由付きで却下してよい。
+- テストのレビューでは**ミューテーション検証**を常用する:
+  実装行を一時的に変異させ、対象テストが赤になることを確認してから復元する。
+- 指摘対応は 3 択で明示する: ① fixup commit で修正 / ② PR description に記載して受容 / ③ 理由付き却下。
+- レビュー由来の修正は元 commit を書き換えず、**別 fixup commit** で積む(履歴保存)。
+- テスト設計の教訓(レビュー頻出指摘):
+  - no-change(変化しないこと)のテストは、既定値と区別するため非既定位置・非既定状態から検証を始める。
+  - partial-selection のテストは prefix / suffix を除外できる fixture にする(全選択と区別する)。
+  - Cancel / Guard 系のテストは、assertion の前提と guard の発火条件が一致していることを確認する。
+
+## 5. テスト戦略(5 層)
+
+| 層 | 内容 | 実行 |
+|----|------|------|
+| L1 | yEdit.Core.Tests | 自動(ゲート・CI) |
+| L2 | yEdit.Editor.Tests | 自動(ゲート・CI) |
+| L3 | yEdit.App.Tests | 自動(ゲート・CI) |
+| L4 | 性能ゲート(Bench・bench.yml) | 手動 |
+| L5 | 実機 SR 検証(NVDA) | 手動・**自動化しない** |
+
+- **L5 が最終ゲート**。要否判定: SR 経路(`yEdit.Accessibility` / `EditorControl` の UIA 部 /
+  App の Speech 系)に触れる変更は必須。SR 経路不変の挙動不変リファクタは省略可。
+  判定に迷ったら「必要」に倒してユーザーに実機検証を依頼する。
+- a11y 関連変更のマージ前・リリース前は `tools/sr-regression.ps1` を手動実行する(pwsh 推奨)。
+  これは UIA 応答の検証まで。**実発声は検出できないため L5 の代替にならない**。
+- テスト数の「正」は常にテストプロジェクトの実行結果。文書に数値を書かない。
+
+## 6. 品質ゲート
+
+- main へのマージ前に `tools/pre-merge-check.ps1` を実行し **EXIT 0** を確認する(CI と同一ゲート)。
+- **0 warning を維持**する(`-warnaserror` 稼働中)。
+- CI(ci.yml)とローカルゲートに同種のステップを追加するときは**ステップ名を一致**させる
+  (ローカル / CI の失敗ログを同じキーワードで探せるようにする)。
+- pre-commit フック(Husky.Net + CSharpier)を `--no-verify` で飛ばさない。
+
+## 7. Git / PR 規範
+
+- main から `feature/<topic>` ブランチを切って作業する。
+- 統合は **GitHub PR** で行う: pre-merge-check → push → PR 作成 → マージ。
+- PR description は日本語。目的・レビュー経緯・申し送りを記載する。
+- コミットメッセージ: `feat|fix|docs|test|refactor|chore(scope): 要約` +必要に応じ日本語本文。
+- 長期・大規模改造(多フェーズの土台変更)はブランチに閉じて積み、完成後に一括統合する。
+  main を段階的に変えない。迷ったら統合前にユーザーへ確認する。
+
+## 8. ドキュメント規範
+
+- `docs/plans/` の日付付き文書は**策定時スナップショット**。後日書き換えない
+  (実装時の精密化・実施記録の追記のみ可)。
+- 「現在」を説明する文書(README / 本書 / docs/lint-format-setup.md)だけが同期更新の対象。
+- 申し送り(follow-up)は設計書の申し送り節に記録し、将来タスクとして回収する。
+- `説明書/yEdit説明書.md` は**ユーザー編集版が正**。勝手に改稿しない(変更はユーザー校閲前提)。
+
+## 9. リリース・セキュリティ
+
+- タグ `v*` の push でリリース CI が起動する(手順は README「リリース」参照)。
+  リリース前に表示バージョン更新 commit を積む。
+- セキュリティ修正も §3 と同じプロセス(設計書 → タスク分割 → レビュー → PR)で行う。
+- 公開リポジトリでの脆弱性修正は、マージ後に GitHub Security Advisory の要否を検討する。
+
+## 10. 参照先・環境ノート
+
+- [README.md](./README.md) — セットアップ・ビルド/テストコマンド・アーキテクチャ・リリース手順
+- [docs/lint-format-setup.md](./docs/lint-format-setup.md) — Lint/Format 運用・アナライザ抑止規約
+- `docs/plans/` — 設計書・実装計画(機能ごとの一次資料)
+- `tools/` — pre-merge-check.ps1 / sr-regression.ps1 等の運用スクリプト
+
+Claude Code 向け環境ノート:
+
+- ログをファイルへ出力するときは UTF-8 を明示する(例 `Out-File -Encoding utf8`。
+  PowerShell 既定の UTF-16 LE は検索ツールが読めない)。
+- 警告を集計したいビルドでは `-p:TreatWarningsAsErrors=false` を明示する(既定は警告=エラーで停止)。
+- ユーザーが直接起動する ps1 は BOM 付き UTF-8 で保存する(Windows PowerShell 5.1 日本語ロケール対策)。

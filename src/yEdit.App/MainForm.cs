@@ -79,6 +79,19 @@ public sealed partial class MainForm : Form
     internal void SetSuppressFailedRestoreDialogForTest(bool value) =>
         _suppressFailedRestoreDialogForTest = value;
 
+    // Task 13 テスト用: OnFormClosing が silent path(§8.2 fast-path)を通ったかを観測する。
+    // null = OnFormClosing 未実行 / true = silent (ConfirmDiscardIfDirty loop skip) / false = fall-through。
+    private bool? _lastCloseTookSilentPathForTest;
+    internal bool? LastCloseTookSilentPathForTest => _lastCloseTookSilentPathForTest;
+
+    // Task 13 テスト用: fall-through 経路の ConfirmDiscardIfDirty 呼出を差し替える。
+    // null = 通常経路 (実 _file.ConfirmDiscardIfDirty=MessageBox 発火) / 非 null = 呼出をこの delegate に置き換え。
+    // テストでは MessageBox がブロックしないよう常に override を渡すこと。返り値=保存/破棄成功=true / キャンセル=false。
+    private Func<Document, bool>? _confirmDiscardOverrideForTest;
+
+    internal void SetConfirmDiscardOverrideForTest(Func<Document, bool>? overrideFunc) =>
+        _confirmDiscardOverrideForTest = overrideFunc;
+
     /// <summary>
     /// dirty タブ本文の per-tab 上限 (chars=UTF-16 code units)。1M chars = 2 MB UTF-16 相当。
     /// 無題タブ+パスあり dirty タブのいずれもこの cap を超えると
@@ -336,20 +349,34 @@ public sealed partial class MainForm : Form
     {
         // 終了開始: 実行中の grep を中止し、終了確認中に結果窓が湧くのを抑止する。
         _grep.BeginClose();
-        // 全タブの未保存を順に確認（どれかでキャンセルなら終了中止）。
-        foreach (var doc in _docs.Documents.ToArray())
+
+        // §8.2 fast-path: 設定 ON かつ dirty が cap 内 → 未保存確認せず silent close。
+        // silentPath は observability seam (Test 1-3 の path 判定 kill 用) に確定させる。
+        bool silentPath = _settings.RestoreOpenFilesOnStartup && WillDirtyContentFitInCaps();
+        _lastCloseTookSilentPathForTest = silentPath;
+
+        if (!silentPath)
         {
-            if (!doc.Editor.Modified)
-                continue;
-            _docs.Activate(doc); // どのファイルの確認かを SR/視覚で示す
-            if (!_file.ConfirmDiscardIfDirty(doc))
+            // 従来経路: 全 dirty タブに Yes/No/Cancel 確認(all-or-nothing fall-through)。
+            // どれかでキャンセルなら終了中止。
+            foreach (var doc in _docs.Documents.ToArray())
             {
-                e.Cancel = true;
-                _grep.CancelClose(); // 終了を取りやめたので grep を通常運用へ戻す
-                base.OnFormClosing(e);
-                return;
+                if (!doc.Editor.Modified)
+                    continue;
+                _docs.Activate(doc); // どのファイルの確認かを SR/視覚で示す
+                bool keepClosing = _confirmDiscardOverrideForTest is not null
+                    ? _confirmDiscardOverrideForTest(doc)
+                    : _file.ConfirmDiscardIfDirty(doc);
+                if (!keepClosing)
+                {
+                    e.Cancel = true;
+                    _grep.CancelClose(); // 終了を取りやめたので grep を通常運用へ戻す
+                    base.OnFormClosing(e);
+                    return;
+                }
             }
         }
+
         // ウィンドウサイズを設定に保存（最大化中は RestoreBounds を使う・M1 同様）。
         var b = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
         _settings.WindowWidth = b.Width;

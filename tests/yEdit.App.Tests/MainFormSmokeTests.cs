@@ -69,6 +69,69 @@ public class MainFormSmokeTests
         return form;
     }
 
+    /// <summary>
+    /// OnShown は <see cref="Control.BeginInvoke(Delegate)"/> でキューされるため、
+    /// <see cref="Sta"/> の non-pumping STA スレッドでは Show() 単独では走らない。
+    /// Task 7 テストは OnShown を明示的に動かす必要があるため
+    /// <see cref="Application.DoEvents"/> でメッセージを 1 サイクルだけ処理する。
+    /// </summary>
+    private static void PumpUntilShown()
+    {
+        // Application.DoEvents を数回回して、CallShownEvent(BeginInvoke)+続く再入 (OnActivated 内の
+        // BeginInvoke など) をすべて処理する。回数は安全側の 4 サイクル(実測 1〜2 で足りる)。
+        for (int i = 0; i < 4; i++)
+        {
+            Application.DoEvents();
+        }
+    }
+
+    /// <summary>
+    /// Task 7: OnShown で <see cref="BackupCoordinator.OfferRestoreOnStartup"/> の戻り値を
+    /// 差し替えて「バックアップ復元が発火した」分岐を kill するための helper。
+    /// override 未 null=前回タブ復元は必ず skip される(restored != 0)。
+    /// </summary>
+    private static MainForm ShowMainForm_WithBackupCountOverride(
+        AppSettings settings,
+        string settingsPath,
+        int restoredOverride
+    )
+    {
+        var form = new MainForm(settings, settingsPath);
+        form.SetRestoredCountOverrideForTest(restoredOverride);
+        form.StartPosition = FormStartPosition.Manual;
+        form.Location = new System.Drawing.Point(-32000, -32000);
+        form.ShowInTaskbar = false;
+        form.Show();
+        PumpUntilShown();
+        return form;
+    }
+
+    /// <summary>
+    /// Task 7: OnShown の前回タブ復元経路を、実 %APPDATA%\yEdit\last-session-buffers.json を
+    /// 触らずに検証するための helper。SetLastSessionBuffersPathForTest は Show() より前に
+    /// 呼ばないと OnShown 内の Load/Delete が既定パスへ落ちるため、ここで統合的に組み立てる。
+    /// suppressFailedDialog=true で FailedPaths が非空でも Warn ダイアログを出さない
+    /// (テスト内で MessageBox がブロックするのを回避)。
+    /// </summary>
+    private static MainForm ShowMainForm_ForRestoreOnShown(
+        AppSettings settings,
+        string settingsPath,
+        string buffersPath,
+        bool suppressFailedDialog = false
+    )
+    {
+        var form = new MainForm(settings, settingsPath);
+        form.SetLastSessionBuffersPathForTest(buffersPath);
+        if (suppressFailedDialog)
+            form.SetSuppressFailedRestoreDialogForTest(true);
+        form.StartPosition = FormStartPosition.Manual;
+        form.Location = new System.Drawing.Point(-32000, -32000);
+        form.ShowInTaskbar = false;
+        form.Show();
+        PumpUntilShown();
+        return form;
+    }
+
     // ===== AutoEnterCsvMode: 2 ガード(設定 ON/拡張子)の kill =====
 
     [Fact]
@@ -261,6 +324,98 @@ public class MainFormSmokeTests
             Assert.False(loaded.RestoreOpenFilesOnStartup);
             Assert.Null(loaded.LastSession);
             Assert.False(File2.Exists(buffersPath));
+        });
+
+    // ===== Task 7: OnShown での前回タブ復元経路 =====
+
+    [Fact]
+    public void OnShown_RestoreEnabled_NoBackup_RestoresPreviousTabs() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            string p1 = tmp.File("a.txt");
+            File2.WriteAllText(p1, "AAA");
+            string buffersPath = Path.Combine(tmp.Root, "last-session-buffers.json");
+
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+            settings.LastSession = new LastSessionSnapshot(
+                new List<SessionTabRecord> { new(p1, 0, null, true, 0, 0) }
+            );
+
+            using var form = ShowMainForm_ForRestoreOnShown(
+                settings,
+                tmp.SettingsPath,
+                buffersPath
+            );
+            // 復元経路発火 → a.txt が開いている・空無題タブは閉じられている
+            Assert.Contains(form.FileForTest.DocsForTest, d => d.State.Path == p1);
+            Assert.Single(form.FileForTest.DocsForTest);
+        });
+
+    [Fact]
+    public void OnShown_RestoreEnabled_BackupPresent_SkipsRestore() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            string p1 = tmp.File("a.txt");
+            File2.WriteAllText(p1, "AAA");
+
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+            settings.LastSession = new LastSessionSnapshot(
+                new List<SessionTabRecord> { new(p1, 0, null, true, 0, 0) }
+            );
+
+            using var form = ShowMainForm_WithBackupCountOverride(
+                settings,
+                tmp.SettingsPath,
+                restoredOverride: 3
+            );
+            // restored=3 → 前回タブ復元スキップ・a.txt は開かない
+            Assert.DoesNotContain(form.FileForTest.DocsForTest, d => d.State.Path == p1);
+        });
+
+    [Fact]
+    public void OnShown_RestoreDisabled_DoesNotRestore() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            string p1 = tmp.File("a.txt");
+            File2.WriteAllText(p1, "AAA");
+
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = false; // OFF
+            settings.LastSession = new LastSessionSnapshot(
+                new List<SessionTabRecord> { new(p1, 0, null, true, 0, 0) }
+            );
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            Assert.DoesNotContain(form.FileForTest.DocsForTest, d => d.State.Path == p1);
+        });
+
+    [Fact]
+    public void OnShown_RestoreEnabled_MissingFile_KeepsStartupEmpty() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            string missing = tmp.File("no-such.txt");
+            string buffersPath = Path.Combine(tmp.Root, "last-session-buffers.json");
+
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+            settings.LastSession = new LastSessionSnapshot(
+                new List<SessionTabRecord> { new(missing, 0, null, true, 0, 0) }
+            );
+
+            using var form = ShowMainForm_ForRestoreOnShown(
+                settings,
+                tmp.SettingsPath,
+                buffersPath,
+                suppressFailedDialog: true
+            );
+            // ファイルが無い→ FailedPaths に載る・startup empty がそのまま残る=通常起動と等価
+            Assert.Single(form.FileForTest.DocsForTest);
         });
 
     [Fact]

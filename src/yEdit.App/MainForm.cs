@@ -57,6 +57,28 @@ public sealed partial class MainForm : Form
     internal void SetLastSessionBuffersPathForTest(string path) =>
         _lastSessionBuffersPathOverride = path;
 
+    // Task 7: 起動時の空無題タブ(ctor で作った 1 個)を覚え、復元成功時に閉じるための seam。
+    // FileController.RestoreLastSession の initialEmpty 引数に渡す=前回タブが 1 つでも復元
+    // できた時のみ破棄される契約(Task 5 review M-2)。ctor 末尾で 1 度だけ代入し以後不変。
+    private readonly Document? _startupEmptyDoc;
+
+    // Task 7 テスト用: OfferRestoreOnStartup の戻り値を差し替える(バックアップ優先分岐の kill 用)。
+    // null=通常経路(実 backup を呼ぶ)、非 null=そのままの値を restored に使う。
+    private int? _restoredCountOverrideForTest;
+
+    internal void SetRestoredCountOverrideForTest(int value) =>
+        _restoredCountOverrideForTest = value;
+
+    // Task 7 テスト用: FailedPaths の Warn ダイアログ (MessageBox.Show=blocking) をテストで抑止する seam。
+    // 4 番目の smoke テスト(missing file → FailedPaths に載る)で MessageBox が UI スレッドを
+    // 塞ぐのを避けるため。実運用経路では常に false=ダイアログは出る。
+    // Form 派生上の bool プロパティは WFO1000 を誘発するため、field + setter method で seam を作る
+    // (SetLastSessionBuffersPathForTest と同じ方式)。
+    private bool _suppressFailedRestoreDialogForTest;
+
+    internal void SetSuppressFailedRestoreDialogForTest(bool value) =>
+        _suppressFailedRestoreDialogForTest = value;
+
     /// <summary>
     /// 無題タブ本文の上限 (chars=UTF-16 code units)。1M chars = 2 MB UTF-16 相当。
     /// 上限超過タブは <see cref="yEdit.Core.Session.SessionTabRecord.BufferKey"/>=null に落とし
@@ -169,6 +191,9 @@ public sealed partial class MainForm : Form
         MainMenuStrip = menu;
 
         _file.NewFile(); // 起動時の無題タブ1つ（Q1=B：常に新規タブ）
+        // Task 7: 前回タブ復元が成功したとき、ctor で作った空無題タブを閉じるための参照
+        // (FileController.RestoreLastSession の initialEmpty 引数=Task 5 review M-2)。
+        _startupEmptyDoc = _docs.Active;
     }
 
     /// <summary>タブ毎の EditorControl を生成する。受動読みは EditorControl 単一経路（UIA v2）に一本化済み。</summary>
@@ -202,11 +227,20 @@ public sealed partial class MainForm : Form
         UpdateTitle();
         UpdateStatus();
 
+        if (_restoreOffered)
+            return;
+        _restoreOffered = true;
+
         // 前回の異常終了で残ったバックアップがあれば復元提案（起動時に一度だけ）。確認 OFF では無確認で全復元。
-        if (!_restoreOffered)
+        // Task 7 テスト: _restoredCountOverrideForTest が設定されていれば実 backup を呼ばず値を差し替える。
+        int restored;
+        if (_restoredCountOverrideForTest is int overrideValue)
         {
-            _restoreOffered = true;
-            int restored = _backup.OfferRestoreOnStartup(
+            restored = overrideValue;
+        }
+        else
+        {
+            restored = _backup.OfferRestoreOnStartup(
                 this,
                 _file.RestoreFromBackup,
                 _settings.ConfirmRestoreOnStartup
@@ -214,6 +248,65 @@ public sealed partial class MainForm : Form
             if (restored > 0)
                 _announcer.Say($"バックアップを {restored} 件復元しました");
         }
+
+        // Task 7: バックアップ復元が 0 件のときだけ、前回タブ復元を試みる(設計書 2026-07-23 §3.2 / §4.4)。
+        // バックアップ復元がタブを追加した状態で更に前回タブ列を積むと二重復元になるため排他。
+        if (
+            restored == 0
+            && _settings.RestoreOpenFilesOnStartup
+            && _settings.LastSession is { Tabs.Count: > 0 } snap
+        )
+        {
+            TryRestoreLastSession(snap);
+        }
+    }
+
+    /// <summary>
+    /// 前回タブ列を復元し、失敗したパスがあれば集約 Warn ダイアログを 1 回だけ表示する。
+    /// buffers.json は Load 後に Delete する(復元済み本文の残置を避ける=設計書 §3.4)。
+    /// 想定外例外は Trace に落とし、起動を妨げない(復元は best-effort)。
+    /// </summary>
+    private void TryRestoreLastSession(yEdit.Core.Session.LastSessionSnapshot snap)
+    {
+        try
+        {
+            var buffers = yEdit.Core.Session.LastSessionBuffersStore.Load(LastSessionBuffersPath);
+            var failed = _file.RestoreLastSession(snap, buffers, _startupEmptyDoc);
+            yEdit.Core.Session.LastSessionBuffersStore.Delete(LastSessionBuffersPath);
+            if (failed.Count > 0 && !_suppressFailedRestoreDialogForTest)
+                ShowFailedRestoreDialog(failed);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning(
+                "yEdit: restore-last-session failed: {0}",
+                yEdit.Core.Text.SanitizeForDisplay.OneLine(ex.Message, 200)
+            );
+        }
+    }
+
+    /// <summary>
+    /// 復元できなかったパス群を 1 個の Warn ダイアログにまとめて表示する。最大 10 件表示、
+    /// それ以上は「他 N 件」で省略。パスは <see cref="yEdit.Core.Text.SanitizeForDisplay.OneLine"/>
+    /// で BiDi/制御文字を無害化してから表示する(RLO 等の欺瞞対策=MD-H-1 と同じ思想)。
+    /// </summary>
+    private void ShowFailedRestoreDialog(IReadOnlyList<string> failed)
+    {
+        const int Cap = 10;
+        var shown = failed
+            .Take(Cap)
+            .Select(p => yEdit.Core.Text.SanitizeForDisplay.OneLine(p, 200));
+        var body = "以下のファイルを開けませんでした:\n\n  " + string.Join("\n  ", shown);
+        if (failed.Count > Cap)
+            body += $"\n  ... 他 {failed.Count - Cap} 件";
+        body += "\n\nこれらは復元対象からはずしました。";
+        MessageBox.Show(
+            this,
+            body,
+            "一部のファイルを開けませんでした",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Warning
+        );
     }
 
     protected override void OnActivated(EventArgs e)

@@ -77,4 +77,18 @@ public class AppSettingsTests
         Assert.True(c.ShowWhitespace);
         Assert.False(c.ConfirmRestoreOnStartup);
     }
+
+    [Fact]
+    public void Defaults_RestoreOpenFilesOnStartup_IsFalse()
+    {
+        var s = new AppSettings();
+        Assert.False(s.RestoreOpenFilesOnStartup);
+    }
+
+    [Fact]
+    public void Defaults_LastSession_IsNull()
+    {
+        var s = new AppSettings();
+        Assert.Null(s.LastSession);
+    }
 }

@@ -69,6 +69,12 @@ public sealed class AppSettings
     /// <summary>最近開いたファイル（先頭が最新）。</summary>
     public List<string> RecentFiles { get; set; } = new();
 
+    /// <summary>起動時に前回開いていたタブ列を復元するか(既定 false=既存挙動維持)。設計書 2026-07-23。</summary>
+    public bool RestoreOpenFilesOnStartup { get; set; }
+
+    /// <summary>通常終了時のタブ列スナップショット。null=保存なし(設定 OFF or 未終了)。設計書 2026-07-23。</summary>
+    public yEdit.Core.Session.LastSessionSnapshot? LastSession { get; set; }
+
     /// <summary>独立したコピーを返す（RecentFiles も複製）。設定ダイアログの編集用スナップショット。</summary>
     public AppSettings Clone()
     {

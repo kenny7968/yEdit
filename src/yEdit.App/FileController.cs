@@ -486,11 +486,17 @@ public sealed class FileController
                 useUntitled = true;
                 // CSV-L-5: OriginalPath は攻撃者 JSON 由来 (RLO/改行 で拡張子偽装や複数行注入)。
                 // path 部分のみ OneLine で無害化し、案内文と "\n\n元パス:" の改行区切りは保持する。
-                _prompt.Warn(
-                    $"バックアップの元パスが無効なため、無題タブとして復元します。"
-                        + $"必要に応じて「名前を付けて保存」してください。\n\n元パス: {SanitizeForDisplay.OneLine(rec.OriginalPath, 200)}",
-                    "警告"
-                );
+                // 統合復元 Task 5: silent 経路(WithLoadErrorPromptSuppressed 実行中=RestoreSession の
+                // extras 等)ではダイアログを出さない。ダイアログ経路(OfferRestoreOnStartup からの
+                // 呼出)は非抑止スコープ=挙動不変。
+                if (!_suppressLoadErrorPrompt)
+                {
+                    _prompt.Warn(
+                        $"バックアップの元パスが無効なため、無題タブとして復元します。"
+                            + $"必要に応じて「名前を付けて保存」してください。\n\n元パス: {SanitizeForDisplay.OneLine(rec.OriginalPath, 200)}",
+                        "警告"
+                    );
+                }
             }
         }
 
@@ -534,6 +540,286 @@ public sealed class FileController
         doc.Editor.ClearSavePoint();
         DocumentManager.UpdateLabel(doc);
         _metaChanged();
+        return doc;
+    }
+
+    /// <summary>
+    /// hot exit 統合復元(設計 2026-07-23 統合 §3.3)。レイアウトのタブ順に復元し、レイアウト外の
+    /// バックアップ(extras)を追加復元する。silent 経路=ダイアログは一切出さない(失敗パスは
+    /// 集約用に返す)。per-record try/catch で「一つの悪いレコードが他を壊さない」不変を維持。
+    /// adoptRestored: バックアップ由来の復元文書を Coordinator 管理下へ引き取る callback
+    /// (silent 経路=BackupCoordinator.AdoptRestored。レガシー移行の合成レコードでは null=
+    /// 通常の RegisterNew 経路で次 Reconcile が保護する)。
+    /// </summary>
+    public IReadOnlyList<string> RestoreSession(
+        yEdit.Core.Session.SessionLayout? layout,
+        IReadOnlyList<BackupRecord> backups,
+        Document? initialEmpty,
+        Action<Document, BackupRecord>? adoptRestored
+    )
+    {
+        var failedPaths = new List<string>();
+        Document? activeDoc = null;
+        int openedCount = 0;
+
+        // Id → record(重複 Id は新しい方を採用=別 session dir の stale と競合した場合)
+        var byId = new Dictionary<string, BackupRecord>(StringComparer.Ordinal);
+        foreach (var b in backups)
+            if (!byId.TryGetValue(b.Id, out var prev) || b.TimestampUtc > prev.TimestampUtc)
+                byId[b.Id] = b;
+        var consumed = new HashSet<string>(StringComparer.Ordinal);
+
+        WithLoadErrorPromptSuppressed(() =>
+        {
+            if (layout is not null)
+            {
+                foreach (var rec in layout.Tabs)
+                {
+                    try
+                    {
+                        var doc = RestoreLayoutRecord(
+                            rec,
+                            byId,
+                            consumed,
+                            failedPaths,
+                            adoptRestored
+                        );
+                        if (doc is null)
+                            continue;
+                        openedCount++;
+                        if (rec.IsActive)
+                            activeDoc = doc;
+                    }
+                    catch (Exception ex)
+                    {
+                        if (rec.Path is not null)
+                            failedPaths.Add(rec.Path);
+                        System.Diagnostics.Trace.TraceWarning(
+                            "yEdit: restore-record-failed: {0}",
+                            yEdit.Core.Text.SanitizeForDisplay.OneLine(ex.Message, 200)
+                        );
+                    }
+                }
+            }
+            // extras: レイアウト外バックアップ=クラッシュ直前に開いたタブ・他インスタンス遺物・
+            // 旧「あとで」孤児。安全側=拾って開く(設計 §3.3 手順 4)。
+            foreach (
+                var bk in byId
+                    .Values.Where(b => !consumed.Contains(b.Id))
+                    .OrderByDescending(b => b.TimestampUtc)
+            )
+            {
+                try
+                {
+                    var doc = RestoreExtraBackup(bk, failedPaths, adoptRestored);
+                    if (doc is not null)
+                        openedCount++;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Trace.TraceWarning(
+                        "yEdit: restore-extra-failed: {0}",
+                        yEdit.Core.Text.SanitizeForDisplay.OneLine(ex.Message, 200)
+                    );
+                }
+            }
+        });
+
+        if (activeDoc is not null)
+            _docs.Activate(activeDoc);
+        if (openedCount > 0 && initialEmpty is not null)
+            _docs.TryClose(initialEmpty, _ => true); // 空無題タブは無条件破棄
+        _metaChanged();
+        return failedPaths;
+    }
+
+    private Document? RestoreLayoutRecord(
+        yEdit.Core.Session.SessionLayoutRecord rec,
+        Dictionary<string, BackupRecord> byId,
+        HashSet<string> consumed,
+        List<string> failedPaths,
+        Action<Document, BackupRecord>? adoptRestored
+    )
+    {
+        BackupRecord? bk =
+            rec.BackupId is not null && byId.TryGetValue(rec.BackupId, out var found)
+                ? found
+                : null;
+        bool demotedPathOnly = false;
+        if (bk is not null && bk.Content is null)
+        {
+            // E11: path-only(>32M)を silent で「空 dirty+実パス」に載せない(Ctrl+S 切り詰め事故の遮断)。
+            // consumed に積んで extras での空 dirty 復活も防ぐ。
+            System.Diagnostics.Trace.TraceWarning(
+                "yEdit: restore-path-only-demote: {0}",
+                yEdit.Core.Text.SanitizeForDisplay.OneLine(rec.Path ?? bk.Id, 200)
+            );
+            consumed.Add(bk.Id);
+            bk = null;
+            demotedPathOnly = true;
+        }
+
+        if (rec.Path is not null)
+        {
+            if (bk is not null)
+            {
+                var doc = RestoreDirtyFromBackup(rec, bk);
+                consumed.Add(bk.Id);
+                adoptRestored?.Invoke(doc, bk);
+                return doc;
+            }
+            if (rec.BackupId is not null && !demotedPathOnly)
+                // E9': dirty 参照はあるがバックアップ欠落=編集は失われている → disk 再オープンへ demote
+                System.Diagnostics.Trace.TraceWarning(
+                    "yEdit: dirty-backup-missing, demoting to disk reopen: {0}",
+                    yEdit.Core.Text.SanitizeForDisplay.OneLine(rec.Path, 200)
+                );
+            var opened = TryOpenOrActivate(rec.Path);
+            if (opened is null)
+            {
+                failedPaths.Add(rec.Path);
+                return null;
+            }
+            opened.Editor.SetCaretByLineColumn(rec.CaretLine, rec.CaretColumn);
+            return opened;
+        }
+
+        // 無題
+        if (bk is not null)
+        {
+            var doc = RestoreUntitledFromBackup(rec, bk);
+            consumed.Add(bk.Id);
+            adoptRestored?.Invoke(doc, bk);
+            return doc;
+        }
+        if (rec.BackupId is not null)
+        {
+            // E4': 無題の編集内容が欠落 → 空タブを作らず skip(誤解を招く空枠を出さない)
+            System.Diagnostics.Trace.TraceWarning(
+                "yEdit: untitled-backup-missing, skipping record (untitled-{0})",
+                rec.UntitledNumber
+            );
+            return null;
+        }
+        return RestoreUntitledFrame(rec); // BackupId=null=「空だった無題タブ」の枠を復元
+    }
+
+    /// <summary>dirty パスあり復元(E12): パスは rec.Path 側を検証して採用し、bk.OriginalPath は
+    /// 信用しない。検証 NG は無題フォールバック(HIGH-2 踏襲・silent 経路のため Warn は出さず trace)。
+    /// 本文・エンコーディング・改行は BackupRecord から(SafeEncodingOrFallback / E10 と同じ防御)。</summary>
+    private Document RestoreDirtyFromBackup(
+        yEdit.Core.Session.SessionLayoutRecord rec,
+        BackupRecord bk
+    )
+    {
+        var doc = _docs.CreateNew();
+        var status = OriginalPathValidator.Check(rec.Path!, out var normalized);
+        if (status == PathValidation.Ok)
+        {
+            doc.State.Path = normalized;
+            doc.State.UntitledNumber = 0;
+        }
+        else
+        {
+            doc.State.Path = null;
+            doc.State.UntitledNumber = ++_untitledSeq;
+            System.Diagnostics.Trace.TraceWarning(
+                "yEdit: restore-invalid-path-fallback-to-untitled: {0}",
+                yEdit.Core.Text.SanitizeForDisplay.OneLine(rec.Path, 200)
+            );
+        }
+        doc.State.Encoding = SafeEncodingOrFallback(bk.CodePage);
+        doc.State.HasBom = bk.HasBom;
+        doc.State.LineEnding = SafeLineEndingOrFallback(bk.LineEndingId);
+        doc.Editor.SetOrReplaceSource(TextBuffer.FromString(bk.Content ?? string.Empty));
+        ApplyEol(doc);
+        doc.Editor.EmptyUndoBuffer();
+        doc.Editor.ClearSavePoint(); // Modified=true(RestoreFromBackup と同パターン)
+        doc.Editor.SetCaretByLineColumn(rec.CaretLine, rec.CaretColumn);
+        DocumentManager.UpdateLabel(doc);
+        return doc;
+    }
+
+    /// <summary>無題 dirty 復元。統合後は WasModified を持たず常に Modified=true で復元する
+    /// (無題の本文=バックアップ存在=dirty 相当。設計 §10)。</summary>
+    private Document RestoreUntitledFromBackup(
+        yEdit.Core.Session.SessionLayoutRecord rec,
+        BackupRecord bk
+    )
+    {
+        var s = _settings();
+        var doc = _docs.CreateNew();
+        doc.State.Path = null;
+        doc.State.UntitledNumber = rec.UntitledNumber > 0 ? rec.UntitledNumber : ++_untitledSeq;
+        if (rec.UntitledNumber > _untitledSeq)
+            _untitledSeq = rec.UntitledNumber;
+        doc.State.Encoding = EncodingCatalog.Get(s.DefaultCodePage);
+        doc.State.HasBom = false;
+        doc.State.LineEnding = SafeLineEndingOrFallback(bk.LineEndingId);
+        doc.Editor.SetOrReplaceSource(TextBuffer.FromString(bk.Content ?? string.Empty));
+        ApplyEol(doc);
+        doc.Editor.EmptyUndoBuffer();
+        doc.Editor.ClearSavePoint();
+        doc.Editor.SetCaretByLineColumn(rec.CaretLine, rec.CaretColumn);
+        DocumentManager.UpdateLabel(doc);
+        return doc;
+    }
+
+    /// <summary>空の無題タブの枠を復元する(BackupId=null=終了時に空だったタブ。設計 §2.1)。</summary>
+    private Document RestoreUntitledFrame(yEdit.Core.Session.SessionLayoutRecord rec)
+    {
+        var s = _settings();
+        var doc = _docs.CreateNew();
+        doc.State.Path = null;
+        doc.State.UntitledNumber = rec.UntitledNumber > 0 ? rec.UntitledNumber : ++_untitledSeq;
+        if (rec.UntitledNumber > _untitledSeq)
+            _untitledSeq = rec.UntitledNumber;
+        doc.State.Encoding = EncodingCatalog.Get(s.DefaultCodePage);
+        doc.State.HasBom = false;
+        doc.State.LineEnding = SafeLineEndingOrFallback(rec.LineEnding);
+        DocumentManager.UpdateLabel(doc);
+        return doc; // fresh バッファ=Modified=false・本文なし
+    }
+
+    /// <summary>extras(レイアウト外バックアップ)の復元。Content=null(path-only)は
+    /// E11 と同方針で disk 再オープン(パス正当時のみ)・無題 path-only は skip。</summary>
+    private Document? RestoreExtraBackup(
+        BackupRecord bk,
+        List<string> failedPaths,
+        Action<Document, BackupRecord>? adoptRestored
+    )
+    {
+        if (bk.Content is null)
+        {
+            if (bk.OriginalPath is null)
+            {
+                System.Diagnostics.Trace.TraceWarning(
+                    "yEdit: extra-path-only-untitled-skipped: {0}",
+                    yEdit.Core.Text.SanitizeForDisplay.OneLine(bk.Id, 200)
+                );
+                return null;
+            }
+            if (
+                OriginalPathValidator.Check(bk.OriginalPath, out var normalized)
+                != PathValidation.Ok
+            )
+            {
+                System.Diagnostics.Trace.TraceWarning(
+                    "yEdit: extra-path-only-invalid-path-skipped: {0}",
+                    yEdit.Core.Text.SanitizeForDisplay.OneLine(bk.OriginalPath, 200)
+                );
+                return null;
+            }
+            var opened = TryOpenOrActivate(normalized);
+            if (opened is null)
+            {
+                failedPaths.Add(bk.OriginalPath);
+                return null;
+            }
+            return opened;
+        }
+        var doc = RestoreFromBackup(bk); // 既存経路(HIGH-2 検証・dirty 復元・無題連番)
+        adoptRestored?.Invoke(doc, bk);
         return doc;
     }
 

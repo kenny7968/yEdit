@@ -109,4 +109,61 @@ public class LastSessionBuffersStoreTests
         LastSessionBuffersStore.Delete(path);
         Assert.False(File.Exists(path));
     }
+
+    [Fact]
+    public void Load_JsonWithNullValue_SkipsNullEntries()
+    {
+        string path = TempPath();
+        try
+        {
+            File.WriteAllText(path, "{\"k1\":null,\"k2\":\"ok\"}");
+            var map = LastSessionBuffersStore.Load(path);
+            Assert.False(map.ContainsKey("k1")); // 明示 null は skip
+            Assert.Equal("ok", map["k2"]);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Save_EmptyDict_And_Load_Roundtrips()
+    {
+        string path = TempPath();
+        try
+        {
+            LastSessionBuffersStore.Save(path, new Dictionary<string, string>());
+            var loaded = LastSessionBuffersStore.Load(path);
+            Assert.Empty(loaded);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Save_Overwrites_Existing_File()
+    {
+        string path = TempPath();
+        try
+        {
+            LastSessionBuffersStore.Save(path, new Dictionary<string, string> { ["k1"] = "first" });
+            LastSessionBuffersStore.Save(
+                path,
+                new Dictionary<string, string> { ["k2"] = "second" }
+            );
+            var loaded = LastSessionBuffersStore.Load(path);
+            Assert.Single(loaded);
+            Assert.Equal("second", loaded["k2"]);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
 }

@@ -11,6 +11,14 @@ public static class LastSessionBuffersStore
 {
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
+    /// <summary>
+    /// Load 時のファイルサイズ上限(bytes)。書込側は 1M chars/tab(=UTF-16 で 2 MB/tab)を上限とし
+    /// 最大 10 タブ級の想定でも 20 MB 前後だが、余裕を持って 32 MB。この上限を超える入力は
+    /// stale/攻撃 JSON と見なし、Load は empty を返して Trace.TraceWarning する。書込側キャップ
+    /// (§設計 §4.3 の 1M chars/tab)と併せた二重防御=BackupCoordinator BK-M-3 と対称。
+    /// </summary>
+    internal const long MaxLoadFileSizeBytes = 32L * 1024 * 1024;
+
     /// <summary>%APPDATA%\yEdit\last-session-buffers.json(SettingsStore.DefaultPath と同ディレクトリ)。</summary>
     public static string DefaultPath =>
         Path.Combine(
@@ -25,11 +33,28 @@ public static class LastSessionBuffersStore
         {
             if (!File.Exists(path))
                 return new Dictionary<string, string>();
+            // 事前 size cap(§Load-size-cap): 32 MB を超えるファイルは stale/攻撃入力と見なし
+            // 読まずに empty で返す(BackupCoordinator の BK-M-3 と対称の防御=書込側キャップと二重に張る)。
+            var info = new FileInfo(path);
+            if (info.Length > MaxLoadFileSizeBytes)
+            {
+                System.Diagnostics.Trace.TraceWarning(
+                    "yEdit: last-session-buffers.json too large ({0} bytes); ignoring.",
+                    info.Length
+                );
+                return new Dictionary<string, string>();
+            }
             string json = File.ReadAllText(path);
             if (string.IsNullOrWhiteSpace(json))
                 return new Dictionary<string, string>();
-            var map = JsonSerializer.Deserialize<Dictionary<string, string>>(json, Options);
-            return map ?? new Dictionary<string, string>();
+            var map = JsonSerializer.Deserialize<Dictionary<string, string?>>(json, Options);
+            if (map is null)
+                return new Dictionary<string, string>();
+            // 値が明示 null のエントリは skip(復元契約=キー欠落と同じ扱い=空タブを追加しない)
+            var result = new Dictionary<string, string>(map.Count);
+            foreach (var kvp in map.Where(kvp => kvp.Value is not null))
+                result[kvp.Key] = kvp.Value!;
+            return result;
         }
         catch
         {
@@ -39,6 +64,10 @@ public static class LastSessionBuffersStore
 
     public static void Save(string path, IReadOnlyDictionary<string, string> map)
     {
+        // path 由来の親ディレクトリ。pathological input(ルート "C:\\" や 純ファイル名)では
+        // GetDirectoryName が null/空文字を返して例外になり得るが、本 static は失敗を握らない=
+        // 呼び出し側(MainForm.SaveLastSessionBuffersSafe)が try/catch でラップする契約
+        // (SettingsStore.Save と対称)。
         string dir = Path.GetDirectoryName(path)!;
         Directory.CreateDirectory(dir);
         string json = JsonSerializer.Serialize(map, Options);
@@ -54,7 +83,8 @@ public static class LastSessionBuffersStore
         }
         catch
         {
-            // 削除失敗は致命でない(次回 Load が Deserialize しても既存本文は使われないため無害)
+            // 削除失敗は致命でない ― 次回 Save で BufferKey は Guid.N で再発行されるため、
+            // 残骸に含まれる旧本文はどの SessionTabRecord からも参照されない。
         }
     }
 }

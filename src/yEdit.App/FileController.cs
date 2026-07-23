@@ -617,17 +617,33 @@ public sealed class FileController
             }
             // extras: レイアウト外バックアップ=クラッシュ直前に開いたタブ・他インスタンス遺物・
             // 旧「あとで」孤児。安全側=拾って開く(設計 §3.3 手順 4)。
-            foreach (
-                var bk in byId
-                    .Values.Where(b => !consumed.Contains(b.Id))
-                    .OrderByDescending(b => b.TimestampUtc)
-            )
+            var extras = byId
+                .Values.Where(b => !consumed.Contains(b.Id))
+                .OrderByDescending(b => b.TimestampUtc)
+                .ToList();
+            int extrasOpened = 0;
+            foreach (var bk in extras)
             {
+                // 攻撃 JSON の大量植え込みで起動時に無制限のタブ生成をしない
+                // (session-state.json の MaxTabs 切り詰めと対称の防御。設計 §7。
+                // 値の二重定義を避けるためレイアウト側と同じ定数を参照する)。
+                if (extrasOpened >= yEdit.Core.Session.SessionLayoutStore.MaxTabs)
+                {
+                    System.Diagnostics.Trace.TraceWarning(
+                        "yEdit: restore-extras-capped ({0} -> {1})",
+                        extras.Count,
+                        yEdit.Core.Session.SessionLayoutStore.MaxTabs
+                    );
+                    break;
+                }
                 try
                 {
                     var doc = RestoreExtraBackup(bk, failedPaths, adoptRestored);
                     if (doc is not null)
+                    {
                         openedCount++;
+                        extrasOpened++;
+                    }
                 }
                 catch (Exception ex)
                 {

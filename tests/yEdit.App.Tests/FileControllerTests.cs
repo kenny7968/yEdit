@@ -2446,4 +2446,36 @@ public class FileControllerTests
                 listener.Dispose();
             }
         });
+
+    [Fact]
+    public void RestoreSession_ExtrasOverMaxTabs_CappedAndTraced() =>
+        Sta.Run(() =>
+        {
+            // Low fixup: extras の大量植え込み(攻撃 JSON)でも起動時のタブ生成は
+            // SessionLayoutStore.MaxTabs 件で打ち切る(session-state.json のレイアウト側
+            // 切り詰めと対称の防御・同じ定数を参照=二重定義なし)。
+            using var host = new Host();
+            var initialEmpty = host.Docs.CreateNew();
+            var backups = new List<BackupRecord>();
+            for (int i = 0; i < SessionLayoutStore.MaxTabs + 1; i++)
+                backups.Add(Backup(NewBackupId(), untitledNumber: i + 1, content: "x"));
+
+            var sw = new System.IO.StringWriter();
+            var listener = new System.Diagnostics.TextWriterTraceListener(sw);
+            System.Diagnostics.Trace.Listeners.Add(listener);
+            try
+            {
+                host.File.RestoreSession(Layout(), backups, initialEmpty, adoptRestored: null);
+
+                // MaxTabs 件で打ち切り(復元は成立するため initialEmpty は閉じる)
+                Assert.Equal(SessionLayoutStore.MaxTabs, host.Docs.Count);
+                System.Diagnostics.Trace.Flush();
+                Assert.Contains("restore-extras-capped", sw.ToString());
+            }
+            finally
+            {
+                System.Diagnostics.Trace.Listeners.Remove(listener);
+                listener.Dispose();
+            }
+        });
 }

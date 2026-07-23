@@ -18,8 +18,9 @@ public static class SessionLayoutStore
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, // 日本語パスを生 UTF-8 で
     };
 
-    /// <summary>タブ数上限(設計 §2.3)。超過は先頭 MaxTabs 件で切り詰め+Trace 警告。</summary>
-    internal const int MaxTabs = 200;
+    /// <summary>タブ数上限(設計 §2.3)。超過は先頭 MaxTabs 件で切り詰め+Trace 警告。
+    /// FileController.RestoreSession の extras 復元上限も同じ定数を参照する(対称防御・二重定義回避)。</summary>
+    public const int MaxTabs = 200;
 
     /// <summary>Load 時 size cap。レイアウトは本文を含まない(数 KB 想定)ため 4 MB で攻撃 JSON を遮断。</summary>
     internal const long MaxLoadFileSizeBytes = 4L * 1024 * 1024;

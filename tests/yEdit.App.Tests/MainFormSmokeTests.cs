@@ -383,6 +383,7 @@ public class MainFormSmokeTests
             using var tmp = new TempDir();
             string p1 = tmp.File("a.txt");
             File2.WriteAllText(p1, "AAA");
+            string buffersPath = Path.Combine(tmp.Root, "last-session-buffers.json");
 
             var settings = NewSettings(csvAutoModeOnOpen: false);
             settings.RestoreOpenFilesOnStartup = false; // OFF
@@ -390,7 +391,14 @@ public class MainFormSmokeTests
                 new List<SessionTabRecord> { new(p1, 0, null, true, 0, 0) }
             );
 
-            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            // ShowMainForm_ForRestoreOnShown は Application.DoEvents で OnShown を発火させる=
+            // 「復元経路の gate 判定」が実際に評価される(Task 7 review: 純 ShowMainForm では
+            // vacuous になり RestoreOpenFilesOnStartup gate を mutation 検証できない)。
+            using var form = ShowMainForm_ForRestoreOnShown(
+                settings,
+                tmp.SettingsPath,
+                buffersPath
+            );
             Assert.DoesNotContain(form.FileForTest.DocsForTest, d => d.State.Path == p1);
         });
 

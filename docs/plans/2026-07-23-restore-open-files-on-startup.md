@@ -1653,3 +1653,740 @@ Task 10 (最終レビュー + 品質ゲート + PR)
 ```
 
 各 Task は挙動不変(設定 OFF 時) を最優先とし、既存テスト全緑を維持する。
+
+---
+
+## §8 補遺: dirty タブの silent 復元(2026-07-23 実機検証後の追加タスク)
+
+> **背景**: PR #22 open 中に実機検証で判明した挙動変更(設計書 §8)。既存の 20 commits に fixup として積む。
+> 設定 OFF の挙動不変は継続要件。設計書 §8.1〜§8.8 を根拠に、以下 Task 11〜15 を追加する。
+
+### 依存グラフ(追補)
+
+```
+Task 11 (SessionTabRecord 拡張 + Normalize) ← Task 2 の拡張
+  ↓
+Task 12 (BuildLastSessionSnapshot 変更 + cap pre-check ヘルパ) ← Task 6 の拡張
+  ↓
+Task 13 (OnFormClosing 変更: silent close + fall-through) ← Task 12 に依存
+  ↓
+Task 14 (RestoreLastSession 拡張: dirty パスあり分岐 + WasModified) ← Task 5 の拡張
+  ↓
+Task 15 (説明書 §8 補足追記 + 最終レビュー + 品質ゲート)
+```
+
+---
+
+## Task 11: SessionTabRecord に 4 フィールド追加 + Normalize 拡張
+
+**Files:**
+- Modify: `src/yEdit.Core/Session/SessionTabRecord.cs`(CodePage/HasBom/LineEnding/WasModified を追加)
+- Modify: `src/yEdit.Core/Settings/SettingsStore.cs`(Normalize に CodePage/LineEnding clamp 追加)
+- Modify: `tests/yEdit.Core.Tests/Settings/SettingsStoreTests.cs`(round-trip + Normalize テストの拡張)
+
+**Step 1: 失敗テストを書く**
+
+`SettingsStoreTests.cs` に追加:
+
+```csharp
+[Fact]
+public void Load_Normalizes_LastSession_Clamps_NegativeCodePageAndLineEnding()
+{
+    string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+    try
+    {
+        File.WriteAllText(path,
+            "{\"LastSession\":{\"Tabs\":["
+                + "{\"Path\":\"C:\\\\a.txt\",\"UntitledNumber\":0,\"BufferKey\":\"k1\","
+                + "\"IsActive\":true,\"CaretLine\":0,\"CaretColumn\":0,"
+                + "\"CodePage\":-5,\"HasBom\":true,\"LineEnding\":-1,\"WasModified\":true}"
+                + "]}}");
+        var s = SettingsStore.Load(path);
+        Assert.Equal(1, s.LastSession!.Tabs.Count);
+        var r = s.LastSession.Tabs[0];
+        Assert.Equal(0, r.CodePage);   // 負値 → 0
+        Assert.Equal(0, r.LineEnding); // 負値 → 0
+        Assert.True(r.HasBom);
+        Assert.True(r.WasModified);
+    }
+    finally { if (File.Exists(path)) File.Delete(path); }
+}
+
+[Fact]
+public void Roundtrip_LastSession_WithEncodingAndModifiedFields()
+{
+    string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+    try
+    {
+        var s = new AppSettings
+        {
+            RestoreOpenFilesOnStartup = true,
+            LastSession = new LastSessionSnapshot(new List<SessionTabRecord>
+            {
+                new(Path: @"C:\a.txt", UntitledNumber: 0, BufferKey: "k1",
+                    IsActive: true, CaretLine: 3, CaretColumn: 7,
+                    CodePage: 65001, HasBom: true, LineEnding: 1, WasModified: true),
+            }),
+        };
+        SettingsStore.Save(path, s);
+        var loaded = SettingsStore.Load(path);
+        var r = loaded.LastSession!.Tabs[0];
+        Assert.Equal(65001, r.CodePage);
+        Assert.True(r.HasBom);
+        Assert.Equal(1, r.LineEnding);
+        Assert.True(r.WasModified);
+    }
+    finally { if (File.Exists(path)) File.Delete(path); }
+}
+
+[Fact]
+public void Load_LegacyLastSession_WithoutNewFields_UsesDefaults()
+{
+    // §8.7: 旧スキーマ(CodePage/HasBom/LineEnding/WasModified なし) → 既定値で埋まる
+    string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+    try
+    {
+        File.WriteAllText(path,
+            "{\"LastSession\":{\"Tabs\":["
+                + "{\"Path\":\"C:\\\\a.txt\",\"UntitledNumber\":0,\"BufferKey\":null,"
+                + "\"IsActive\":true,\"CaretLine\":0,\"CaretColumn\":0}"
+                + "]}}");
+        var s = SettingsStore.Load(path);
+        var r = s.LastSession!.Tabs[0];
+        Assert.Equal(0, r.CodePage);
+        Assert.False(r.HasBom);
+        Assert.Equal(0, r.LineEnding);
+        Assert.False(r.WasModified);
+    }
+    finally { if (File.Exists(path)) File.Delete(path); }
+}
+```
+
+**Step 2: 失敗を確認** — record シグネチャ不一致でコンパイルエラー。
+
+**Step 3: 実装**
+
+`SessionTabRecord.cs`:
+
+```csharp
+namespace yEdit.Core.Session;
+
+/// <summary>
+/// タブ 1 個の永続表現。§8: dirty タブ silent 復元のため CodePage/HasBom/LineEnding/WasModified を追加。
+/// </summary>
+public sealed record SessionTabRecord(
+    string? Path,
+    int UntitledNumber,
+    string? BufferKey,
+    bool IsActive,
+    int CaretLine,
+    int CaretColumn,
+    int CodePage = 0,          // 保存時 Encoding.CodePage。0=未指定(旧スキーマ互換 & 無題)
+    bool HasBom = false,
+    int LineEnding = 0,        // LineEnding enum 値。0=既定
+    bool WasModified = false   // 保存時の Modified フラグ。復元後 SetSavePoint 制御用
+);
+```
+
+`SettingsStore.cs` の `NormalizeLastSession` を差替:
+
+```csharp
+private static void NormalizeLastSession(AppSettings s)
+{
+    if (s.LastSession is null) return;
+    if (s.LastSession.Tabs is null)
+    {
+        s.LastSession = new LastSessionSnapshot(new List<SessionTabRecord>());
+        return;
+    }
+    var cleaned = new List<SessionTabRecord>(s.LastSession.Tabs.Count);
+    foreach (var t in s.LastSession.Tabs)
+    {
+        if (t.Path is not null && string.IsNullOrWhiteSpace(t.Path))
+            continue;
+        cleaned.Add(t with
+        {
+            UntitledNumber = Math.Max(0, t.UntitledNumber),
+            CaretLine = Math.Max(0, t.CaretLine),
+            CaretColumn = Math.Max(0, t.CaretColumn),
+            CodePage = Math.Max(0, t.CodePage),      // §8.4 E10 手前の防御
+            LineEnding = Math.Max(0, t.LineEnding),
+        });
+    }
+    s.LastSession = new LastSessionSnapshot(cleaned);
+}
+```
+
+**Step 4: テスト成功** — `dotnet test tests/yEdit.Core.Tests` で新 3 件 + 既存全緑。
+
+**Step 5: コミット**
+
+```bash
+git add src/yEdit.Core/Session/SessionTabRecord.cs src/yEdit.Core/Settings/SettingsStore.cs tests/yEdit.Core.Tests/Settings/SettingsStoreTests.cs
+git commit -m "feat(session): SessionTabRecord に CodePage/HasBom/LineEnding/WasModified を追加"
+```
+
+**Step 6: 3 段レビュー(仕様・品質・脆弱性)**
+
+- 仕様: 設計書 §8.2 の record 定義と一致。旧 JSON との後方互換(§8.7)。
+- 品質: 既定値付き optional parameters・with 式の使い方。
+- 脆弱性: CodePage/LineEnding の 負値 clamp(攻撃 JSON 対策)。EncodingCatalog.Get の未知 codepage は Task 14 で扱う。
+
+---
+
+## Task 12: BuildLastSessionSnapshot 変更 + cap pre-check ヘルパ
+
+**Files:**
+- Modify: `src/yEdit.App/MainForm.cs`(BuildLastSessionSnapshot 差替 + WillDirtyContentFitInCaps 新設)
+- Modify: `tests/yEdit.App.Tests/MainFormSmokeTests.cs`(dirty パスあり保存/cap 判定/エンコーディング保存の 3 件追加)
+
+**Step 1: 失敗テストを書く**
+
+`MainFormSmokeTests.cs` に追加:
+
+```csharp
+[Fact]
+public void BuildLastSessionSnapshot_IncludesDirtyPathTab_WithBufferAndEncoding() =>
+    Sta.Run(() =>
+    {
+        using var tmp = new TempDir();
+        string txt = tmp.File("a.txt");
+        File2.WriteAllText(txt, "original");
+        var settings = NewSettings(csvAutoModeOnOpen: false);
+        settings.RestoreOpenFilesOnStartup = true;
+
+        using var form = ShowMainForm(settings, tmp.SettingsPath);
+        form.FileForTest.TryOpenOrActivate(txt);
+        var doc = form.FileForTest.DocsForTest[^1];
+        doc.Editor.AppendText(" +edited"); // dirty にする
+        Assert.True(doc.Editor.Modified);
+
+        var (snap, buffers) = form.BuildLastSessionSnapshotForTest();
+        var rec = snap.Tabs.Single(t => t.Path == txt);
+        Assert.NotNull(rec.BufferKey);
+        Assert.True(buffers.ContainsKey(rec.BufferKey!));
+        Assert.Contains("+edited", buffers[rec.BufferKey!]);
+        Assert.Equal(doc.State.Encoding.CodePage, rec.CodePage); // §8.2
+        Assert.Equal(doc.State.HasBom, rec.HasBom);
+        Assert.Equal((int)doc.State.LineEnding, rec.LineEnding);
+        Assert.True(rec.WasModified);
+    });
+
+[Fact]
+public void BuildLastSessionSnapshot_IncludesDirtyUntitledTab_WithBuffer() =>
+    Sta.Run(() =>
+    {
+        using var tmp = new TempDir();
+        var settings = NewSettings(csvAutoModeOnOpen: false);
+        settings.RestoreOpenFilesOnStartup = true;
+
+        using var form = ShowMainForm(settings, tmp.SettingsPath);
+        // ctor で作られた空無題タブに dirty 内容を入れる
+        var doc = form.FileForTest.DocsForTest[0];
+        doc.Editor.AppendText("dirty content");
+        Assert.True(doc.Editor.Modified);
+        Assert.Null(doc.State.Path);
+
+        var (snap, buffers) = form.BuildLastSessionSnapshotForTest();
+        var rec = snap.Tabs.Single(t => t.Path is null);
+        Assert.NotNull(rec.BufferKey);
+        Assert.Equal("dirty content", buffers[rec.BufferKey!]);
+        Assert.True(rec.WasModified); // §8.2
+    });
+
+[Fact]
+public void WillDirtyContentFitInCaps_ReturnsFalse_WhenSingleTabExceedsPerTabCap() =>
+    Sta.Run(() =>
+    {
+        using var tmp = new TempDir();
+        var settings = NewSettings(csvAutoModeOnOpen: false);
+        settings.RestoreOpenFilesOnStartup = true;
+
+        using var form = ShowMainForm(settings, tmp.SettingsPath);
+        var doc = form.FileForTest.DocsForTest[0];
+        doc.Editor.AppendText(new string('x', 1024 * 1024 + 1)); // 1M+1 chars
+        Assert.False(form.WillDirtyContentFitInCapsForTest());
+    });
+```
+
+**Step 2: 失敗を確認** — `WillDirtyContentFitInCapsForTest` 未定義でコンパイルエラー。
+
+**Step 3: 実装**
+
+`MainForm.cs` の `BuildLastSessionSnapshot` を差替(既存の I-1 skip ロジックを撤去):
+
+```csharp
+private (
+    yEdit.Core.Session.LastSessionSnapshot Snap,
+    Dictionary<string, string> Buffers
+) BuildLastSessionSnapshot()
+{
+    var tabs = new List<yEdit.Core.Session.SessionTabRecord>();
+    var buffers = new Dictionary<string, string>();
+    var active = _docs.Active;
+    int totalContentChars = 0;
+    foreach (var doc in _docs.Documents)
+    {
+        int line = doc.Editor.CurrentLine;
+        int col = doc.Editor.GetColumn(doc.Editor.CurrentPosition);
+        bool wasModified = doc.Editor.Modified;
+        string? bufferKey = null;
+
+        // §8.2: パスなし OR (パスあり かつ dirty) は本文を buffers に保存
+        bool needsContent = doc.State.Path is null || wasModified;
+        if (needsContent)
+        {
+            string content = doc.Editor.SnapshotText;
+            bool fitsPerTab = content.Length <= MaxSessionUntitledContentChars;
+            bool fitsTotal =
+                fitsPerTab
+                && (long)totalContentChars + content.Length <= MaxSessionTotalUntitledChars;
+            if (fitsTotal)
+            {
+                bufferKey = Guid.NewGuid().ToString("N");
+                buffers[bufferKey] = content;
+                totalContentChars += content.Length;
+            }
+            else
+            {
+                System.Diagnostics.Trace.TraceWarning(
+                    "yEdit: last-session-content-skipped (path={0}, dirty={1}, {2} chars, per-tab-fit={3}, total-fit={4})",
+                    doc.State.Path ?? $"untitled-{doc.State.UntitledNumber}",
+                    wasModified, content.Length, fitsPerTab, fitsTotal
+                );
+                // BufferKey=null に落とす=次回起動時に dirty 編集は disk 内容に置き換わる(§8.4 E9 と等価)
+            }
+        }
+
+        tabs.Add(
+            new yEdit.Core.Session.SessionTabRecord(
+                Path: doc.State.Path,
+                UntitledNumber: doc.State.Path is null ? doc.State.UntitledNumber : 0,
+                BufferKey: bufferKey,
+                IsActive: ReferenceEquals(doc, active),
+                CaretLine: line,
+                CaretColumn: col,
+                CodePage: doc.State.Path is not null ? doc.State.Encoding.CodePage : 0, // §8.2
+                HasBom: doc.State.Path is not null && doc.State.HasBom,
+                LineEnding: (int)doc.State.LineEnding,
+                WasModified: wasModified
+            )
+        );
+    }
+    return (new yEdit.Core.Session.LastSessionSnapshot(tabs), buffers);
+}
+
+/// <summary>
+/// §8.2 pre-check: OnFormClosing の silent close 経路に入れるか判定。
+/// 全 dirty タブ(パスあり+無題)の本文が per-tab / total 両方の cap 内に収まる場合に true。
+/// dry-run のため tabs や buffers を実際には組み立てない。
+/// </summary>
+private bool WillDirtyContentFitInCaps()
+{
+    int totalContentChars = 0;
+    foreach (var doc in _docs.Documents)
+    {
+        bool needsContent = doc.State.Path is null || doc.Editor.Modified;
+        if (!needsContent) continue;
+        int len = doc.Editor.TextLength;
+        if (len > MaxSessionUntitledContentChars) return false;
+        totalContentChars += len;
+        if ((long)totalContentChars > MaxSessionTotalUntitledChars) return false;
+    }
+    return true;
+}
+
+/// <summary>テスト用 seam(§8.5)。</summary>
+internal bool WillDirtyContentFitInCapsForTest() => WillDirtyContentFitInCaps();
+```
+
+**Step 4: テスト成功** — 新 3 件 + 既存全緑。
+
+**Step 5: コミット**
+
+```bash
+git add src/yEdit.App/MainForm.cs tests/yEdit.App.Tests/MainFormSmokeTests.cs
+git commit -m "feat(main): BuildLastSessionSnapshot で全 dirty タブを保存(§8 補遺)"
+```
+
+**Step 6: 3 段レビュー**
+
+- 仕様: 設計書 §8.2 と一致(全 dirty 保存 + エンコーディング保存 + WasModified 記録)。
+- 品質: `WillDirtyContentFitInCaps` が dry-run で `TextLength` を使い O(1)/tab で判定(SnapshotText の全体コピーを避ける)。
+- 脆弱性: cap 超過時の silent fall-through(データ喪失なし=次回 disk 再読込)。
+
+---
+
+## Task 13: OnFormClosing 変更(silent close + all-or-nothing fall-through)
+
+**Files:**
+- Modify: `src/yEdit.App/MainForm.cs`(OnFormClosing 差替)
+- Modify: `tests/yEdit.App.Tests/MainFormSmokeTests.cs`(silent close / fall-through / 従来経路の 3 件追加)
+
+**Step 1: 失敗テストを書く**
+
+```csharp
+[Fact]
+public void OnFormClosing_RestoreEnabled_DirtyFits_SilentClose_NoConfirmDialog() =>
+    Sta.Run(() =>
+    {
+        using var tmp = new TempDir();
+        var settings = NewSettings(csvAutoModeOnOpen: false);
+        settings.RestoreOpenFilesOnStartup = true;
+
+        var form = ShowMainForm(settings, tmp.SettingsPath);
+        var doc = form.FileForTest.DocsForTest[0];
+        doc.Editor.AppendText("dirty");
+        int promptCountBefore = form.PromptForTest.Log.Count;
+        form.Close();
+        // silent close = YesNoCancel 系ダイアログが増えない
+        Assert.Equal(promptCountBefore,
+            form.PromptForTest.Log.Count(e => e.Kind == "YesNoCancel"));
+    });
+
+[Fact]
+public void OnFormClosing_RestoreEnabled_DirtyExceedsCap_FallsBackToConfirm() =>
+    Sta.Run(() =>
+    {
+        using var tmp = new TempDir();
+        var settings = NewSettings(csvAutoModeOnOpen: false);
+        settings.RestoreOpenFilesOnStartup = true;
+
+        var form = ShowMainForm(settings, tmp.SettingsPath);
+        var doc = form.FileForTest.DocsForTest[0];
+        doc.Editor.AppendText(new string('x', 1024 * 1024 + 1));
+        form.PromptForTest.YesNoCancelResponse = DialogResult.No; // 破棄 = 閉じられる
+        form.Close();
+        Assert.Contains(form.PromptForTest.Log, e => e.Kind == "YesNoCancel");
+    });
+
+[Fact]
+public void OnFormClosing_RestoreDisabled_DirtyPromptsAsBefore() =>
+    Sta.Run(() =>
+    {
+        using var tmp = new TempDir();
+        var settings = NewSettings(csvAutoModeOnOpen: false);
+        settings.RestoreOpenFilesOnStartup = false; // OFF = 従来経路
+
+        var form = ShowMainForm(settings, tmp.SettingsPath);
+        var doc = form.FileForTest.DocsForTest[0];
+        doc.Editor.AppendText("dirty");
+        form.PromptForTest.YesNoCancelResponse = DialogResult.No;
+        form.Close();
+        Assert.Contains(form.PromptForTest.Log, e => e.Kind == "YesNoCancel");
+    });
+```
+
+**Step 2: 失敗を確認** — `PromptForTest` / `YesNoCancelResponse` seam の有無次第でコンパイルエラー or assertion 失敗。必要 seam は既存のものを流用(なければ最小追加)。
+
+**Step 3: 実装**
+
+`MainForm.cs` の `OnFormClosing` を差替(§8.2 の擬似コード通り):
+
+```csharp
+protected override void OnFormClosing(FormClosingEventArgs e)
+{
+    _grep.BeginClose();
+
+    // §8.2 fast-path: 設定 ON かつ dirty が cap 内 → 未保存確認せず silent close
+    bool silentPath = _settings.RestoreOpenFilesOnStartup && WillDirtyContentFitInCaps();
+
+    if (!silentPath)
+    {
+        // 従来経路: 全 dirty タブに Yes/No/Cancel 確認
+        foreach (var doc in _docs.Documents.ToArray())
+        {
+            if (!doc.Editor.Modified) continue;
+            _docs.Activate(doc);
+            if (!_file.ConfirmDiscardIfDirty(doc))
+            {
+                e.Cancel = true;
+                _grep.CancelClose();
+                base.OnFormClosing(e);
+                return;
+            }
+        }
+    }
+
+    var b = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+    _settings.WindowWidth = b.Width;
+    _settings.WindowHeight = b.Height;
+
+    if (_settings.RestoreOpenFilesOnStartup)
+    {
+        var (snap, buffers) = BuildLastSessionSnapshot();
+        _settings.LastSession = snap;
+        SaveLastSessionBuffersSafe(buffers);
+    }
+    else
+    {
+        _settings.LastSession = null;
+        DeleteLastSessionBuffersSafe();
+    }
+
+    SaveSettingsSafe();
+    base.OnFormClosing(e);
+}
+```
+
+**Step 4: テスト成功** — 新 3 件 + 既存全緑(既存 OnFormClosing_Restore* テストは silent close 期待に合わせて調整が必要)。
+
+**Step 5: コミット**
+
+```bash
+git add src/yEdit.App/MainForm.cs tests/yEdit.App.Tests/MainFormSmokeTests.cs
+git commit -m "feat(main): 設定 ON で未保存確認をスキップし silent close(§8 補遺)"
+```
+
+**Step 6: 3 段レビュー**
+
+- 仕様: §8.2 と一致(cap 内 silent / cap 超過 all-or-nothing)。
+- 品質: fast-path 判定が単一 boolean・従来経路との重複 code なし。
+- 脆弱性: cap pre-check の TOCTOU なし(単一スレッドの OnFormClosing 内で完結)。
+
+---
+
+## Task 14: RestoreLastSession 拡張(dirty パスあり分岐 + WasModified)
+
+**Files:**
+- Modify: `src/yEdit.App/FileController.cs`(RestorePathDirty 新設 + RestoreLastSession 分岐追加 + RestoreUntitledTab の WasModified 反映)
+- Modify: `tests/yEdit.App.Tests/FileControllerTests.cs`(dirty パスあり復元 / dirty 無題復元 / demote の 3 件追加)
+
+**Step 1: 失敗テストを書く**
+
+```csharp
+[Fact]
+public void RestoreLastSession_DirtyPathRecord_RestoresAsModified_WithEncoding() =>
+    Sta.Run(() =>
+    {
+        using var host = new Host();
+        using var tmp = new TempDir();
+        string p = tmp.File("a.txt");
+        File2.WriteAllText(p, "on disk");
+        var initialEmpty = host.Docs.CreateNew();
+
+        var snap = new LastSessionSnapshot(new List<SessionTabRecord>
+        {
+            new(Path: p, UntitledNumber: 0, BufferKey: "k1",
+                IsActive: true, CaretLine: 0, CaretColumn: 3,
+                CodePage: 65001, HasBom: true, LineEnding: 1, WasModified: true),
+        });
+        var buffers = new Dictionary<string, string> { ["k1"] = "in memory dirty" };
+
+        var failed = host.File.RestoreLastSession(snap, buffers, initialEmpty);
+
+        Assert.Empty(failed);
+        var doc = host.Docs.Active!;
+        Assert.Equal(p, doc.State.Path);
+        Assert.Equal("in memory dirty", doc.Editor.SnapshotText);
+        Assert.True(doc.Editor.Modified); // §8.2 WasModified=true → SetSavePoint 呼ばず
+        Assert.Equal(65001, doc.State.Encoding.CodePage);
+        Assert.True(doc.State.HasBom);
+    });
+
+[Fact]
+public void RestoreLastSession_DirtyUntitledRecord_WasModified_RestoresAsModified() =>
+    Sta.Run(() =>
+    {
+        using var host = new Host();
+        var initialEmpty = host.Docs.CreateNew();
+        var snap = new LastSessionSnapshot(new List<SessionTabRecord>
+        {
+            new(Path: null, UntitledNumber: 2, BufferKey: "k1",
+                IsActive: true, CaretLine: 0, CaretColumn: 0,
+                CodePage: 0, HasBom: false, LineEnding: 0, WasModified: true),
+        });
+        var buffers = new Dictionary<string, string> { ["k1"] = "unsaved new" };
+
+        host.File.RestoreLastSession(snap, buffers, initialEmpty);
+        var doc = host.Docs.Active!;
+        Assert.Equal("unsaved new", doc.Editor.SnapshotText);
+        Assert.True(doc.Editor.Modified);
+    });
+
+[Fact]
+public void RestoreLastSession_DirtyPathRecord_BufferMissing_DemotesToDiskReopen() =>
+    Sta.Run(() =>
+    {
+        using var host = new Host();
+        using var tmp = new TempDir();
+        string p = tmp.File("a.txt");
+        File2.WriteAllText(p, "on disk");
+        var initialEmpty = host.Docs.CreateNew();
+
+        // BufferKey は指定するが buffers に存在しない → §8.4 E9 demote
+        var snap = new LastSessionSnapshot(new List<SessionTabRecord>
+        {
+            new(Path: p, UntitledNumber: 0, BufferKey: "missing",
+                IsActive: true, CaretLine: 0, CaretColumn: 0,
+                CodePage: 65001, HasBom: false, LineEnding: 0, WasModified: true),
+        });
+        host.File.RestoreLastSession(snap, new Dictionary<string, string>(), initialEmpty);
+        var doc = host.Docs.Active!;
+        Assert.Equal(p, doc.State.Path);
+        Assert.Equal("on disk", doc.Editor.SnapshotText); // disk から
+        Assert.False(doc.Editor.Modified); // 通常オープン=非 dirty
+    });
+```
+
+**Step 2: 失敗を確認** — 新 record シグネチャに合わない、あるいは Modified が false のままで assertion 失敗。
+
+**Step 3: 実装**
+
+`FileController.cs` の `RestoreLastSession` を差替(dirty パスあり分岐追加):
+
+```csharp
+public IReadOnlyList<string> RestoreLastSession(
+    yEdit.Core.Session.LastSessionSnapshot snap,
+    IReadOnlyDictionary<string, string> buffers,
+    Document? initialEmpty)
+{
+    var failedPaths = new List<string>();
+    Document? activeDoc = null;
+    int openedCount = 0;
+
+    WithLoadErrorPromptSuppressed(() =>
+    {
+        foreach (var rec in snap.Tabs)
+        {
+            Document? doc = null;
+            if (rec.Path is not null
+                && rec.BufferKey is not null
+                && buffers.TryGetValue(rec.BufferKey, out var dirtyContent))
+            {
+                doc = RestorePathDirty(rec, dirtyContent);
+            }
+            else if (rec.Path is not null)
+            {
+                // 非 dirty パスあり(または dirty だが buffer 欠落=§8.4 E9 demote)
+                if (rec.BufferKey is not null)
+                    System.Diagnostics.Trace.TraceWarning(
+                        "yEdit: dirty-path-buffer-missing, demoting to disk reopen: {0}",
+                        yEdit.Core.Text.SanitizeForDisplay.OneLine(rec.Path, 200));
+                doc = TryOpenOrActivate(rec.Path);
+                if (doc is null) { failedPaths.Add(rec.Path); continue; }
+                doc.Editor.SetCaretByLineColumn(rec.CaretLine, rec.CaretColumn);
+            }
+            else
+            {
+                if (rec.BufferKey is null
+                    || !buffers.TryGetValue(rec.BufferKey, out var content))
+                    continue;
+                doc = RestoreUntitledTab(rec, content);
+            }
+            openedCount++;
+            if (rec.IsActive) activeDoc = doc;
+        }
+    });
+
+    if (activeDoc is not null) _docs.Activate(activeDoc);
+    if (openedCount > 0 && initialEmpty is not null)
+        _docs.TryClose(initialEmpty, _ => true);
+    _metaChanged();
+    return failedPaths;
+}
+
+/// <summary>
+/// §8.2: dirty パスあり record を CreateNew で復元し、SetSavePoint を呼ばず Modified=true で開始。
+/// 保存時に元のパス/エンコーディング/BOM/改行を再利用できるよう State を明示設定する。
+/// </summary>
+private Document RestorePathDirty(
+    yEdit.Core.Session.SessionTabRecord rec, string content)
+{
+    var doc = _docs.CreateNew();
+    doc.State.Path = rec.Path;
+    // §8.4 E10: 未知 codepage は Default にフォールバック(EncodingCatalog 側で処理)
+    doc.State.Encoding = EncodingCatalog.Get(rec.CodePage);
+    doc.State.HasBom = rec.HasBom;
+    doc.State.LineEnding = (LineEnding)rec.LineEnding;
+    doc.Editor.SetOrReplaceSource(TextBuffer.FromString(content));
+    ApplyEol(doc);
+    doc.Editor.EmptyUndoBuffer();
+    // SetSavePoint は呼ばない → Modified=true
+    doc.Editor.SetCaretByLineColumn(rec.CaretLine, rec.CaretColumn);
+    _recent.Push(rec.Path!); // 通常オープンと対称
+    DocumentManager.UpdateLabel(doc);
+    return doc;
+}
+
+// RestoreUntitledTab の内部で WasModified を尊重するよう修正:
+private Document RestoreUntitledTab(yEdit.Core.Session.SessionTabRecord rec, string content)
+{
+    var s = _settings();
+    var doc = _docs.CreateNew();
+    doc.State.Path = null;
+    doc.State.UntitledNumber = rec.UntitledNumber > 0 ? rec.UntitledNumber : ++_untitledSeq;
+    if (rec.UntitledNumber > _untitledSeq)
+        _untitledSeq = rec.UntitledNumber;
+    doc.State.Encoding = EncodingCatalog.Get(s.DefaultCodePage);
+    doc.State.HasBom = false;
+    doc.State.LineEnding = (LineEnding)s.DefaultLineEnding;
+    doc.Editor.SetOrReplaceSource(TextBuffer.FromString(content));
+    ApplyEol(doc);
+    doc.Editor.EmptyUndoBuffer();
+    if (!rec.WasModified)
+        doc.Editor.SetSavePoint(); // §8.2: 従来通り Modified=false
+    // else: SetSavePoint を呼ばず Modified=true(dirty 無題の silent 復元)
+    doc.Editor.SetCaretByLineColumn(rec.CaretLine, rec.CaretColumn);
+    DocumentManager.UpdateLabel(doc);
+    return doc;
+}
+```
+
+**Step 4: テスト成功** — 新 3 件 + 既存全緑。既存の RestoreLastSession_UntitledContentPresent_RestoresContent_ModifiedFalse は WasModified=false のケースなので不変。
+
+**Step 5: コミット**
+
+```bash
+git add src/yEdit.App/FileController.cs tests/yEdit.App.Tests/FileControllerTests.cs
+git commit -m "feat(file): RestoreLastSession に dirty パスあり分岐を追加(§8 補遺)"
+```
+
+**Step 6: 3 段レビュー**
+
+- 仕様: §8.2 の分岐マトリクスと一致・§8.4 E9/E10 の demote/fallback。
+- 品質: RestorePathDirty と RestoreUntitledTab の重複を最小化・_recent.Push の対称性。
+- 脆弱性: EncodingCatalog.Get(未知 codepage) の挙動を確認(内部で Default に落ちる想定)。落ちない場合は try/catch 追加。
+
+---
+
+## Task 15: 説明書追記 + 最終レビュー + 品質ゲート
+
+**Files:**
+- Modify: `説明書/yEdit説明書.md`(§8.6 の補足を基本タブ節に追記=たたき台)
+- Modify: `docs/plans/2026-07-23-restore-open-files-on-startup-design.md`(申し送り更新)
+
+**Step 1: 説明書更新**
+
+現行の「起動時に前回開いていたファイルを開く」記述に追記:
+
+```markdown
+この設定を有効にすると、終了時に未保存の変更があっても保存の確認をせずに終了します。未保存の変更は次回起動時に、編集途中の状態のまま復元されます。ただし変更内容が非常に大きい場合(1 ファイルあたりおよそ 100 万文字を超える場合)は、通常どおり保存の確認が表示されます。
+```
+
+**Step 2: pre-merge-check**
+
+```
+pwsh -File tools/pre-merge-check.ps1
+```
+Expected: EXIT 0
+
+**Step 3: 別エージェントによる最終ブランチレビュー**
+
+superpowers:code-reviewer で「§8 補遺の 4 commits(Task 11-14)」の diff を確認。特に:
+- 挙動不変契約(設定 OFF): 既存全テスト緑
+- fast-path silent close の TOCTOU/例外時の tab 消失リスク
+- RestorePathDirty の RecentFiles 副作用が既存と対称か
+
+**Step 4: 指摘反映 → fixup commit → 再ゲート**
+
+**Step 5: PR #22 push + description 更新**
+
+```bash
+git push
+```
+PR description に §8 補遺セクションを追記(silent close の設計判断・cap 超過時 fall-through の理由)。
+
+**Step 6: マージ**
+
+ユーザー承認後にマージ。

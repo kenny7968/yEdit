@@ -515,12 +515,13 @@ public class MainFormSmokeTests
             var settings = NewSettings(csvAutoModeOnOpen: false);
             settings.RestoreOpenFilesOnStartup = true;
 
-            var form = ShowMainForm(settings, tmp.SettingsPath);
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
             form.SetLastSessionBuffersPathForTest(Path.Combine(tmp.Root, "buffers.json"));
 
             // 起動時空無題タブに dirty 内容を入れる(1M chars 未満=cap 内)
             var doc = form.FileForTest.DocsForTest[0];
             doc.Editor.ReplaceCharRange(0, 0, "dirty small content");
+            Assert.True(doc.Editor.Modified); // pre-condition: dirty タブがあることを固定
 
             int overrideCalls = 0;
             form.SetConfirmDiscardOverrideForTest(_ =>
@@ -533,7 +534,6 @@ public class MainFormSmokeTests
 
             Assert.Equal(true, form.LastCloseTookSilentPathForTest);
             Assert.Equal(0, overrideCalls); // silent path=ConfirmDiscardIfDirty 呼ばれない
-            form.Dispose();
         });
 
     // Test 2: 設定 ON + dirty が per-tab cap 超過 → fall-through(override が呼ばれる)
@@ -545,7 +545,7 @@ public class MainFormSmokeTests
             var settings = NewSettings(csvAutoModeOnOpen: false);
             settings.RestoreOpenFilesOnStartup = true;
 
-            var form = ShowMainForm(settings, tmp.SettingsPath);
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
             form.SetLastSessionBuffersPathForTest(Path.Combine(tmp.Root, "buffers.json"));
 
             var doc = form.FileForTest.DocsForTest[0];
@@ -562,7 +562,6 @@ public class MainFormSmokeTests
 
             Assert.Equal(false, form.LastCloseTookSilentPathForTest);
             Assert.Equal(1, overrideCalls); // fall-through=override 1 回呼ばれる(dirty タブ 1 個)
-            form.Dispose();
         });
 
     // Test 3: 設定 OFF → 従来経路(dirty タブに ConfirmDiscardIfDirty が発火)
@@ -574,7 +573,7 @@ public class MainFormSmokeTests
             var settings = NewSettings(csvAutoModeOnOpen: false);
             settings.RestoreOpenFilesOnStartup = false; // OFF = 従来経路
 
-            var form = ShowMainForm(settings, tmp.SettingsPath);
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
 
             var doc = form.FileForTest.DocsForTest[0];
             doc.Editor.ReplaceCharRange(0, 0, "dirty");
@@ -590,7 +589,34 @@ public class MainFormSmokeTests
 
             Assert.Equal(false, form.LastCloseTookSilentPathForTest);
             Assert.Equal(1, overrideCalls);
-            form.Dispose();
+        });
+
+    // Test 3b (I-1): 設定 OFF + ユーザーキャンセル → e.Cancel=true で閉じない(cancel-path mutation kill)
+    [Fact]
+    public void OnFormClosing_RestoreDisabled_UserCancels_AbortsClose() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = false; // OFF = 従来経路(dialog fires)
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            var doc = form.FileForTest.DocsForTest[0];
+            doc.Editor.ReplaceCharRange(0, 0, "dirty");
+
+            int overrideCalls = 0;
+            form.SetConfirmDiscardOverrideForTest(_ =>
+            {
+                overrideCalls++;
+                return false; // ユーザーキャンセル=閉じない
+            });
+
+            form.Close();
+
+            Assert.True(form.Visible); // e.Cancel=true で閉じられなかった
+            Assert.Equal(1, overrideCalls);
+            Assert.Equal(false, form.LastCloseTookSilentPathForTest);
+            // Note: form は using で自動 Dispose(テスト終了時に真の Close)
         });
 
     // Test 4 (M-3): total-cap 発動(多数の小 dirty タブが累積 15 M chars 超過)

@@ -399,6 +399,7 @@ CLAUDE.md §5 の判定基準「SR 経路に触れる変更は必須」に対し
 - **(Task 7 review Minor-1)** `MainForm.ShowFailedRestoreDialog` の本文組立(Cap=10・「他 N 件」・SanitizeForDisplay.OneLine)を純関数 `BuildFailedRestoreBody(IReadOnlyList<string>)` に切り出し、境界(count=1/10/11/100)+RLO/LF injection 入力でユニットテストする。現状 Task 4 のダイアログ抑止 seam で表示自体は避けているため body の mutation 検知経路がない(fix はスタイル+防御性の double-check)。
 - **(Task 7 review Minor-3)** 前回タブ復元時の SR 通知(バックアップ復元と同型の「前回のタブを N 件復元しました」)。yEdit は SR 対応が第一級のため、復元後の状況把握を助けるためのアナウンスを検討する(Minor-3 と既存の同旨申し送りを統合)。
 - **(Task 7 review Minor-5)** `TryRestoreLastSession` の post-loop 経路(`_docs.Activate` / `_docs.TryClose(initialEmpty)` / `_metaChanged`)で例外が出た場合、`LastSessionBuffersStore.Delete` が実行されず buffers.json + settings.json.LastSession が両方残留=次回起動でも同じ復元を試行する。design §4 E8 の "best-effort 通常起動フォールバック" 範囲内だが、deterministic bug の場合の infinite retry を避けるため `Delete` を `finally` へ移すか、catch 側でも呼ぶ改修を検討。
+- **(Task 13 review Important)** `_confirmDiscardOverrideForTest` は `_file.ConfirmDiscardIfDirty` の 1 callsite 用 per-site seam。同種の per-site 追加が Task 14 以降で累積するリスクあり。長期的には `MainForm` に `internal MainForm(AppSettings, string, IUserPrompt)` の overload を追加して `FileController` へ inject する形へリファクタするのが scalable(現状 `MessageBoxUserPrompt` は `MainForm.cs:158` で inline `new`)。本 §8 補遺後に別 PR で対応検討。
 
 ## 8. 補遺(2026-07-23 実機検証 後): dirty タブの silent 復元
 

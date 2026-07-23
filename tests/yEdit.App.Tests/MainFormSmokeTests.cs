@@ -278,8 +278,64 @@ public class MainFormSmokeTests
             Assert.True(buffers.ContainsKey(untitled.BufferKey!));
         });
 
+    // §8 補遺 Task 12: dirty パスありタブは本文+エンコーディング/EOL/WasModified を保存する。
+    // (以前の "dirty untitled skip" テスト=Task 6 review I-1 は §8.2 で全 dirty 保存へ方針転換したため削除)
     [Fact]
-    public void BuildLastSessionSnapshot_DirtyUntitledTab_Skipped() =>
+    public void BuildLastSessionSnapshot_IncludesDirtyPathTab_WithBufferAndEncoding() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            string txt = tmp.File("a.txt");
+            File2.WriteAllText(txt, "original");
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            form.FileForTest.TryOpenOrActivate(txt);
+            var doc = form.FileForTest.DocsForTest[^1];
+            // dirty 化: 末尾に " +edited" を挿入する(EditorControl に AppendText は無いため
+            // ReplaceCharRange で純挿入=start=TextLength, length=0, replacement=文字列)。
+            doc.Editor.ReplaceCharRange(doc.Editor.TextLength, 0, " +edited");
+            Assert.True(doc.Editor.Modified);
+
+            var (snap, buffers) = form.BuildLastSessionSnapshotForTest();
+            var rec = snap.Tabs.Single(t => t.Path == txt);
+            Assert.NotNull(rec.BufferKey);
+            Assert.True(buffers.ContainsKey(rec.BufferKey!));
+            Assert.Contains("+edited", buffers[rec.BufferKey!]);
+            Assert.Equal(doc.State.Encoding.CodePage, rec.CodePage); // §8.2
+            Assert.Equal(doc.State.HasBom, rec.HasBom);
+            Assert.Equal((int)doc.State.LineEnding, rec.LineEnding);
+            Assert.True(rec.WasModified);
+        });
+
+    // §8 補遺 Task 12: dirty 無題タブは(以前は skip されていたが)本文を保存する。
+    [Fact]
+    public void BuildLastSessionSnapshot_IncludesDirtyUntitledTab_WithBuffer() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            // ctor で作られた空無題タブに dirty 内容を入れる(ReplaceCharRange で純挿入)。
+            var doc = form.FileForTest.DocsForTest[0];
+            doc.Editor.ReplaceCharRange(0, 0, "dirty content");
+            Assert.True(doc.Editor.Modified);
+            Assert.Null(doc.State.Path);
+
+            var (snap, buffers) = form.BuildLastSessionSnapshotForTest();
+            var rec = snap.Tabs.Single(t => t.Path is null);
+            Assert.NotNull(rec.BufferKey);
+            Assert.Equal("dirty content", buffers[rec.BufferKey!]);
+            Assert.True(rec.WasModified); // §8.2
+        });
+
+    // §8 補遺 Task 12: WillDirtyContentFitInCaps は per-tab cap 超過を dry-run で捉える。
+    // (Task 13 の OnFormClosing 高速経路判定用の pre-check ヘルパ)
+    [Fact]
+    public void WillDirtyContentFitInCaps_ReturnsFalse_WhenSingleTabExceedsPerTabCap() =>
         Sta.Run(() =>
         {
             using var tmp = new TempDir();
@@ -288,15 +344,9 @@ public class MainFormSmokeTests
 
             using var form = ShowMainForm(settings, tmp.SettingsPath);
             var doc = form.FileForTest.DocsForTest[0];
-            doc.Editor.SetOrReplaceSource(yEdit.Core.Buffers.TextBuffer.FromString("dirty-secret"));
-            // SetOrReplaceSource 直後は fresh バッファ=Modified=false のため
-            // ClearSavePoint で明示的に dirty 化(§復元 dirty 化バグ 対策で追加された seam を利用)。
-            doc.Editor.ClearSavePoint();
-
-            var (snap, buffers) = form.BuildLastSessionSnapshotForTest();
-
-            Assert.Empty(snap.Tabs); // dirty untitled 1 個のみ = skip 後は空
-            Assert.Empty(buffers);
+            // 1 M + 1 chars を純挿入=MaxSessionUntitledContentChars (1M) 超過。
+            doc.Editor.ReplaceCharRange(0, 0, new string('x', 1024 * 1024 + 1));
+            Assert.False(form.WillDirtyContentFitInCapsForTest());
         });
 
     [Fact]

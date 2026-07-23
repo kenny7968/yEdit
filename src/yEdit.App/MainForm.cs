@@ -692,9 +692,11 @@ public sealed partial class MainForm : Form
     }
 
     /// <summary>
-    /// 現在のタブ列から LastSessionSnapshot と無題本文マップを組み立てる。
-    /// 無題本文が <see cref="MaxSessionUntitledContentChars"/> を超えた場合は BufferKey=null に落として
-    /// 枠だけ保存する(BK-M-3 と同方針)。設計書 §3.1。
+    /// 現在のタブ列から LastSessionSnapshot と本文マップを組み立てる。設計書 §3.1 + §8.2 補遺:
+    /// パスなし or dirty(パスありでも Modified=true)のタブは本文を buffers に保存し、
+    /// 復元経路で「編集途中の状態」を silent に再現する。cap 超過(per-tab / total)は
+    /// BufferKey=null に落として枠だけ保存する(BK-M-3 と同方針=次回は disk 内容が読まれる)。
+    /// CodePage / HasBom / LineEnding / WasModified はパスありの再エンコード保存 §8.4 用。
     /// </summary>
     private (
         yEdit.Core.Session.LastSessionSnapshot Snap,
@@ -704,42 +706,44 @@ public sealed partial class MainForm : Form
         var tabs = new List<yEdit.Core.Session.SessionTabRecord>();
         var buffers = new Dictionary<string, string>();
         var active = _docs.Active;
-        int totalUntitledChars = 0;
+        int totalContentChars = 0;
         foreach (var doc in _docs.Documents)
         {
-            // Task 6 review I-1: dirty 無題タブは skip する。ConfirmDiscardIfDirty で「No=破棄」を
-            // 明示選択済みの本文を復元経路で silent に復活させないため(Modified=false 無題タブは
-            // 保存された状態=通常終了時の状態を再現)。設計 §3.1 精密化。
-            if (doc.State.Path is null && doc.Editor.Modified)
-                continue;
-
             int line = doc.Editor.CurrentLine;
             int col = doc.Editor.GetColumn(doc.Editor.CurrentPosition);
+            bool wasModified = doc.Editor.Modified;
             string? bufferKey = null;
-            if (doc.State.Path is null)
+
+            // §8.2: パスなし OR (パスあり かつ dirty) は本文を buffers に保存。
+            // (以前は「dirty 無題は skip」= Task 6 review I-1 の分岐が居たが §8 補遺で撤去)
+            bool needsContent = doc.State.Path is null || wasModified;
+            if (needsContent)
             {
                 string content = doc.Editor.SnapshotText;
                 bool fitsPerTab = content.Length <= MaxSessionUntitledContentChars;
                 bool fitsTotal =
                     fitsPerTab
-                    && (long)totalUntitledChars + content.Length <= MaxSessionTotalUntitledChars;
+                    && (long)totalContentChars + content.Length <= MaxSessionTotalUntitledChars;
                 if (fitsTotal)
                 {
                     bufferKey = Guid.NewGuid().ToString("N");
                     buffers[bufferKey] = content;
-                    totalUntitledChars += content.Length;
+                    totalContentChars += content.Length;
                 }
                 else
                 {
                     System.Diagnostics.Trace.TraceWarning(
-                        "yEdit: last-session-content-skipped (untitled {0}, {1} chars, per-tab-fit={2}, total-fit={3})",
-                        doc.State.UntitledNumber,
+                        "yEdit: last-session-content-skipped (path={0}, dirty={1}, {2} chars, per-tab-fit={3}, total-fit={4})",
+                        doc.State.Path ?? $"untitled-{doc.State.UntitledNumber}",
+                        wasModified,
                         content.Length,
                         fitsPerTab,
                         fitsTotal
                     );
+                    // BufferKey=null に落とす=次回起動時に dirty 編集は disk 内容に置き換わる(§8.4 E9 と等価)
                 }
             }
+
             tabs.Add(
                 new yEdit.Core.Session.SessionTabRecord(
                     Path: doc.State.Path,
@@ -747,11 +751,41 @@ public sealed partial class MainForm : Form
                     BufferKey: bufferKey,
                     IsActive: ReferenceEquals(doc, active),
                     CaretLine: line,
-                    CaretColumn: col
+                    CaretColumn: col,
+                    CodePage: doc.State.Path is not null ? doc.State.Encoding.CodePage : 0, // §8.2
+                    HasBom: doc.State.Path is not null && doc.State.HasBom,
+                    LineEnding: (int)doc.State.LineEnding,
+                    WasModified: wasModified
                 )
             );
         }
         return (new yEdit.Core.Session.LastSessionSnapshot(tabs), buffers);
+    }
+
+    /// <summary>
+    /// §8.2 pre-check: <see cref="OnFormClosing"/> の silent close 経路(RestoreOpenFilesOnStartup=ON 時)
+    /// に入れるかを判定する。全 dirty タブ(パスなし+パスあり dirty)の本文が per-tab / total 両方の
+    /// cap 内に収まる場合のみ true。false のときは従来の未保存確認ダイアログ経路にフォールバック。
+    /// dry-run のため tabs や buffers を実際には組み立てない=<see cref="EditorControl.TextLength"/> の
+    /// O(1) 参照だけで判定し、<see cref="EditorControl.SnapshotText"/> の全文コピーを避ける
+    /// (close 時の大バッファ数百 MB コピーを回避)。
+    /// </summary>
+    private bool WillDirtyContentFitInCaps()
+    {
+        int totalContentChars = 0;
+        foreach (var doc in _docs.Documents)
+        {
+            bool needsContent = doc.State.Path is null || doc.Editor.Modified;
+            if (!needsContent)
+                continue;
+            int len = doc.Editor.TextLength;
+            if (len > MaxSessionUntitledContentChars)
+                return false;
+            totalContentChars += len;
+            if ((long)totalContentChars > MaxSessionTotalUntitledChars)
+                return false;
+        }
+        return true;
     }
 
     /// <summary>テスト用: BuildLastSessionSnapshot の入出力を直接検証する seam(Task 6 review I-3)。</summary>
@@ -763,6 +797,9 @@ public sealed partial class MainForm : Form
         var (snap, buffers) = BuildLastSessionSnapshot();
         return (snap, buffers);
     }
+
+    /// <summary>テスト用: <see cref="WillDirtyContentFitInCaps"/> の直接検証 seam(§8.5)。</summary>
+    internal bool WillDirtyContentFitInCapsForTest() => WillDirtyContentFitInCaps();
 
     private void SaveLastSessionBuffersSafe(IReadOnlyDictionary<string, string> map)
     {

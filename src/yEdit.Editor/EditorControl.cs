@@ -375,6 +375,12 @@ public sealed partial class EditorControl : Control, yEdit.Accessibility.IUiaTex
     public int LineCount => _buffer?.Current.LineCount ?? 0;
 
     /// <summary>
+    /// 現在のバッファ文字数 (UTF-16 code units)。O(1) で <see cref="SnapshotText"/> の全文コピーを
+    /// 避けたい場面(セッション保存の cap 事前判定 §復元 §8.2 等)向け。<see cref="LineCount"/> と同流儀。
+    /// </summary>
+    public int TextLength => _buffer?.Current.CharLength ?? 0;
+
+    /// <summary>
     /// P6 Task 5: 本文中の改行を <paramref name="eol"/> に一括変換する(App 層互換=保存時の EOL 統一)。
     /// 既存本文の <c>\r\n</c> / <c>\r</c> / <c>\n</c> を検出→指定 EOL に置換した文字列で
     /// <see cref="ReplaceSource(TextBuffer)"/> し、<see cref="EolMode"/> も同時に更新する。

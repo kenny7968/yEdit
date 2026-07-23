@@ -148,11 +148,9 @@ public sealed class BackupCoordinator : IDisposable
     /// いずれかが有効なら timer/writer を動かし即 Reconcile(保護窓を作らない)。
     /// restoreSession の OFF→ON では署名が stale の可能性があるため強制書込を予約する。
     /// </summary>
-    public void UpdateSettings(
-        bool enabled,
-        int intervalSeconds,
-        bool restoreSessionEnabled = false
-    )
+    // restoreSessionEnabled は既定値を持たない(I-2): 既定 false を許すと将来の 2 引数呼び出しが
+    // 復元設定を silent OFF にする footgun になるため、呼び出し側に常に明示させる。
+    public void UpdateSettings(bool enabled, int intervalSeconds, bool restoreSessionEnabled)
     {
         if (_shutDown)
             return;
@@ -322,7 +320,7 @@ public sealed class BackupCoordinator : IDisposable
         }
     }
 
-    /// <summary>silent 統合復元の入力収集(設計 §3.3)。sweep → レイアウト Load → LoadAll。
+    /// <summary>silent 統合復元の入力収集(設計 §3.3)。レイアウト Load → sweep+LoadAll。
     /// バックアップ無効でも動く(レイアウトのみ復元モード=設計 §5.2)。</summary>
     public (
         yEdit.Core.Session.SessionLayout? Layout,
@@ -334,8 +332,13 @@ public sealed class BackupCoordinator : IDisposable
         return (layout, backups);
     }
 
-    /// <summary>復元成功後にレイアウトを消費する(次回は今セッションの新レイアウトが正)。</summary>
-    public void DeleteConsumedLayout() => yEdit.Core.Session.SessionLayoutStore.Delete(_layoutPath);
+    /// <summary>復元成功後にレイアウトを消費する(次回は今セッションの新レイアウトが正)。
+    /// 消費後は次 Reconcile を強制書込に倒し、session-state.json 不在の窓を最小化する(M-4)。</summary>
+    public void DeleteConsumedLayout()
+    {
+        yEdit.Core.Session.SessionLayoutStore.Delete(_layoutPath);
+        _layoutForceWrite = true;
+    }
 
     /// <summary>復元した文書を元 Id で管理下へ引き取る(設計 §3.4 adopt-move)。
     /// _map 登録により以後の clean 化 Delete・クリーン終了削除が正しく効き、ファイル本体は
@@ -367,6 +370,8 @@ public sealed class BackupCoordinator : IDisposable
             return;
         if (_enabled)
             ReconcileContent();
+        else
+            ReconcileMapMaintenance(); // layout-only モードでも _map をディスク実在の鏡に保つ(I-1)
         if (_sessionRestoreEnabled)
             ReconcileLayout(force: false);
     }
@@ -422,6 +427,33 @@ public sealed class BackupCoordinator : IDisposable
                     break;
                 case BackupAction.None:
                     break;
+            }
+        }
+    }
+
+    /// <summary>_enabled=false(layout-only モード)でも _map をディスク実在の鏡に保つ:
+    /// 閉じタブのバックアップ削除+clean 化した文書のバックアップ削除のみ行う(新規書込はしない)。
+    /// これを怠ると BuildLayout が stale BackupId を書き、次回起動の silent 復元が
+    /// 保存済みファイルへ古い内容を dirty 復元するデータ損失経路になる(Task 3 品質レビュー I-1)。</summary>
+    private void ReconcileMapMaintenance()
+    {
+        if (_map.Count == 0)
+            return;
+        var current = new HashSet<Document>(_docs.Documents);
+        foreach (var doc in _map.Keys.ToList())
+        {
+            var info = _map[doc];
+            if (!current.Contains(doc))
+            {
+                if (info.HasBackup)
+                    _writer?.Delete(info.Id);
+                _map.Remove(doc);
+                continue;
+            }
+            if (info.HasBackup && !doc.Editor.Modified)
+            {
+                _writer?.Delete(info.Id);
+                info.HasBackup = false;
             }
         }
     }
@@ -555,6 +587,8 @@ public sealed class BackupCoordinator : IDisposable
             return;
         if (_enabled)
             ReconcileContent();
+        else
+            ReconcileMapMaintenance(); // 最終書込でも stale BackupId を残さない(I-1)
         if (_sessionRestoreEnabled)
             ReconcileLayout(force: true);
     }

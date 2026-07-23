@@ -564,8 +564,26 @@ public sealed class FileController
                 // 内部ロジックバグ)を per-record で吸収し、次のレコードへ進む。
                 try
                 {
-                    if (rec.Path is not null)
+                    if (
+                        rec.Path is not null
+                        && rec.BufferKey is not null
+                        && buffers.TryGetValue(rec.BufferKey, out var dirtyContent)
+                    )
                     {
+                        // §8.2: dirty パスあり分岐(BufferKey が buffers に存在)
+                        var doc = RestorePathDirty(rec, dirtyContent);
+                        openedCount++;
+                        if (rec.IsActive)
+                            activeDoc = doc;
+                    }
+                    else if (rec.Path is not null)
+                    {
+                        // 非 dirty パスあり (BufferKey null) or §8.4 E9 demote (BufferKey ある but buffers 欠落)
+                        if (rec.BufferKey is not null)
+                            System.Diagnostics.Trace.TraceWarning(
+                                "yEdit: dirty-path-buffer-missing, demoting to disk reopen: {0}",
+                                yEdit.Core.Text.SanitizeForDisplay.OneLine(rec.Path, 200)
+                            );
                         // Task 5 review M-3: CSV 自動モードは通常起動と同経路で発火する
                         // (rec.CsvMode を持たない=前回モードの再現は非対象)。設計 §3.4/§0 非対象。
                         var doc = TryOpenOrActivate(rec.Path);
@@ -633,7 +651,38 @@ public sealed class FileController
         doc.Editor.SetOrReplaceSource(TextBuffer.FromString(content));
         ApplyEol(doc);
         doc.Editor.EmptyUndoBuffer();
-        doc.Editor.SetSavePoint(); // Modified=false で開始(通常終了時の状態を再現)
+        if (!rec.WasModified)
+            doc.Editor.SetSavePoint(); // §8.2: WasModified=false のときのみ Modified=false で開始(通常終了時の状態を再現)
+        else
+            // §8.2: WasModified=true は dirty のまま復元(RestoreFromBackup と同パターン=FromString の
+            // fresh バッファは生成時に保存点を持つため ClearSavePoint を明示しないと Modified=false 扱いになる)
+            doc.Editor.ClearSavePoint();
+        doc.Editor.SetCaretByLineColumn(rec.CaretLine, rec.CaretColumn);
+        DocumentManager.UpdateLabel(doc);
+        return doc;
+    }
+
+    /// <summary>
+    /// §8.2: dirty パスあり record を CreateNew で復元し、SetSavePoint を呼ばず Modified=true で開始する。
+    /// 保存時に元の Path/Encoding/BOM/LineEnding を再利用できるよう State を明示設定する。
+    /// エンコーディング/改行の攻撃 JSON 対策として <see cref="SafeEncodingOrFallback"/> /
+    /// <see cref="SafeLineEndingOrFallback"/> を経由する(§8.4 E10)。
+    /// RecentFiles 登録は <see cref="WithLoadErrorPromptSuppressed"/> 経由の
+    /// <c>_suppressRegisterRecent=true</c> スコープ内で呼ばれる契約なので、ここでは触らない
+    /// (通常オープンの RegisterRecent 経路は Task 5 review I-2 で復元経路の汚染を防ぐため抑止済み)。
+    /// </summary>
+    private Document RestorePathDirty(yEdit.Core.Session.SessionTabRecord rec, string content)
+    {
+        var doc = _docs.CreateNew();
+        doc.State.Path = rec.Path;
+        doc.State.Encoding = SafeEncodingOrFallback(rec.CodePage);
+        doc.State.HasBom = rec.HasBom;
+        doc.State.LineEnding = SafeLineEndingOrFallback(rec.LineEnding);
+        doc.Editor.SetOrReplaceSource(TextBuffer.FromString(content));
+        ApplyEol(doc);
+        doc.Editor.EmptyUndoBuffer();
+        // SetSavePoint は呼ばない → Modified=true(RestoreFromBackup と同パターン=ClearSavePoint を明示する)
+        doc.Editor.ClearSavePoint();
         doc.Editor.SetCaretByLineColumn(rec.CaretLine, rec.CaretColumn);
         DocumentManager.UpdateLabel(doc);
         return doc;

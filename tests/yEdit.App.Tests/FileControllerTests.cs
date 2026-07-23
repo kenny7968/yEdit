@@ -1680,4 +1680,111 @@ public class FileControllerTests
             Assert.Single(host.Settings.RecentFiles);
             Assert.Equal(@"C:\pre-existing.txt", host.Settings.RecentFiles[0]);
         });
+
+    // ===== Task 14: RestoreLastSession dirty パスあり分岐 + WasModified =====
+
+    [Fact]
+    public void RestoreLastSession_DirtyPathRecord_RestoresAsModified_WithEncoding() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            using var tmp = new TempDir();
+            string p = tmp.File("a.txt");
+            File2.WriteAllText(p, "on disk");
+            var initialEmpty = host.Docs.CreateNew();
+
+            var snap = new LastSessionSnapshot(
+                new List<SessionTabRecord>
+                {
+                    new(
+                        Path: p,
+                        UntitledNumber: 0,
+                        BufferKey: "k1",
+                        IsActive: true,
+                        CaretLine: 0,
+                        CaretColumn: 3,
+                        CodePage: 65001,
+                        HasBom: true,
+                        LineEnding: 1,
+                        WasModified: true
+                    ),
+                }
+            );
+            var buffers = new Dictionary<string, string> { ["k1"] = "in memory dirty" };
+
+            var failed = host.File.RestoreLastSession(snap, buffers, initialEmpty);
+
+            Assert.Empty(failed);
+            var doc = host.Docs.Active!;
+            Assert.Equal(p, doc.State.Path);
+            Assert.Equal("in memory dirty", doc.Editor.SnapshotText);
+            Assert.True(doc.Editor.Modified);
+            Assert.Equal(65001, doc.State.Encoding.CodePage);
+            Assert.True(doc.State.HasBom);
+        });
+
+    [Fact]
+    public void RestoreLastSession_DirtyUntitledRecord_WasModified_RestoresAsModified() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            var initialEmpty = host.Docs.CreateNew();
+            var snap = new LastSessionSnapshot(
+                new List<SessionTabRecord>
+                {
+                    new(
+                        Path: null,
+                        UntitledNumber: 2,
+                        BufferKey: "k1",
+                        IsActive: true,
+                        CaretLine: 0,
+                        CaretColumn: 0,
+                        CodePage: 0,
+                        HasBom: false,
+                        LineEnding: 0,
+                        WasModified: true
+                    ),
+                }
+            );
+            var buffers = new Dictionary<string, string> { ["k1"] = "unsaved new" };
+
+            host.File.RestoreLastSession(snap, buffers, initialEmpty);
+            var doc = host.Docs.Active!;
+            Assert.Equal("unsaved new", doc.Editor.SnapshotText);
+            Assert.True(doc.Editor.Modified);
+        });
+
+    [Fact]
+    public void RestoreLastSession_DirtyPathRecord_BufferMissing_DemotesToDiskReopen() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            using var tmp = new TempDir();
+            string p = tmp.File("a.txt");
+            File2.WriteAllText(p, "on disk");
+            var initialEmpty = host.Docs.CreateNew();
+
+            var snap = new LastSessionSnapshot(
+                new List<SessionTabRecord>
+                {
+                    new(
+                        Path: p,
+                        UntitledNumber: 0,
+                        BufferKey: "missing",
+                        IsActive: true,
+                        CaretLine: 0,
+                        CaretColumn: 0,
+                        CodePage: 65001,
+                        HasBom: false,
+                        LineEnding: 0,
+                        WasModified: true
+                    ),
+                }
+            );
+            host.File.RestoreLastSession(snap, new Dictionary<string, string>(), initialEmpty);
+            var doc = host.Docs.Active!;
+            Assert.Equal(p, doc.State.Path);
+            Assert.Equal("on disk", doc.Editor.SnapshotText);
+            Assert.False(doc.Editor.Modified);
+        });
 }

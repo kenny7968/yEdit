@@ -26,6 +26,11 @@ public sealed class FileController
     private readonly IReachabilityProbe _reachabilityProbe; // HIGH-6: UNC ロードの短タイムアウトプローブ(テストでは Fake)
     private int _untitledSeq; // 無題タブの連番（新規作成毎に増加・セッション内で再利用しない）
 
+    // Task 4: 復元経路(RestoreLastSession)専用の内部 seam。LoadInto の catch 内 _prompt.Error を一時抑止し、
+    // 失敗パスを failedPaths に集約する(単発ダイアログを避けまとめて 1 個で通知するため)。
+    // 復元経路以外(開く/最近/grep/開き直し)からは触れない=これらは既存の per-file ダイアログを維持する。
+    private bool _suppressLoadErrorPrompt;
+
     public FileController(
         DocumentManager docs,
         IWin32Window owner,
@@ -202,10 +207,15 @@ public sealed class FileController
             // 想定内の入出力エラーのみ握る。NullReference 等のロジックバグは伝播させる。
             // CSV-L-5: ex.Message は攻撃者制御下ではないがファイル名 (path) を含みうるため、
             // 二次的スプーフィング防止として SanitizeForDisplay.OneLine で無害化する。
-            _prompt.Error(
-                $"開けませんでした: {SanitizeForDisplay.OneLine(ex.Message, 200)}",
-                "エラー"
-            );
+            // Task 4: 復元経路(WithLoadErrorPromptSuppressed 実行中)は per-file ダイアログを抑止し、
+            // 呼出元で失敗パスを集約通知させる(戻り値 false は伝播)。
+            if (!_suppressLoadErrorPrompt)
+            {
+                _prompt.Error(
+                    $"開けませんでした: {SanitizeForDisplay.OneLine(ex.Message, 200)}",
+                    "エラー"
+                );
+            }
             return false;
         }
     }
@@ -491,6 +501,25 @@ public sealed class FileController
         return doc;
     }
 
+    /// <summary>
+    /// action の実行中だけ LoadInto と TryProbeReachability の catch 内 _prompt.Error を抑止する。
+    /// Task 5 で追加する RestoreLastSession が失敗パスを集約通知するために使う seam。
+    /// finally で必ず復元し、nested 呼び出しでも安全(prev の保存 → 復元)。
+    /// </summary>
+    public void WithLoadErrorPromptSuppressed(Action action)
+    {
+        bool prev = _suppressLoadErrorPrompt;
+        _suppressLoadErrorPrompt = true;
+        try
+        {
+            action();
+        }
+        finally
+        {
+            _suppressLoadErrorPrompt = prev;
+        }
+    }
+
     // ==================== 内部 ====================
 
     /// <summary>開いた/保存したファイルを最近のファイルへ登録し、永続化＆メニュー再構築を促す。</summary>
@@ -521,10 +550,15 @@ public sealed class FileController
         {
             // CSV-L-5: path は grep/最近のファイル/BackupRecord 由来で攻撃者制御が届き得るため、
             // SanitizeForDisplay.OneLine で RLO/改行/長大 path を無害化してから prompt に載せる。
-            _prompt.Error(
-                $"ネットワークパスに到達できません: {SanitizeForDisplay.OneLine(path, 200)}",
-                "エラー"
-            );
+            // Task 4: 復元経路(WithLoadErrorPromptSuppressed 実行中)は per-file ダイアログを抑止し、
+            // 呼出元で失敗パスを集約通知させる(戻り値 false は伝播)。
+            if (!_suppressLoadErrorPrompt)
+            {
+                _prompt.Error(
+                    $"ネットワークパスに到達できません: {SanitizeForDisplay.OneLine(path, 200)}",
+                    "エラー"
+                );
+            }
             return false;
         }
         return true;

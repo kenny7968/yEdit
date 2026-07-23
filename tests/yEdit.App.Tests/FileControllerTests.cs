@@ -1361,4 +1361,33 @@ public class FileControllerTests
             // 元 path 全体は載らない (500 文字 'a' 連続が丸ごとは入らない)。
             Assert.DoesNotContain(new string('a', 500), err.Text, StringComparison.Ordinal);
         });
+
+    // ===== Task 4: LoadInto エラーダイアログ抑止 seam(復元経路 Task 5 用) =====
+
+    [Fact]
+    public void LoadInto_SuppressErrorPrompt_SwallowsErrorDialog_ButStillReturnsFalse() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            using var tmp = new TempDir();
+            string missing = tmp.File("no-such-file.txt");
+
+            // 通常経路: エラーダイアログが 1 個出る
+            host.File.TryOpenOrActivate(missing);
+            Assert.Contains(host.Prompt.Log, e => e.Kind == "Error");
+
+            host.Prompt.Log.Clear();
+
+            // 抑止 ON: ダイアログは出ないが失敗自体は伝播する
+            host.File.WithLoadErrorPromptSuppressed(() =>
+            {
+                var result = host.File.TryOpenOrActivate(missing);
+                Assert.Null(result);
+            });
+            Assert.DoesNotContain(host.Prompt.Log, e => e.Kind == "Error");
+
+            // 抑止解除後: 再びダイアログが出る(finally での復元確認)
+            host.File.TryOpenOrActivate(missing);
+            Assert.Contains(host.Prompt.Log, e => e.Kind == "Error");
+        });
 }

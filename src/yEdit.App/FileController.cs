@@ -644,11 +644,13 @@ public sealed class FileController
         doc.State.UntitledNumber = rec.UntitledNumber > 0 ? rec.UntitledNumber : ++_untitledSeq;
         if (rec.UntitledNumber > _untitledSeq)
             _untitledSeq = rec.UntitledNumber; // 以後の新規無題と衝突しないよう連番を追従
-        // Task 5 review M-4: 無題の encoding/EOL は現行既定を適用(前回終了時の値は SessionTabRecord に持たない=YAGNI)。
-        // 設計 §0 非対象。
+        // §8 補遺 M-2: LineEnding は前回終了時の値を復元(BuildLastSessionSnapshot が全タブで記録するため)。
+        // Encoding/HasBom は untitled では 0/false 固定保存=現行既定 (s.DefaultCodePage/false) を適用
+        // (Task 5 review M-4 の YAGNI 判断を維持=前回終了時の untitled encoding は非対象)。
         doc.State.Encoding = EncodingCatalog.Get(s.DefaultCodePage);
         doc.State.HasBom = false;
-        doc.State.LineEnding = (LineEnding)s.DefaultLineEnding;
+        // 攻撃 JSON 対策で SafeLineEndingOrFallback 経由(§8.4 E10)。
+        doc.State.LineEnding = SafeLineEndingOrFallback(rec.LineEnding);
         doc.Editor.SetOrReplaceSource(TextBuffer.FromString(content));
         ApplyEol(doc);
         doc.Editor.EmptyUndoBuffer();

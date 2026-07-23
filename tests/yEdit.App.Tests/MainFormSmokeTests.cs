@@ -574,6 +574,9 @@ public class MainFormSmokeTests
             settings.RestoreOpenFilesOnStartup = false; // OFF = 従来経路
 
             using var form = ShowMainForm(settings, tmp.SettingsPath);
+            // §8 補遺 I-1: 設定 OFF 経路は OnFormClosing で DeleteLastSessionBuffersSafe を呼ぶ=
+            // seam を張らないと実 %APPDATA%\yEdit\last-session-buffers.json を消しに行く。
+            form.SetLastSessionBuffersPathForTest(Path.Combine(tmp.Root, "buffers.json"));
 
             var doc = form.FileForTest.DocsForTest[0];
             doc.Editor.ReplaceCharRange(0, 0, "dirty");
@@ -601,6 +604,9 @@ public class MainFormSmokeTests
             settings.RestoreOpenFilesOnStartup = false; // OFF = 従来経路(dialog fires)
 
             using var form = ShowMainForm(settings, tmp.SettingsPath);
+            // §8 補遺 I-1 (preventive): 現状 e.Cancel=true で Delete 前に return するため実害はないが、
+            // 将来 cancel 前後の順序変更で regress するのを防ぐため seam を張る。
+            form.SetLastSessionBuffersPathForTest(Path.Combine(tmp.Root, "buffers.json"));
             var doc = form.FileForTest.DocsForTest[0];
             doc.Editor.ReplaceCharRange(0, 0, "dirty");
 
@@ -617,6 +623,35 @@ public class MainFormSmokeTests
             Assert.Equal(1, overrideCalls);
             Assert.Equal(false, form.LastCloseTookSilentPathForTest);
             // Note: form は using で自動 Dispose(テスト終了時に真の Close)
+        });
+
+    // §8 補遺 M-1: fall-through 経路で No-discard したタブは snapshot から除外(silent 復活防止)。
+    [Fact]
+    public void OnFormClosing_FallThrough_UserDiscardsDirty_ExcludedFromSnapshot() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            form.SetLastSessionBuffersPathForTest(Path.Combine(tmp.Root, "buffers.json"));
+
+            // 起動時空無題タブを cap 超過にして fall-through を強制
+            var doc = form.FileForTest.DocsForTest[0];
+            doc.Editor.ReplaceCharRange(0, 0, new string('x', 1024 * 1024 + 1));
+
+            // override 常に true=No-discard を模擬(SaveDocument は呼ばず Modified 継続)
+            form.SetConfirmDiscardOverrideForTest(_ => true);
+
+            form.Close();
+
+            // 期待: fall-through で discardedDocs に追加され、snapshot から除外される
+            Assert.Equal(false, form.LastCloseTookSilentPathForTest);
+            var loaded = SettingsStore.Load(tmp.SettingsPath);
+            // No-discard タブ(起動時空無題タブ = 唯一のタブ)が除外されている=Tabs 空
+            Assert.NotNull(loaded.LastSession);
+            Assert.Empty(loaded.LastSession!.Tabs);
         });
 
     // Test 4 (M-3): total-cap 発動(多数の小 dirty タブが累積 15 M chars 超過)

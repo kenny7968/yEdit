@@ -1787,4 +1787,38 @@ public class FileControllerTests
             Assert.Equal("on disk", doc.Editor.SnapshotText);
             Assert.False(doc.Editor.Modified);
         });
+
+    // §8 補遺 M-2: RestoreUntitledTab は rec.LineEnding を尊重する(save/restore 対称性)。
+    [Fact]
+    public void RestoreLastSession_UntitledRecord_RestoresLineEnding() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            host.Settings.DefaultLineEnding = (int)LineEnding.Crlf; // 既定=CRLF
+            var initialEmpty = host.Docs.CreateNew();
+
+            // rec.LineEnding=1 (LF) — 既定と異なる値
+            var snap = new LastSessionSnapshot(
+                new List<SessionTabRecord>
+                {
+                    new(
+                        Path: null,
+                        UntitledNumber: 1,
+                        BufferKey: "k1",
+                        IsActive: true,
+                        CaretLine: 0,
+                        CaretColumn: 0,
+                        CodePage: 0,
+                        HasBom: false,
+                        LineEnding: (int)LineEnding.Lf,
+                        WasModified: false
+                    ),
+                }
+            );
+            var buffers = new Dictionary<string, string> { ["k1"] = "hello" };
+
+            host.File.RestoreLastSession(snap, buffers, initialEmpty);
+            var doc = host.Docs.Active!;
+            Assert.Equal(LineEnding.Lf, doc.State.LineEnding); // 既定 CRLF ではなく rec.LineEnding が反映
+        });
 }

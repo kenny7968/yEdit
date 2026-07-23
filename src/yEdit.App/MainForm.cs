@@ -355,6 +355,9 @@ public sealed partial class MainForm : Form
         bool silentPath = _settings.RestoreOpenFilesOnStartup && WillDirtyContentFitInCaps();
         _lastCloseTookSilentPathForTest = silentPath;
 
+        // §8 補遺 M-1: fall-through 経路で No-discard したタブを snapshot から除外するため追跡。
+        var discardedDocs = new HashSet<Document>();
+
         if (!silentPath)
         {
             // 従来経路: 全 dirty タブに Yes/No/Cancel 確認(all-or-nothing fall-through)。
@@ -374,6 +377,10 @@ public sealed partial class MainForm : Form
                     base.OnFormClosing(e);
                     return;
                 }
+                // keepClosing=true + Modified 継続 = No-discard 明示選択(Yes は SaveDocument で
+                // Modified=false 化される)。次回 silent 復元で「破棄」意図が silent に無視されるのを防ぐため追跡。
+                if (doc.Editor.Modified)
+                    discardedDocs.Add(doc);
             }
         }
 
@@ -388,7 +395,7 @@ public sealed partial class MainForm : Form
         // E4/E5 分岐(BufferKey 欠落 skip)で silent に吸収される=挙動不変。
         if (_settings.RestoreOpenFilesOnStartup)
         {
-            var (snap, buffers) = BuildLastSessionSnapshot();
+            var (snap, buffers) = BuildLastSessionSnapshot(discardedDocs);
             _settings.LastSession = snap;
             SaveLastSessionBuffersSafe(buffers);
         }
@@ -737,7 +744,7 @@ public sealed partial class MainForm : Form
     private (
         yEdit.Core.Session.LastSessionSnapshot Snap,
         Dictionary<string, string> Buffers
-    ) BuildLastSessionSnapshot()
+    ) BuildLastSessionSnapshot(HashSet<Document>? discardedDocs = null)
     {
         var tabs = new List<yEdit.Core.Session.SessionTabRecord>();
         var buffers = new Dictionary<string, string>();
@@ -745,6 +752,9 @@ public sealed partial class MainForm : Form
         int totalContentChars = 0;
         foreach (var doc in _docs.Documents)
         {
+            // §8 補遺 M-1: 明示 No-discard したタブは snapshot から除外(silent 復活防止)。
+            if (discardedDocs is not null && discardedDocs.Contains(doc))
+                continue;
             int line = doc.Editor.CurrentLine;
             int col = doc.Editor.GetColumn(doc.Editor.CurrentPosition);
             bool wasModified = doc.Editor.Modified;

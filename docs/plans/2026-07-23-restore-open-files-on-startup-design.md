@@ -402,6 +402,7 @@ CLAUDE.md §5 の判定基準「SR 経路に触れる変更は必須」に対し
 - **(Task 13 review Important)** `_confirmDiscardOverrideForTest` は `_file.ConfirmDiscardIfDirty` の 1 callsite 用 per-site seam。同種の per-site 追加が Task 14 以降で累積するリスクあり。長期的には `MainForm` に `internal MainForm(AppSettings, string, IUserPrompt)` の overload を追加して `FileController` へ inject する形へリファクタするのが scalable(現状 `MessageBoxUserPrompt` は `MainForm.cs:158` で inline `new`)。本 §8 補遺後に別 PR で対応検討。
 - **(Task 14 review Minor-2)** E9 demote 時の `Trace.TraceWarning` および同種 BackupRecord 系 Trace の observability seam(テスト観測 hook)は未実装。設計書 §8.5 は「Trace 検証(observability seam)」を明記しているが、既存 BackupRecord 系にも観測 seam は無く、既存レベル据え置き。将来対応時は BackupRecord + Session の Trace を一括で TraceListener hook 化する。
 - **(Task 14 review Minor-4)** dirty パス経路の RecentFiles 汚染テストが無い。既存 `RestoreLastSession_DoesNotPolluteRecentFiles` は non-dirty パス record のみ検証。dirty パス経路は `WithLoadErrorPromptSuppressed` 内で `RestorePathDirty` が RegisterRecent を一切呼ばないので構造上汚染し得ないが、明示テストで「うっかり `_recent.Push(rec.Path)` を追加する」変異を kill できるため回帰防止テストとして追加を検討。
+- **(§8 final review Minor-3)** E9 demote(dirty パスあり record で buffers 欠落)は現状 `Trace.TraceWarning` のみでユーザーへの通知がない。設計 §8.4 は「silent lost + Trace」を明示的に受容しているが、`failedPaths` の集約 Warn(「開けなかった」)と demote(「開けたが編集を失った」)は意味論が異なるため、将来「N 個のファイルは編集途中の内容を復元できず、保存時点の内容を開きました」型の通知を追加する余地あり。
 
 ## 8. 補遺(2026-07-23 実機検証 後): dirty タブの silent 復元
 

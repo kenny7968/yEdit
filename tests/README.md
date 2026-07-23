@@ -2,7 +2,7 @@
 
 新規テスト(特に Controller / Fake / Host フィクスチャ)を書く開発者(将来の Claude セッションを含む)のための正典。**戦略設計と Phase 実施記録は `docs/plans/2026-07-13-test-strategy-design.md` を参照**。ここは「使い方」に絞る。
 
-- 現行テスト数(2026-07-15 実測・`tools/pre-merge-check.ps1`): **Core 573 + Editor 218 + App 226 = 1017**・0 警告
+- テスト数の「正」は `tools/pre-merge-check.ps1` の実行結果(文書に数値を書かない=CLAUDE.md §5)・0 警告を維持
 - ゲート: ローカルは `tools/pre-merge-check.ps1`(フィルタなし・全数)・CI は `--filter "Category!=LocalOnly"`
 
 ---
@@ -81,16 +81,16 @@ private sealed class Host : IDisposable
 - **`settingsPath` の内部 seam**: MainForm は `public MainForm(AppSettings)` → `internal MainForm(AppSettings, string settingsPath)` にチェーン。テストは internal ctor を呼び、TempDir の `settings.json` を指定して実 %APPDATA% を汚さない。
 - **`BackupEnabled = false` で隔離**: OnShown の `OfferRestoreOnStartup` は先頭ガードで no-op になり、実バックアップディレクトリを触らない。
 
-### ミューテーション検証(必須)
+### ミューテーション検証(執筆時セルフチェック・必須)
 
-新しいテスト 1 件ごとに:
+新しいテスト 1 件ごとに、書いた本人が実施する:
 
 1. 実装の 1 行を一時変異(例: `d.MatchCase, d.WholeWord` を swap / `>= 0` を `> 0` / 定数ずらし)
 2. 対象テストが**赤化**するのを目視
 3. 実装を復元し、`git status` で src がクリーンなことを確認
 4. 該当テストが再度緑になることを目視
 
-**Stage 3-8 の全 Task で標準として実施**(生存変異はレビュー時に記録)。実施した変異は Task レビュー時に列挙する。
+**Stage 3-8 の全 Task で標準として実施**した実績のある規律。生存変異(赤化しなかった変異)は commit / PR description に記録する。レビュー工程では最終ブランチレビューのコード品質パスが高価値テストに絞ったスポットチェックで再実施する(CLAUDE.md §3 工程 5・§4)。
 
 ---
 

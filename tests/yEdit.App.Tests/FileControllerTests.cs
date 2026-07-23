@@ -1449,16 +1449,20 @@ public class FileControllerTests
         {
             using var host = new Host();
             using var tmp = new TempDir();
-            string ok = tmp.File("ok.txt");
-            File2.WriteAllText(ok, "OK");
+            string ok1 = tmp.File("ok1.txt");
+            string ok2 = tmp.File("ok2.txt");
+            File2.WriteAllText(ok1, "OK1");
+            File2.WriteAllText(ok2, "OK2");
             string missing = tmp.File("missing.txt");
             var initialEmpty = host.Docs.CreateNew();
 
+            // fixture 順は [ok, missing, ok] — 中央に失敗を置き prefix/suffix 除外を確認(Stage 8 教訓)
             var snap = new LastSessionSnapshot(
                 new List<SessionTabRecord>
                 {
+                    new(ok1, 0, null, false, 0, 0),
                     new(missing, 0, null, false, 0, 0),
-                    new(ok, 0, null, true, 0, 0),
+                    new(ok2, 0, null, true, 0, 0),
                 }
             );
             var failed = host.File.RestoreLastSession(
@@ -1470,7 +1474,7 @@ public class FileControllerTests
             Assert.Single(failed);
             Assert.Equal(missing, failed[0]);
             Assert.DoesNotContain(host.Prompt.Log, e => e.Kind == "Error");
-            Assert.Equal(1, host.Docs.Count);
+            Assert.Equal(2, host.Docs.Count); // ok1 + ok2, initialEmpty は閉じる
         });
 
     [Fact]
@@ -1561,5 +1565,93 @@ public class FileControllerTests
             var doc = host.Docs.Active!;
             Assert.Equal(0, doc.Editor.CurrentLine);
             Assert.Equal(3, doc.Editor.GetColumn(doc.Editor.CurrentPosition));
+        });
+
+    // ===== Task 5 review 追加テスト(fixup): M-6 / M-7 / I-1 =====
+
+    [Fact]
+    public void RestoreLastSession_NoActiveRecord_StillClosesInitialEmpty() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            using var tmp = new TempDir();
+            string p1 = tmp.File("a.txt");
+            File2.WriteAllText(p1, "AAA");
+            var initialEmpty = host.Docs.CreateNew();
+
+            // IsActive=false の 1 タブのみ → openedCount>0 だが activeDoc=null
+            var snap = new LastSessionSnapshot(
+                new List<SessionTabRecord>
+                {
+                    new(p1, 0, null, IsActive: false, CaretLine: 0, CaretColumn: 0),
+                }
+            );
+            var failed = host.File.RestoreLastSession(
+                snap,
+                new Dictionary<string, string>(),
+                initialEmpty
+            );
+
+            Assert.Empty(failed);
+            Assert.Equal(1, host.Docs.Count); // initialEmpty は閉じる=これが規定挙動
+            Assert.Equal(p1, host.Docs.Documents[0].State.Path);
+        });
+
+    [Fact]
+    public void RestoreLastSession_DoesNotPolluteRecentFiles() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            using var tmp = new TempDir();
+            string p1 = tmp.File("x.txt");
+            string p2 = tmp.File("y.txt");
+            File2.WriteAllText(p1, "XX");
+            File2.WriteAllText(p2, "YY");
+            // 前回の RecentFiles 状態を仕込む(復元経路がこれを汚さないことを検証)
+            host.Settings.RecentFiles = new List<string> { @"C:\pre-existing.txt" };
+            var initialEmpty = host.Docs.CreateNew();
+
+            var snap = new LastSessionSnapshot(
+                new List<SessionTabRecord>
+                {
+                    new(p1, 0, null, false, 0, 0),
+                    new(p2, 0, null, true, 0, 0),
+                }
+            );
+            host.File.RestoreLastSession(snap, new Dictionary<string, string>(), initialEmpty);
+
+            Assert.Single(host.Settings.RecentFiles);
+            Assert.Equal(@"C:\pre-existing.txt", host.Settings.RecentFiles[0]);
+        });
+
+    [Fact]
+    public void RestoreLastSession_PathWithEmbeddedNull_OneBadRecord_DoesNotBreakOthers() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            using var tmp = new TempDir();
+            string ok = tmp.File("ok.txt");
+            File2.WriteAllText(ok, "OK");
+            string bad = "\0/bad-path.txt"; // File.OpenRead が ArgumentException を投げる形
+
+            var initialEmpty = host.Docs.CreateNew();
+
+            var snap = new LastSessionSnapshot(
+                new List<SessionTabRecord>
+                {
+                    new(bad, 0, null, false, 0, 0),
+                    new(ok, 0, null, true, 0, 0),
+                }
+            );
+            var failed = host.File.RestoreLastSession(
+                snap,
+                new Dictionary<string, string>(),
+                initialEmpty
+            );
+
+            // 悪いレコードは failedPaths に載り、次のレコードは通常復元される
+            Assert.Contains(bad, failed);
+            Assert.Equal(1, host.Docs.Count); // ok のみ・initialEmpty 閉じる
+            Assert.Equal(ok, host.Docs.Active!.State.Path);
         });
 }

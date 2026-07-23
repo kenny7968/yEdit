@@ -31,6 +31,10 @@ public sealed class FileController
     // 復元経路以外(開く/最近/grep/開き直し)からは触れない=これらは既存の per-file ダイアログを維持する。
     private bool _suppressLoadErrorPrompt;
 
+    // Task 5 review I-2: 復元経路(RestoreLastSession)で RegisterRecent を抑止するための seam。
+    // 復元は「ユーザーが開いた」相当ではないため RecentFiles を汚さない=起動前の順序を保つ。
+    private bool _suppressRegisterRecent;
+
     public FileController(
         DocumentManager docs,
         IWin32Window owner,
@@ -104,7 +108,24 @@ public sealed class FileController
 
         var prev = _docs.Active; // 読込失敗時に戻る先（直前のアクティブタブ）
         var doc = _docs.CreateNew();
-        if (LoadInto(doc, path, forcedCodePage: null))
+        // Task 5 review I-1: LoadInto は catch フィルタ外の例外(NullReference 等のロジックバグや
+        // ArgumentException 追加前の残差)で throw しうる。半端に生きた doc が残ると
+        // 「作りかけタブが閉じない=次の RestoreLastSession が initialEmpty を閉じられない」等の
+        // 二次汚染につながるため、例外時も破棄→prev 復帰の後始末を保証する(挙動不変=成功/失敗
+        // 経路は従来どおり)。
+        bool loaded;
+        try
+        {
+            loaded = LoadInto(doc, path, forcedCodePage: null);
+        }
+        catch
+        {
+            _docs.TryClose(doc, _ => true);
+            if (prev is not null)
+                _docs.Activate(prev);
+            throw;
+        }
+        if (loaded)
         {
             // 開く系（開く/最近）のみ .csv 自動モードの対象。grep ジャンプは選択＋エディタフォーカスを
             // 機能させるため suppressAutoCsv=true で抑止する（設計 2026-07-04）。
@@ -192,15 +213,21 @@ public sealed class FileController
                     "文字コードの警告"
                 );
             }
-            RegisterRecent(path); // 開けたファイルを最近のファイルへ
+            // Task 5 review I-2: 復元経路(RestoreLastSession)では「ユーザーが開いた」相当ではないため
+            // RecentFiles を汚さない=起動前の順序を保つ。通常経路(開く/最近/開き直し)は従来どおり登録。
+            if (!_suppressRegisterRecent)
+                RegisterRecent(path); // 開けたファイルを最近のファイルへ
             return true;
         }
+        // Task 5 review I-1: ArgumentException を握る=悪意/破損した settings.json 由来の path
+        // (null 文字入り・無効文字)で File.OpenRead が投げるのを吸収し、復元経路の全体 abort を防ぐ。
         catch (Exception ex)
             when (ex
                     is System.IO.IOException
                         or UnauthorizedAccessException
                         or System.Security.SecurityException
                         or NotSupportedException
+                        or ArgumentException
                         or DocumentTooLargeException
             )
         {
@@ -523,37 +550,58 @@ public sealed class FileController
         {
             foreach (var rec in snap.Tabs)
             {
-                if (rec.Path is not null)
+                // Task 5 review I-1: per-record try/catch で「一つの悪いレコードが他を壊さない」
+                // 不変を守る。LoadInto の catch フィルタで拾いきれない残差例外(未想定 I/O 系や
+                // 内部ロジックバグ)を per-record で吸収し、次のレコードへ進む。
+                try
                 {
-                    var doc = TryOpenOrActivate(rec.Path);
-                    if (doc is null)
+                    if (rec.Path is not null)
                     {
-                        failedPaths.Add(rec.Path);
-                        continue;
+                        // Task 5 review M-3: CSV 自動モードは通常起動と同経路で発火する
+                        // (rec.CsvMode を持たない=前回モードの再現は非対象)。設計 §3.4/§0 非対象。
+                        var doc = TryOpenOrActivate(rec.Path);
+                        if (doc is null)
+                        {
+                            failedPaths.Add(rec.Path);
+                            continue;
+                        }
+                        doc.Editor.SetCaretByLineColumn(rec.CaretLine, rec.CaretColumn);
+                        openedCount++;
+                        if (rec.IsActive)
+                            activeDoc = doc;
                     }
-                    doc.Editor.SetCaretByLineColumn(rec.CaretLine, rec.CaretColumn);
-                    openedCount++;
-                    if (rec.IsActive)
-                        activeDoc = doc;
+                    else
+                    {
+                        // 無題タブ: BufferKey 未指定 or store から欠落 → skip(空タブを追加しない)
+                        if (
+                            rec.BufferKey is null
+                            || !buffers.TryGetValue(rec.BufferKey, out var content)
+                        )
+                            continue;
+                        var doc = RestoreUntitledTab(rec, content);
+                        openedCount++;
+                        if (rec.IsActive)
+                            activeDoc = doc;
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    // 無題タブ: BufferKey 未指定 or store から欠落 → skip(空タブを追加しない)
-                    if (
-                        rec.BufferKey is null
-                        || !buffers.TryGetValue(rec.BufferKey, out var content)
-                    )
-                        continue;
-                    var doc = RestoreUntitledTab(rec, content);
-                    openedCount++;
-                    if (rec.IsActive)
-                        activeDoc = doc;
+                    // 「一つの悪いレコードが他を壊さない」不変を守る=想定外例外は per-record で吸収し
+                    // 次のレコードへ進む。パスありレコードは failedPaths に加えて MainForm の集約 Warn に載せる。
+                    // (Task 5 review I-1)
+                    if (rec.Path is not null)
+                        failedPaths.Add(rec.Path);
+                    System.Diagnostics.Trace.TraceWarning(
+                        "yEdit: restore-record-failed: {0}",
+                        yEdit.Core.Text.SanitizeForDisplay.OneLine(ex.Message, 200)
+                    );
                 }
             }
         });
 
         if (activeDoc is not null)
             _docs.Activate(activeDoc);
+        // Task 5 review M-2: initialEmpty は ctor で作った空無題タブ・OnShown までに触られない前提=Modified=false 保証。
         if (openedCount > 0 && initialEmpty is not null)
             _docs.TryClose(initialEmpty, _ => true); // 空無題タブは無条件破棄
         _metaChanged();
@@ -568,6 +616,8 @@ public sealed class FileController
         doc.State.UntitledNumber = rec.UntitledNumber > 0 ? rec.UntitledNumber : ++_untitledSeq;
         if (rec.UntitledNumber > _untitledSeq)
             _untitledSeq = rec.UntitledNumber; // 以後の新規無題と衝突しないよう連番を追従
+        // Task 5 review M-4: 無題の encoding/EOL は現行既定を適用(前回終了時の値は SessionTabRecord に持たない=YAGNI)。
+        // 設計 §0 非対象。
         doc.State.Encoding = EncodingCatalog.Get(s.DefaultCodePage);
         doc.State.HasBom = false;
         doc.State.LineEnding = (LineEnding)s.DefaultLineEnding;
@@ -581,21 +631,27 @@ public sealed class FileController
     }
 
     /// <summary>
-    /// action の実行中だけ LoadInto と TryProbeReachability の catch 内 _prompt.Error を抑止する。
-    /// Task 5 で追加する RestoreLastSession が失敗パスを集約通知するために使う seam。
-    /// finally で必ず復元し、nested 呼び出しでも安全(prev の保存 → 復元)。
+    /// action の実行中は復元経路専用の抑止フラグをまとめて ON にする:
+    /// (a) LoadInto/TryProbeReachability の catch 内 _prompt.Error を抑止(失敗パスを集約通知するため)
+    /// (b) LoadInto の RegisterRecent を抑止(復元は「ユーザーが開いた」相当でないため RecentFiles を汚さない)
+    /// Task 5 で名前は変えずスコープを (a)+(b) に拡張(既存 seam の呼び出し側=Task 4 テストも
+    /// (b) の抑止動作を暗黙に受けるが、テスト対象の path はダミー=RecentFiles 検証していないため無害)。
+    /// finally で必ず復元し、nested 呼び出しでも安全。
     /// </summary>
     public void WithLoadErrorPromptSuppressed(Action action)
     {
-        bool prev = _suppressLoadErrorPrompt;
+        bool prevPrompt = _suppressLoadErrorPrompt;
+        bool prevRecent = _suppressRegisterRecent;
         _suppressLoadErrorPrompt = true;
+        _suppressRegisterRecent = true;
         try
         {
             action();
         }
         finally
         {
-            _suppressLoadErrorPrompt = prev;
+            _suppressLoadErrorPrompt = prevPrompt;
+            _suppressRegisterRecent = prevRecent;
         }
     }
 

@@ -530,6 +530,178 @@ public class BackupStoreTests
         );
     }
 
+    // -------------------------------------------------------------------------
+    // 統合セッション復元 §3.4: TryMoveToSessionDir(adopt-move)
+    // -------------------------------------------------------------------------
+    // BK-M-2 の session-dir 構成下では、復元で消費したバックアップの元ファイルが旧 session-*
+    // dir に残り続け、30 日 sweep まで再提案され続ける(統合復元では起動ごとにタブが silent
+    // 複製される)潜在バグがあった。TryMoveToSessionDir は消費済みバックアップを現セッションの
+    // session dir へ「引き取る」(adopt-move)ことで、M5 の「同一ファイル継続使用」不変条件を回復する。
+
+    [Fact]
+    public void TryMoveToSessionDir_MovesFlatFile_IntoTargetSessionDir()
+    {
+        using var t = new TempDir();
+        // v0.3.0-sec 由来の flat 配置(baseDir 直下)からの引き取り(後方互換)。
+        BackupStore.Write(t.Root, Rec("adopt-flat", @"C:\docs\a.txt", "flat-content 😀"));
+        string id = HashId("adopt-flat");
+        string src = Path.Combine(t.Root, id + ".json");
+        string originalJson = File.ReadAllText(src);
+        string target = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(target);
+
+        bool moved = BackupStore.TryMoveToSessionDir(t.Root, id, target);
+
+        Assert.True(moved);
+        Assert.False(File.Exists(src)); // 元(flat)は消える=再提案されない
+        string dest = Path.Combine(target, id + ".json");
+        Assert.True(File.Exists(dest));
+        Assert.Equal(originalJson, File.ReadAllText(dest)); // JSON 内容は不変(move=コピーでない)
+    }
+
+    [Fact]
+    public void TryMoveToSessionDir_MovesFromOtherSessionDir_AndDeletesEmptiedSourceDir()
+    {
+        using var t = new TempDir();
+        // 前回セッションの session-* dir からの引き取り(統合復元の主経路)。
+        string source = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(source);
+        BackupStore.Write(source, Rec("adopt-session", null, "session-content"));
+        string id = HashId("adopt-session");
+        string target = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(target);
+
+        bool moved = BackupStore.TryMoveToSessionDir(t.Root, id, target);
+
+        Assert.True(moved);
+        Assert.True(File.Exists(Path.Combine(target, id + ".json")));
+        // 空になった元 session dir は掃除される(孤児 dir を 30 日 sweep まで残さない)。
+        Assert.False(Directory.Exists(source));
+    }
+
+    [Fact]
+    public void TryMoveToSessionDir_KeepsSourceDir_WhenOtherFilesRemain()
+    {
+        using var t = new TempDir();
+        // 元 session dir に別 id のバックアップが残る場合、dir 自体は消さない(他レコードを守る)。
+        string source = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(source);
+        BackupStore.Write(source, Rec("adopt-one", null, "moved"));
+        BackupStore.Write(source, Rec("stay-behind", null, "stays"));
+        string target = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(target);
+
+        bool moved = BackupStore.TryMoveToSessionDir(t.Root, HashId("adopt-one"), target);
+
+        Assert.True(moved);
+        Assert.True(Directory.Exists(source)); // 残レコードあり=dir は残す
+        Assert.True(File.Exists(Path.Combine(source, HashId("stay-behind") + ".json")));
+    }
+
+    [Fact]
+    public void TryMoveToSessionDir_ReturnsTrue_AndDeletesStaleDuplicates_WhenAlreadyAtTarget()
+    {
+        using var t = new TempDir();
+        // 自 dir に既に存在(=現セッションが継続使用中)なら true。別 dir の同 id 複製は
+        // stale として掃除し、自 dir 管理下に統一する(target 側は上書きしない)。
+        string target = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(target);
+        BackupStore.Write(target, Rec("adopt-dup", null, "current-content"));
+        string id = HashId("adopt-dup");
+        string targetJson = File.ReadAllText(Path.Combine(target, id + ".json"));
+        // flat と別 session dir に stale 複製を植える。
+        File.WriteAllText(Path.Combine(t.Root, id + ".json"), "stale-flat");
+        string other = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(other);
+        File.WriteAllText(Path.Combine(other, id + ".json"), "stale-session");
+
+        bool result = BackupStore.TryMoveToSessionDir(t.Root, id, target);
+
+        Assert.True(result);
+        Assert.False(File.Exists(Path.Combine(t.Root, id + ".json"))); // flat 複製=削除
+        Assert.False(Directory.Exists(other)); // 空になった stale session dir も掃除
+        // target 側は無傷(stale で上書きされない)。
+        Assert.Equal(targetJson, File.ReadAllText(Path.Combine(target, id + ".json")));
+    }
+
+    [Fact]
+    public void TryMoveToSessionDir_ReturnsTrue_WhenOnlyAtTarget()
+    {
+        using var t = new TempDir();
+        // 既に自 dir 管理下にあり他に複製が無い場合も true(冪等 adopt=呼び直しても無害)。
+        string target = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(target);
+        BackupStore.Write(target, Rec("adopt-idempotent", null, "content"));
+        string id = HashId("adopt-idempotent");
+
+        Assert.True(BackupStore.TryMoveToSessionDir(t.Root, id, target));
+        Assert.True(File.Exists(Path.Combine(target, id + ".json"))); // そのまま残る
+    }
+
+    [Fact]
+    public void TryMoveToSessionDir_ReturnsFalse_WhenFoundNowhere()
+    {
+        using var t = new TempDir();
+        // 妥当な GUID N だがどこにも無い=false(呼び出し側は trace のみで復元続行する契約)。
+        string target = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(target);
+
+        Assert.False(BackupStore.TryMoveToSessionDir(t.Root, Guid.NewGuid().ToString("N"), target));
+    }
+
+    [Theory]
+    [InlineData(@"..\evil")] // パストラバーサル
+    [InlineData("ABCDEF0123456789ABCDEF0123456789")] // 大文字 hex(BK-L-8: lowercase 強制)
+    public void TryMoveToSessionDir_ThrowsArgumentException_ForInvalidId(string invalidId)
+    {
+        using var t = new TempDir();
+        // HIGH-1 対称: Write/Delete と同じ白リストを adopt-move にも適用する。validation は
+        // 一切の FS アクセスの前段で発火する=副作用ゼロを invariant として lock in する。
+        BackupStore.Write(t.Root, Rec("seed", null, "seed"));
+        var before = Directory.GetFiles(t.Root, "*.json");
+        string target = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            BackupStore.TryMoveToSessionDir(t.Root, invalidId, target)
+        );
+
+        Assert.Equal("id", ex.ParamName);
+        Assert.False(Directory.Exists(target)); // target dir すら作られない
+        Assert.Equal(before, Directory.GetFiles(t.Root, "*.json")); // 既存ファイル無傷
+    }
+
+    [Fact]
+    public void TryMoveToSessionDir_ReturnsFalse_WhenBaseDirMissing()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            "yedit_bak_missing_" + Guid.NewGuid().ToString("N")
+        );
+        string target = Path.Combine(missing, "session-" + Guid.NewGuid().ToString("N"));
+
+        Assert.False(
+            BackupStore.TryMoveToSessionDir(missing, Guid.NewGuid().ToString("N"), target)
+        );
+        Assert.False(Directory.Exists(target)); // 見つからない場合は target も作らない
+    }
+
+    [Fact]
+    public void TryMoveToSessionDir_CreatesTargetSessionDir_WhenMissing()
+    {
+        using var t = new TempDir();
+        // 移動先 session dir が未作成(初回書込前の現セッション)でも move が作成する。
+        BackupStore.Write(t.Root, Rec("adopt-create", null, "content"));
+        string id = HashId("adopt-create");
+        string target = Path.Combine(t.Root, "session-" + Guid.NewGuid().ToString("N"));
+        Assert.False(Directory.Exists(target)); // 前提: 未作成
+
+        bool moved = BackupStore.TryMoveToSessionDir(t.Root, id, target);
+
+        Assert.True(moved);
+        Assert.True(Directory.Exists(target));
+        Assert.True(File.Exists(Path.Combine(target, id + ".json")));
+    }
+
     [Fact]
     public void Write_AllowsCanonicalGuidN()
     {

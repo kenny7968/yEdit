@@ -1,4 +1,5 @@
 using System.Text.Json;
+using yEdit.Core.Session;
 using yEdit.Core.Text;
 
 namespace yEdit.Core.Settings;
@@ -75,7 +76,47 @@ public static class SettingsStore
         if (s.CaretWidth is < 1 or > 5)
             s.CaretWidth = def.CaretWidth;
         s.WrapColumn = WrapGeometry.ClampColumns(s.WrapColumn); // 範囲外/破損値を 10〜1000 へ
+        NormalizeLastSession(s);
         return s;
+    }
+
+    /// <summary>
+    /// LastSession の防御的補正。
+    /// - Tabs が null → 空リスト
+    /// - Path が IsNullOrWhiteSpace → その SessionTabRecord を skip(復元経路で空タブ追加を避ける)
+    /// - UntitledNumber&lt;0 / CaretLine&lt;0 / CaretColumn&lt;0 → 0 に clamp
+    /// - CodePage&lt;0 / LineEnding&lt;0 → 0 に clamp(§8 追加フィールド; 0=未指定として復元側で fallback)
+    /// 設計書 §2.3 / §8。
+    /// </summary>
+    private static void NormalizeLastSession(AppSettings s)
+    {
+        if (s.LastSession is null)
+            return;
+        if (s.LastSession.Tabs is null)
+        {
+            s.LastSession = new LastSessionSnapshot(new List<SessionTabRecord>());
+            return;
+        }
+        var cleaned = new List<SessionTabRecord>(s.LastSession.Tabs.Count);
+        foreach (var t in s.LastSession.Tabs)
+        {
+            if (t is null)
+                continue; // I-3: 攻撃/破損 JSON 由来の null 要素で NRE→全設定既定リセットを防ぐ
+            // Path があるが空白のみ=不完全レコード → skip
+            if (t.Path is not null && string.IsNullOrWhiteSpace(t.Path))
+                continue;
+            cleaned.Add(
+                t with
+                {
+                    UntitledNumber = Math.Max(0, t.UntitledNumber),
+                    CaretLine = Math.Max(0, t.CaretLine),
+                    CaretColumn = Math.Max(0, t.CaretColumn),
+                    CodePage = Math.Max(0, t.CodePage),
+                    LineEnding = Math.Max(0, t.LineEnding),
+                }
+            );
+        }
+        s.LastSession = new LastSessionSnapshot(cleaned);
     }
 
     private static bool IsSelectableCodePage(int codePage)

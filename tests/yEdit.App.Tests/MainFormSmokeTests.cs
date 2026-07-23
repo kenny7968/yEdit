@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.IO;
+using yEdit.Core.Session;
 using yEdit.Core.Settings;
 using Directory = System.IO.Directory;
 using File2 = System.IO.File;
@@ -64,6 +66,69 @@ public class MainFormSmokeTests
         form.Location = new System.Drawing.Point(-32000, -32000);
         form.ShowInTaskbar = false;
         form.Show();
+        return form;
+    }
+
+    /// <summary>
+    /// OnShown は <see cref="Control.BeginInvoke(Delegate)"/> でキューされるため、
+    /// <see cref="Sta"/> の non-pumping STA スレッドでは Show() 単独では走らない。
+    /// Task 7 テストは OnShown を明示的に動かす必要があるため
+    /// <see cref="Application.DoEvents"/> でメッセージを 1 サイクルだけ処理する。
+    /// </summary>
+    private static void PumpUntilShown()
+    {
+        // Application.DoEvents を数回回して、CallShownEvent(BeginInvoke)+続く再入 (OnActivated 内の
+        // BeginInvoke など) をすべて処理する。回数は安全側の 4 サイクル(実測 1〜2 で足りる)。
+        for (int i = 0; i < 4; i++)
+        {
+            Application.DoEvents();
+        }
+    }
+
+    /// <summary>
+    /// Task 7: OnShown で <see cref="BackupCoordinator.OfferRestoreOnStartup"/> の戻り値を
+    /// 差し替えて「バックアップ復元が発火した」分岐を kill するための helper。
+    /// override 未 null=前回タブ復元は必ず skip される(restored != 0)。
+    /// </summary>
+    private static MainForm ShowMainForm_WithBackupCountOverride(
+        AppSettings settings,
+        string settingsPath,
+        int restoredOverride
+    )
+    {
+        var form = new MainForm(settings, settingsPath);
+        form.SetRestoredCountOverrideForTest(restoredOverride);
+        form.StartPosition = FormStartPosition.Manual;
+        form.Location = new System.Drawing.Point(-32000, -32000);
+        form.ShowInTaskbar = false;
+        form.Show();
+        PumpUntilShown();
+        return form;
+    }
+
+    /// <summary>
+    /// Task 7: OnShown の前回タブ復元経路を、実 %APPDATA%\yEdit\last-session-buffers.json を
+    /// 触らずに検証するための helper。SetLastSessionBuffersPathForTest は Show() より前に
+    /// 呼ばないと OnShown 内の Load/Delete が既定パスへ落ちるため、ここで統合的に組み立てる。
+    /// suppressFailedDialog=true で FailedPaths が非空でも Warn ダイアログを出さない
+    /// (テスト内で MessageBox がブロックするのを回避)。
+    /// </summary>
+    private static MainForm ShowMainForm_ForRestoreOnShown(
+        AppSettings settings,
+        string settingsPath,
+        string buffersPath,
+        bool suppressFailedDialog = false
+    )
+    {
+        var form = new MainForm(settings, settingsPath);
+        form.SetLastSessionBuffersPathForTest(buffersPath);
+        if (suppressFailedDialog)
+            form.SetSuppressFailedRestoreDialogForTest(true);
+        form.StartPosition = FormStartPosition.Manual;
+        form.Location = new System.Drawing.Point(-32000, -32000);
+        form.ShowInTaskbar = false;
+        form.Show();
+        PumpUntilShown();
         return form;
     }
 
@@ -147,6 +212,470 @@ public class MainFormSmokeTests
             Assert.Equal(path, doc.State.Path);
             // SelectCharRange(2, 3): start=2 / end=2+3=5(EditorControl:323-324 のエイリアス経由)
             Assert.Equal((2, 5), doc.Editor.GetSelectionCharRange());
+        });
+
+    // ===== Task 6: OnFormClosing での LastSession/buffers 保存 =====
+
+    [Fact]
+    public void OnFormClosing_RestoreEnabled_SavesLastSessionAndBuffers() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            string txt = tmp.File("a.txt");
+            File2.WriteAllText(txt, "hello");
+            string buffersPath = Path.Combine(tmp.Root, "last-session-buffers.json");
+
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using (var form = ShowMainForm(settings, tmp.SettingsPath))
+            {
+                form.SetLastSessionBuffersPathForTest(buffersPath);
+                form.FileForTest.TryOpenOrActivate(txt);
+                form.Close();
+            }
+
+            var loaded = SettingsStore.Load(tmp.SettingsPath);
+            Assert.True(loaded.RestoreOpenFilesOnStartup);
+            Assert.NotNull(loaded.LastSession);
+            Assert.Contains(loaded.LastSession!.Tabs, t => t.Path == txt);
+            // Task 6 review I-3: Save 呼び出しが本当に発火したことを検証(Save をコメントアウトすると赤化)
+            Assert.True(File2.Exists(buffersPath));
+        });
+
+    [Fact]
+    public void OnFormClosing_UntitledTabWithContent_PersistsToBuffersFile() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            string buffersPath = Path.Combine(tmp.Root, "last-session-buffers.json");
+
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using (var form = ShowMainForm(settings, tmp.SettingsPath))
+            {
+                form.SetLastSessionBuffersPathForTest(buffersPath);
+                // 起動時の空無題タブに本文を入れる。
+                // SetSavePoint で Modified=false に戻す(現行 OnFormClosing は dirty untitled でも
+                // ConfirmDiscardIfDirty を投げるため=Task 13 の silent close 導入で撤去予定)
+                var doc = form.FileForTest.DocsForTest[0];
+                doc.Editor.SetOrReplaceSource(
+                    yEdit.Core.Buffers.TextBuffer.FromString("session-hello")
+                );
+                doc.Editor.SetSavePoint();
+                form.Close();
+            }
+
+            // buffers.json に何か 1 件書かれているはず
+            var buffers = yEdit.Core.Session.LastSessionBuffersStore.Load(buffersPath);
+            Assert.Single(buffers);
+            Assert.Contains("session-hello", buffers.Values);
+            // 対応する SessionTabRecord は Path=null で BufferKey が buffers のキーと一致
+            var reloaded = SettingsStore.Load(tmp.SettingsPath);
+            Assert.NotNull(reloaded.LastSession);
+            var untitled = reloaded.LastSession!.Tabs.First(t => t.Path is null);
+            Assert.NotNull(untitled.BufferKey);
+            Assert.True(buffers.ContainsKey(untitled.BufferKey!));
+        });
+
+    // §8 補遺 Task 12: dirty パスありタブは本文+エンコーディング/EOL/WasModified を保存する。
+    // (以前の "dirty untitled skip" テスト=Task 6 review I-1 は §8.2 で全 dirty 保存へ方針転換したため削除)
+    [Fact]
+    public void BuildLastSessionSnapshot_IncludesDirtyPathTab_WithBufferAndEncoding() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            string txt = tmp.File("a.txt");
+            File2.WriteAllText(txt, "original");
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            form.FileForTest.TryOpenOrActivate(txt);
+            var doc = form.FileForTest.DocsForTest[^1];
+            // dirty 化: 末尾に " +edited" を挿入する(EditorControl に AppendText は無いため
+            // ReplaceCharRange で純挿入=start=TextLength, length=0, replacement=文字列)。
+            doc.Editor.ReplaceCharRange(doc.Editor.TextLength, 0, " +edited");
+            Assert.True(doc.Editor.Modified);
+
+            var (snap, buffers) = form.BuildLastSessionSnapshotForTest();
+            var rec = snap.Tabs.Single(t => t.Path == txt);
+            Assert.NotNull(rec.BufferKey);
+            Assert.True(buffers.ContainsKey(rec.BufferKey!));
+            Assert.Contains("+edited", buffers[rec.BufferKey!]);
+            Assert.Equal(doc.State.Encoding.CodePage, rec.CodePage); // §8.2
+            Assert.Equal(doc.State.HasBom, rec.HasBom);
+            Assert.Equal((int)doc.State.LineEnding, rec.LineEnding);
+            Assert.True(rec.WasModified);
+        });
+
+    // §8 補遺 Task 12: dirty 無題タブは(以前は skip されていたが)本文を保存する。
+    [Fact]
+    public void BuildLastSessionSnapshot_IncludesDirtyUntitledTab_WithBuffer() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            // ctor で作られた空無題タブに dirty 内容を入れる(ReplaceCharRange で純挿入)。
+            var doc = form.FileForTest.DocsForTest[0];
+            doc.Editor.ReplaceCharRange(0, 0, "dirty content");
+            Assert.True(doc.Editor.Modified);
+            Assert.Null(doc.State.Path);
+
+            var (snap, buffers) = form.BuildLastSessionSnapshotForTest();
+            var rec = snap.Tabs.Single(t => t.Path is null);
+            Assert.NotNull(rec.BufferKey);
+            Assert.Equal("dirty content", buffers[rec.BufferKey!]);
+            Assert.True(rec.WasModified); // §8.2
+            Assert.Equal(0, rec.CodePage); // §8.2: untitled は Encoding.CodePage を保存しない
+            Assert.False(rec.HasBom); // §8.2: 同上・BOM は保存しない
+            Assert.Equal((int)doc.State.LineEnding, rec.LineEnding); // §8.2: LineEnding は無題でも記録
+        });
+
+    // §8 補遺 Task 12: WillDirtyContentFitInCaps は per-tab cap 超過を dry-run で捉える。
+    // (Task 13 の OnFormClosing 高速経路判定用の pre-check ヘルパ)
+    [Fact]
+    public void WillDirtyContentFitInCaps_ReturnsFalse_WhenSingleTabExceedsPerTabCap() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            var doc = form.FileForTest.DocsForTest[0];
+            // 1 M + 1 chars を純挿入=MaxSessionUntitledContentChars (1M) 超過。
+            doc.Editor.ReplaceCharRange(0, 0, new string('x', 1024 * 1024 + 1));
+            Assert.False(form.WillDirtyContentFitInCapsForTest());
+        });
+
+    [Fact]
+    public void BuildLastSessionSnapshot_UntitledOverPerTabCap_BufferKeyIsNull() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            var doc = form.FileForTest.DocsForTest[0];
+            // 1 M + 1 chars = per-tab cap 超過
+            int over = 1024 * 1024 + 1;
+            doc.Editor.SetOrReplaceSource(
+                yEdit.Core.Buffers.TextBuffer.FromString(new string('x', over))
+            );
+
+            var (snap, buffers) = form.BuildLastSessionSnapshotForTest();
+
+            // 1 タブ分の record は含まれるが BufferKey=null(枠だけ保存)
+            Assert.Single(snap.Tabs);
+            Assert.Null(snap.Tabs[0].BufferKey);
+            Assert.Empty(buffers);
+        });
+
+    [Fact]
+    public void OnFormClosing_RestoreDisabled_ClearsLastSessionAndDeletesBuffers() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            string buffersPath = Path.Combine(tmp.Root, "last-session-buffers.json");
+            // 事前に buffers.json 残骸を作っておく → 設定 OFF で消えるはず
+            File2.WriteAllText(buffersPath, "{\"k\":\"stale\"}");
+
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = false;
+            settings.LastSession = new LastSessionSnapshot(
+                new List<SessionTabRecord> { new(@"C:\stale.txt", 0, null, true, 0, 0) }
+            );
+
+            using (var form = ShowMainForm(settings, tmp.SettingsPath))
+            {
+                form.SetLastSessionBuffersPathForTest(buffersPath);
+                form.Close();
+            }
+
+            var loaded = SettingsStore.Load(tmp.SettingsPath);
+            Assert.False(loaded.RestoreOpenFilesOnStartup);
+            Assert.Null(loaded.LastSession);
+            Assert.False(File2.Exists(buffersPath));
+        });
+
+    // ===== Task 7: OnShown での前回タブ復元経路 =====
+
+    [Fact]
+    public void OnShown_RestoreEnabled_NoBackup_RestoresPreviousTabs() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            string p1 = tmp.File("a.txt");
+            File2.WriteAllText(p1, "AAA");
+            string buffersPath = Path.Combine(tmp.Root, "last-session-buffers.json");
+
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+            settings.LastSession = new LastSessionSnapshot(
+                new List<SessionTabRecord> { new(p1, 0, null, true, 0, 0) }
+            );
+
+            using var form = ShowMainForm_ForRestoreOnShown(
+                settings,
+                tmp.SettingsPath,
+                buffersPath
+            );
+            // 復元経路発火 → a.txt が開いている・空無題タブは閉じられている
+            Assert.Contains(form.FileForTest.DocsForTest, d => d.State.Path == p1);
+            Assert.Single(form.FileForTest.DocsForTest);
+        });
+
+    [Fact]
+    public void OnShown_RestoreEnabled_BackupPresent_SkipsRestore() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            string p1 = tmp.File("a.txt");
+            File2.WriteAllText(p1, "AAA");
+
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+            settings.LastSession = new LastSessionSnapshot(
+                new List<SessionTabRecord> { new(p1, 0, null, true, 0, 0) }
+            );
+
+            using var form = ShowMainForm_WithBackupCountOverride(
+                settings,
+                tmp.SettingsPath,
+                restoredOverride: 3
+            );
+            // restored=3 → 前回タブ復元スキップ・a.txt は開かない
+            Assert.DoesNotContain(form.FileForTest.DocsForTest, d => d.State.Path == p1);
+        });
+
+    [Fact]
+    public void OnShown_RestoreDisabled_DoesNotRestore() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            string p1 = tmp.File("a.txt");
+            File2.WriteAllText(p1, "AAA");
+            string buffersPath = Path.Combine(tmp.Root, "last-session-buffers.json");
+
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = false; // OFF
+            settings.LastSession = new LastSessionSnapshot(
+                new List<SessionTabRecord> { new(p1, 0, null, true, 0, 0) }
+            );
+
+            // ShowMainForm_ForRestoreOnShown は Application.DoEvents で OnShown を発火させる=
+            // 「復元経路の gate 判定」が実際に評価される(Task 7 review: 純 ShowMainForm では
+            // vacuous になり RestoreOpenFilesOnStartup gate を mutation 検証できない)。
+            using var form = ShowMainForm_ForRestoreOnShown(
+                settings,
+                tmp.SettingsPath,
+                buffersPath
+            );
+            Assert.DoesNotContain(form.FileForTest.DocsForTest, d => d.State.Path == p1);
+        });
+
+    [Fact]
+    public void OnShown_RestoreEnabled_MissingFile_KeepsStartupEmpty() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            string missing = tmp.File("no-such.txt");
+            string buffersPath = Path.Combine(tmp.Root, "last-session-buffers.json");
+
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+            settings.LastSession = new LastSessionSnapshot(
+                new List<SessionTabRecord> { new(missing, 0, null, true, 0, 0) }
+            );
+
+            using var form = ShowMainForm_ForRestoreOnShown(
+                settings,
+                tmp.SettingsPath,
+                buffersPath,
+                suppressFailedDialog: true
+            );
+            // ファイルが無い→ FailedPaths に載る・startup empty がそのまま残る=通常起動と等価
+            Assert.Single(form.FileForTest.DocsForTest);
+        });
+
+    // ===== Task 13: OnFormClosing の silent close / fall-through / 従来経路 =====
+
+    // Test 1: 設定 ON + dirty が cap 内 → silent close(ConfirmDiscardIfDirty ループを skip)
+    [Fact]
+    public void OnFormClosing_RestoreEnabled_DirtyFits_SilentClose_NoConfirmDialog() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            form.SetLastSessionBuffersPathForTest(Path.Combine(tmp.Root, "buffers.json"));
+
+            // 起動時空無題タブに dirty 内容を入れる(1M chars 未満=cap 内)
+            var doc = form.FileForTest.DocsForTest[0];
+            doc.Editor.ReplaceCharRange(0, 0, "dirty small content");
+            Assert.True(doc.Editor.Modified); // pre-condition: dirty タブがあることを固定
+
+            int overrideCalls = 0;
+            form.SetConfirmDiscardOverrideForTest(_ =>
+            {
+                overrideCalls++;
+                return true;
+            });
+
+            form.Close();
+
+            Assert.Equal(true, form.LastCloseTookSilentPathForTest);
+            Assert.Equal(0, overrideCalls); // silent path=ConfirmDiscardIfDirty 呼ばれない
+        });
+
+    // Test 2: 設定 ON + dirty が per-tab cap 超過 → fall-through(override が呼ばれる)
+    [Fact]
+    public void OnFormClosing_RestoreEnabled_DirtyExceedsCap_FallsBackToConfirm() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            form.SetLastSessionBuffersPathForTest(Path.Combine(tmp.Root, "buffers.json"));
+
+            var doc = form.FileForTest.DocsForTest[0];
+            doc.Editor.ReplaceCharRange(0, 0, new string('x', 1024 * 1024 + 1)); // cap 超過
+
+            int overrideCalls = 0;
+            form.SetConfirmDiscardOverrideForTest(_ =>
+            {
+                overrideCalls++;
+                return true;
+            }); // 破棄で閉じる
+
+            form.Close();
+
+            Assert.Equal(false, form.LastCloseTookSilentPathForTest);
+            Assert.Equal(1, overrideCalls); // fall-through=override 1 回呼ばれる(dirty タブ 1 個)
+        });
+
+    // Test 3: 設定 OFF → 従来経路(dirty タブに ConfirmDiscardIfDirty が発火)
+    [Fact]
+    public void OnFormClosing_RestoreDisabled_DirtyPromptsAsBefore() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = false; // OFF = 従来経路
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            // §8 補遺 I-1: 設定 OFF 経路は OnFormClosing で DeleteLastSessionBuffersSafe を呼ぶ=
+            // seam を張らないと実 %APPDATA%\yEdit\last-session-buffers.json を消しに行く。
+            form.SetLastSessionBuffersPathForTest(Path.Combine(tmp.Root, "buffers.json"));
+
+            var doc = form.FileForTest.DocsForTest[0];
+            doc.Editor.ReplaceCharRange(0, 0, "dirty");
+
+            int overrideCalls = 0;
+            form.SetConfirmDiscardOverrideForTest(_ =>
+            {
+                overrideCalls++;
+                return true;
+            });
+
+            form.Close();
+
+            Assert.Equal(false, form.LastCloseTookSilentPathForTest);
+            Assert.Equal(1, overrideCalls);
+        });
+
+    // Test 3b (I-1): 設定 OFF + ユーザーキャンセル → e.Cancel=true で閉じない(cancel-path mutation kill)
+    [Fact]
+    public void OnFormClosing_RestoreDisabled_UserCancels_AbortsClose() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = false; // OFF = 従来経路(dialog fires)
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            // §8 補遺 I-1 (preventive): 現状 e.Cancel=true で Delete 前に return するため実害はないが、
+            // 将来 cancel 前後の順序変更で regress するのを防ぐため seam を張る。
+            form.SetLastSessionBuffersPathForTest(Path.Combine(tmp.Root, "buffers.json"));
+            var doc = form.FileForTest.DocsForTest[0];
+            doc.Editor.ReplaceCharRange(0, 0, "dirty");
+
+            int overrideCalls = 0;
+            form.SetConfirmDiscardOverrideForTest(_ =>
+            {
+                overrideCalls++;
+                return false; // ユーザーキャンセル=閉じない
+            });
+
+            form.Close();
+
+            Assert.True(form.Visible); // e.Cancel=true で閉じられなかった
+            Assert.Equal(1, overrideCalls);
+            Assert.Equal(false, form.LastCloseTookSilentPathForTest);
+            // Note: form は using で自動 Dispose(テスト終了時に真の Close)
+        });
+
+    // §8 補遺 M-1: fall-through 経路で No-discard したタブは snapshot から除外(silent 復活防止)。
+    [Fact]
+    public void OnFormClosing_FallThrough_UserDiscardsDirty_ExcludedFromSnapshot() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            form.SetLastSessionBuffersPathForTest(Path.Combine(tmp.Root, "buffers.json"));
+
+            // 起動時空無題タブを cap 超過にして fall-through を強制
+            var doc = form.FileForTest.DocsForTest[0];
+            doc.Editor.ReplaceCharRange(0, 0, new string('x', 1024 * 1024 + 1));
+
+            // override 常に true=No-discard を模擬(SaveDocument は呼ばず Modified 継続)
+            form.SetConfirmDiscardOverrideForTest(_ => true);
+
+            form.Close();
+
+            // 期待: fall-through で discardedDocs に追加され、snapshot から除外される
+            Assert.Equal(false, form.LastCloseTookSilentPathForTest);
+            var loaded = SettingsStore.Load(tmp.SettingsPath);
+            // No-discard タブ(起動時空無題タブ = 唯一のタブ)が除外されている=Tabs 空
+            Assert.NotNull(loaded.LastSession);
+            Assert.Empty(loaded.LastSession!.Tabs);
+        });
+
+    // Test 4 (M-3): total-cap 発動(多数の小 dirty タブが累積 15 M chars 超過)
+    [Fact]
+    public void WillDirtyContentFitInCaps_ReturnsFalse_WhenTotalDirtyExceedsTotalCap() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+
+            // 16 個の 1M chars(全て per-tab cap 内)= 16 M chars 累計 → 15 M 超過で total-cap 発動
+            var startupDoc = form.FileForTest.DocsForTest[0];
+            startupDoc.Editor.ReplaceCharRange(0, 0, new string('x', 1024 * 1024));
+            for (int i = 0; i < 15; i++)
+            {
+                form.FileForTest.NewFile();
+                var d = form.FileForTest.DocsForTest[^1];
+                d.Editor.ReplaceCharRange(0, 0, new string('x', 1024 * 1024));
+            }
+
+            Assert.False(form.WillDirtyContentFitInCapsForTest());
         });
 
     [Fact]

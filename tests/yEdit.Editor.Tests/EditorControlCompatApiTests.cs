@@ -78,6 +78,82 @@ public class EditorControlCompatApiTests
     }
 
     [Fact]
+    public void SetCaretByLineColumn_MovesToLineStart_WhenColumnIsZero()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("abc\r\ndef\r\nghi"));
+            ctrl.SetCaretByLineColumn(1, 0);
+            Assert.Equal(1, ctrl.CurrentLine);
+            Assert.Equal(0, ctrl.GetColumn(ctrl.CurrentPosition));
+        });
+    }
+
+    [Fact]
+    public void SetCaretByLineColumn_MovesToColumnWithinLine()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("abcdef\r\nghijkl"));
+            ctrl.SetCaretByLineColumn(0, 3);
+            Assert.Equal(0, ctrl.CurrentLine);
+            Assert.Equal(3, ctrl.GetColumn(ctrl.CurrentPosition));
+        });
+    }
+
+    [Fact]
+    public void SetCaretByLineColumn_ClampsColumn_WhenExceedingLineWidth()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("abc\r\nghijkl"));
+            // 行 0 は "abc"(3 chars)。col=999 → 3 に clamp(改行手前・次行に食み出さない)
+            ctrl.SetCaretByLineColumn(0, 999);
+            Assert.Equal(0, ctrl.CurrentLine);
+            Assert.Equal(3, ctrl.GetColumn(ctrl.CurrentPosition));
+        });
+    }
+
+    [Fact]
+    public void SetCaretByLineColumn_ClampsLine_WhenExceedingLineCount()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("a\r\nb\r\nc"));
+            ctrl.SetCaretByLineColumn(999, 0);
+            Assert.Equal(2, ctrl.CurrentLine); // 最終行にクランプ
+        });
+    }
+
+    [Fact]
+    public void SetCaretByLineColumn_ClampsNegative_ToZero()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl();
+            ctrl.SetSource(TextBuffer.FromString("abc"));
+            ctrl.SetCaretByLineColumn(-5, -3);
+            Assert.Equal(0, ctrl.CurrentLine);
+            Assert.Equal(0, ctrl.GetColumn(ctrl.CurrentPosition));
+        });
+    }
+
+    [Fact]
+    public void SetCaretByLineColumn_EmptyBuffer_DoesNotThrow()
+    {
+        Sta.Run(() =>
+        {
+            using var ctrl = new EditorControl(); // SetSource 未実施
+            // Assert.Null(Record.Exception(...)) パターンで S2699 を満たす(no-op で例外なし)。
+            Assert.Null(Record.Exception(() => ctrl.SetCaretByLineColumn(0, 0)));
+        });
+    }
+
+    [Fact]
     public void CurrentPosition_MatchesCaret()
     {
         Sta.Run(() =>

@@ -69,11 +69,21 @@ public sealed class AppSettings
     /// <summary>最近開いたファイル（先頭が最新）。</summary>
     public List<string> RecentFiles { get; set; } = new();
 
+    /// <summary>起動時に前回開いていたタブ列を復元するか(既定 false=既存挙動維持)。設計書 2026-07-23。</summary>
+    public bool RestoreOpenFilesOnStartup { get; set; }
+
+    /// <summary>通常終了時のタブ列スナップショット。null=保存なし(設定 OFF or 未終了)。設計書 2026-07-23。</summary>
+    public yEdit.Core.Session.LastSessionSnapshot? LastSession { get; set; }
+
     /// <summary>独立したコピーを返す（RecentFiles も複製）。設定ダイアログの編集用スナップショット。</summary>
     public AppSettings Clone()
     {
         var c = (AppSettings)MemberwiseClone();
         c.RecentFiles = new List<string>(RecentFiles);
+        // LastSession は record + immutable な SessionTabRecord のリストラッパで、AppSettings の生存中
+        // (=起動時 1 回の Load と終了時 1 回の Save)は SettingsDialog の編集対象外=参照共有で足りる。
+        // 将来 SettingsDialog がタブ列編集を扱う場合、ここで new LastSessionSnapshot(new List<>(...)) の
+        // 深い複製に切り替える必要がある(Task 2 code review M6)。
         return c;
     }
 }

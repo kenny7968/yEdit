@@ -35,6 +35,11 @@ public sealed class BasicSettingsTab : ISettingsTab
         Text = ".csvファイルを開いたとき自動的にCSVモードにする(&V)",
         AutoSize = true,
     };
+    private readonly CheckBox _restoreOnStartup = new()
+    {
+        Text = "起動時に前回開いていたファイルを開く(&R)",
+        AutoSize = true,
+    };
 
     public Control BuildPage()
     {
@@ -50,6 +55,10 @@ public sealed class BasicSettingsTab : ISettingsTab
         _csvAutoMode.TabIndex = 4;
         root.Controls.Add(_csvAutoMode, 0, 2);
         root.SetColumnSpan(_csvAutoMode, 2);
+
+        _restoreOnStartup.TabIndex = 5;
+        root.Controls.Add(_restoreOnStartup, 0, 3);
+        root.SetColumnSpan(_restoreOnStartup, 2);
         return root;
     }
 
@@ -74,6 +83,7 @@ public sealed class BasicSettingsTab : ISettingsTab
         _eol.SelectedIndex = eolSel;
 
         _csvAutoMode.Checked = s.CsvAutoModeOnOpen;
+        _restoreOnStartup.Checked = s.RestoreOpenFilesOnStartup;
     }
 
     public void SaveTo(AppSettings r)
@@ -81,6 +91,7 @@ public sealed class BasicSettingsTab : ISettingsTab
         r.DefaultCodePage = Encodings[_encoding.SelectedIndex].CodePage;
         r.DefaultLineEnding = Eols[_eol.SelectedIndex].Id;
         r.CsvAutoModeOnOpen = _csvAutoMode.Checked;
+        r.RestoreOpenFilesOnStartup = _restoreOnStartup.Checked;
     }
 
     // CA1001 対応(Sub 3.4-B): BuildPage() 経由で Form の Controls ツリーに接続された
@@ -91,5 +102,6 @@ public sealed class BasicSettingsTab : ISettingsTab
         _encoding.Dispose();
         _eol.Dispose();
         _csvAutoMode.Dispose();
+        _restoreOnStartup.Dispose();
     }
 }

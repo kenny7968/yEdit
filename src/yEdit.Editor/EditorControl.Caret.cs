@@ -34,6 +34,27 @@ public sealed partial class EditorControl
         SetCaretCharOffset(snap.GetLineStart(clamped));
     }
 
+    /// <summary>
+    /// 0-based の行/桁を指定してキャレットを移動する。復元経路(FileController.RestoreLastSession)で
+    /// 前回終了時のカーソル位置を再現するために追加。line/col とも実バッファ範囲へクランプ、
+    /// col は行末(改行手前)を上限とする=次行に食み出さない。設計書 2026-07-23 §3.4。
+    /// </summary>
+    public void SetCaretByLineColumn(int line, int col)
+    {
+        if (_buffer is null)
+            return;
+        var snap = _buffer.Current;
+        int lc = snap.LineCount;
+        if (lc <= 0)
+            return;
+        int clampedLine = Math.Clamp(line, 0, lc - 1);
+        int lineStart = snap.GetLineStart(clampedLine);
+        int lineEnd = snap.GetLineEnd(clampedLine, includeBreak: false);
+        int maxCol = Math.Max(0, lineEnd - lineStart);
+        int clampedCol = Math.Clamp(col, 0, maxCol);
+        SetCaretCharOffset(lineStart + clampedCol);
+    }
+
     /// <summary>P6 Task 3: `CaretCharOffset` の別名(App 層互換=Scintilla の `CurrentPosition`)。</summary>
     public int CurrentPosition => _caretCtrl.Caret;
 

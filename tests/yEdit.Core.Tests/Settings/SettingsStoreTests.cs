@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Text;
 using Xunit;
+using yEdit.Core.Session;
 using yEdit.Core.Settings;
 using yEdit.Core.Text;
 
@@ -303,6 +304,256 @@ public class SettingsStoreTests
             Assert.True(s.HighlightCurrentLine);
             Assert.True(s.ShowWhitespace);
             Assert.False(s.ConfirmRestoreOnStartup);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_Normalizes_LastSession_Skips_BlankPath_And_Clamps_NegativeNumbers()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            // Tabs=[有効パス, 空白パス(=skip), 無題+負値カレット(=clamp), 無題+負連番(=clamp)]
+            File.WriteAllText(
+                path,
+                "{\"LastSession\":{\"Tabs\":["
+                    + "{\"Path\":\"C:\\\\a.txt\",\"UntitledNumber\":0,\"BufferKey\":null,\"IsActive\":true,\"CaretLine\":10,\"CaretColumn\":5},"
+                    + "{\"Path\":\"   \",\"UntitledNumber\":0,\"BufferKey\":null,\"IsActive\":false,\"CaretLine\":0,\"CaretColumn\":0},"
+                    + "{\"Path\":null,\"UntitledNumber\":1,\"BufferKey\":\"k1\",\"IsActive\":false,\"CaretLine\":-1,\"CaretColumn\":-5},"
+                    + "{\"Path\":null,\"UntitledNumber\":-3,\"BufferKey\":\"k2\",\"IsActive\":false,\"CaretLine\":0,\"CaretColumn\":0}"
+                    + "]}}"
+            );
+            var s = SettingsStore.Load(path);
+            Assert.NotNull(s.LastSession);
+            Assert.Equal(3, s.LastSession!.Tabs.Count); // 空白 Path はスキップ
+            Assert.Equal(@"C:\a.txt", s.LastSession.Tabs[0].Path);
+            Assert.Null(s.LastSession.Tabs[1].Path);
+            Assert.Equal(0, s.LastSession.Tabs[1].CaretLine); // 負値→0
+            Assert.Equal(0, s.LastSession.Tabs[1].CaretColumn); // 負値→0
+            Assert.Equal(0, s.LastSession.Tabs[2].UntitledNumber); // 負値→0
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_LastSession_TabsWithNullElement_SkipsAndKeepsOtherSettings()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            // 攻撃/破損: Tabs に null 要素が混入
+            File.WriteAllText(
+                path,
+                "{\"FontName\":\"TestFont\",\"LastSession\":{\"Tabs\":["
+                    + "null,"
+                    + "{\"Path\":\"C:\\\\a.txt\",\"UntitledNumber\":0,\"BufferKey\":null,\"IsActive\":true,\"CaretLine\":0,\"CaretColumn\":0}"
+                    + "]}}"
+            );
+            var s = SettingsStore.Load(path);
+            // 全設定既定リセットが起きていない=FontName が保持されている
+            Assert.Equal("TestFont", s.FontName);
+            // null 要素は skip され、有効な 1 件だけ残る
+            Assert.NotNull(s.LastSession);
+            Assert.Single(s.LastSession!.Tabs);
+            Assert.Equal(@"C:\a.txt", s.LastSession.Tabs[0].Path);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_LastSession_NullTabs_BecomesEmptyList()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            File.WriteAllText(path, "{\"LastSession\":{\"Tabs\":null}}");
+            var s = SettingsStore.Load(path);
+            Assert.NotNull(s.LastSession);
+            Assert.Empty(s.LastSession!.Tabs);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Roundtrip_RestoreEnabled_WithNullLastSession()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            var s = new AppSettings
+            {
+                RestoreOpenFilesOnStartup = true,
+                LastSession = null, // opt-in 済み・初回終了前の中間状態
+            };
+            SettingsStore.Save(path, s);
+            var loaded = SettingsStore.Load(path);
+            Assert.True(loaded.RestoreOpenFilesOnStartup);
+            Assert.Null(loaded.LastSession);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Roundtrip_LastSession_And_RestoreFlag()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            var s = new AppSettings
+            {
+                RestoreOpenFilesOnStartup = true,
+                LastSession = new LastSessionSnapshot(
+                    new List<SessionTabRecord>
+                    {
+                        new(
+                            Path: @"C:\a.txt",
+                            UntitledNumber: 0,
+                            BufferKey: null,
+                            IsActive: true,
+                            CaretLine: 3,
+                            CaretColumn: 7
+                        ),
+                        new(
+                            Path: null,
+                            UntitledNumber: 2,
+                            BufferKey: "abc",
+                            IsActive: false,
+                            CaretLine: 0,
+                            CaretColumn: 0
+                        ),
+                    }
+                ),
+            };
+            SettingsStore.Save(path, s);
+            var loaded = SettingsStore.Load(path);
+            Assert.True(loaded.RestoreOpenFilesOnStartup);
+            Assert.NotNull(loaded.LastSession);
+            Assert.Equal(2, loaded.LastSession!.Tabs.Count);
+            Assert.Equal(@"C:\a.txt", loaded.LastSession.Tabs[0].Path);
+            Assert.True(loaded.LastSession.Tabs[0].IsActive);
+            Assert.Equal(3, loaded.LastSession.Tabs[0].CaretLine);
+            Assert.Equal(7, loaded.LastSession.Tabs[0].CaretColumn);
+            Assert.Equal("abc", loaded.LastSession.Tabs[1].BufferKey);
+            Assert.Equal(2, loaded.LastSession.Tabs[1].UntitledNumber);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_Normalizes_LastSession_Clamps_NegativeCodePageAndLineEnding()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            File.WriteAllText(
+                path,
+                "{\"LastSession\":{\"Tabs\":["
+                    + "{\"Path\":\"C:\\\\a.txt\",\"UntitledNumber\":0,\"BufferKey\":\"k1\","
+                    + "\"IsActive\":true,\"CaretLine\":0,\"CaretColumn\":0,"
+                    + "\"CodePage\":-5,\"HasBom\":true,\"LineEnding\":-1,\"WasModified\":true}"
+                    + "]}}"
+            );
+            var s = SettingsStore.Load(path);
+            Assert.NotNull(s.LastSession);
+            var r = Assert.Single(s.LastSession!.Tabs);
+            Assert.Equal(0, r.CodePage);
+            Assert.Equal(0, r.LineEnding);
+            Assert.True(r.HasBom);
+            Assert.True(r.WasModified);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Roundtrip_LastSession_WithEncodingAndModifiedFields()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            var s = new AppSettings
+            {
+                RestoreOpenFilesOnStartup = true,
+                LastSession = new LastSessionSnapshot(
+                    new List<SessionTabRecord>
+                    {
+                        new(
+                            Path: @"C:\a.txt",
+                            UntitledNumber: 0,
+                            BufferKey: "k1",
+                            IsActive: true,
+                            CaretLine: 3,
+                            CaretColumn: 7,
+                            CodePage: 65001,
+                            HasBom: true,
+                            LineEnding: 1,
+                            WasModified: true
+                        ),
+                    }
+                ),
+            };
+            SettingsStore.Save(path, s);
+            var loaded = SettingsStore.Load(path);
+            var r = loaded.LastSession!.Tabs[0];
+            Assert.Equal(65001, r.CodePage);
+            Assert.True(r.HasBom);
+            Assert.Equal(1, r.LineEnding);
+            Assert.True(r.WasModified);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_LegacyLastSession_WithoutNewFields_UsesDefaults()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            File.WriteAllText(
+                path,
+                "{\"LastSession\":{\"Tabs\":["
+                    + "{\"Path\":\"C:\\\\a.txt\",\"UntitledNumber\":0,\"BufferKey\":null,"
+                    + "\"IsActive\":true,\"CaretLine\":0,\"CaretColumn\":0}"
+                    + "]}}"
+            );
+            var s = SettingsStore.Load(path);
+            var r = s.LastSession!.Tabs[0];
+            Assert.Equal(0, r.CodePage);
+            Assert.False(r.HasBom);
+            Assert.Equal(0, r.LineEnding);
+            Assert.False(r.WasModified);
         }
         finally
         {

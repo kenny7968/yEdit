@@ -49,6 +49,68 @@ public sealed partial class MainForm : Form
     // MenuStrip の Activate/Deactivate イベントで明示的に追跡する。
     private bool _menuActive;
 
+    // Task 6: テストが実 %APPDATA% を汚さないための seam。null=既定パス。
+    private string? _lastSessionBuffersPathOverride;
+    private string LastSessionBuffersPath =>
+        _lastSessionBuffersPathOverride ?? yEdit.Core.Session.LastSessionBuffersStore.DefaultPath;
+
+    internal void SetLastSessionBuffersPathForTest(string path) =>
+        _lastSessionBuffersPathOverride = path;
+
+    // Task 7: 起動時の空無題タブ(ctor で作った 1 個)を覚え、復元成功時に閉じるための seam。
+    // FileController.RestoreLastSession の initialEmpty 引数に渡す=前回タブが 1 つでも復元
+    // できた時のみ破棄される契約(Task 5 review M-2)。ctor 末尾で 1 度だけ代入し以後不変。
+    private readonly Document? _startupEmptyDoc;
+
+    // Task 7 テスト用: OfferRestoreOnStartup の戻り値を差し替える(バックアップ優先分岐の kill 用)。
+    // null=通常経路(実 backup を呼ぶ)、非 null=そのままの値を restored に使う。
+    private int? _restoredCountOverrideForTest;
+
+    internal void SetRestoredCountOverrideForTest(int value) =>
+        _restoredCountOverrideForTest = value;
+
+    // Task 7 テスト用: FailedPaths の Warn ダイアログ (MessageBox.Show=blocking) をテストで抑止する seam。
+    // 4 番目の smoke テスト(missing file → FailedPaths に載る)で MessageBox が UI スレッドを
+    // 塞ぐのを避けるため。実運用経路では常に false=ダイアログは出る。
+    // Form 派生上の bool プロパティは WFO1000 を誘発するため、field + setter method で seam を作る
+    // (SetLastSessionBuffersPathForTest と同じ方式)。
+    private bool _suppressFailedRestoreDialogForTest;
+
+    internal void SetSuppressFailedRestoreDialogForTest(bool value) =>
+        _suppressFailedRestoreDialogForTest = value;
+
+    // Task 13 テスト用: OnFormClosing が silent path(§8.2 fast-path)を通ったかを観測する。
+    // null = OnFormClosing 未実行 / true = silent (ConfirmDiscardIfDirty loop skip) / false = fall-through。
+    private bool? _lastCloseTookSilentPathForTest;
+    internal bool? LastCloseTookSilentPathForTest => _lastCloseTookSilentPathForTest;
+
+    // Task 13 テスト用: fall-through 経路の ConfirmDiscardIfDirty 呼出を差し替える。
+    // null = 通常経路 (実 _file.ConfirmDiscardIfDirty=MessageBox 発火) / 非 null = 呼出をこの delegate に置き換え。
+    // テストでは MessageBox がブロックしないよう常に override を渡すこと。返り値=保存/破棄成功=true / キャンセル=false。
+    private Func<Document, bool>? _confirmDiscardOverrideForTest;
+
+    internal void SetConfirmDiscardOverrideForTest(Func<Document, bool>? overrideFunc) =>
+        _confirmDiscardOverrideForTest = overrideFunc;
+
+    /// <summary>
+    /// dirty タブ本文の per-tab 上限 (chars=UTF-16 code units)。1M chars = 2 MB UTF-16 相当。
+    /// 無題タブ+パスあり dirty タブのいずれもこの cap を超えると
+    /// <see cref="yEdit.Core.Session.SessionTabRecord.BufferKey"/>=null に落として「枠だけ復元」
+    /// = 空タブ/disk 内容で再作成される (BackupCoordinator の BK-M-3 と同方針)。
+    /// 設計 2026-07-23 §3.1 / 設計 §4.3 / §8.2 補遺。定数名は歴史的経緯で untitled を残す。
+    /// </summary>
+    private const int MaxSessionUntitledContentChars = 1024 * 1024;
+
+    /// <summary>
+    /// dirty タブ本文(無題+パスあり dirty)の累積上限 (chars=UTF-16 code units)。Load 側の 32 MB
+    /// pre-cap (LastSessionBuffersStore MaxLoadFileSizeBytes) を絶対に下回るよう 15 M chars ≈ 30 MB
+    /// で cutoff。この上限を超える追加 dirty タブは BufferKey=null に落として枠だけ保存する
+    /// (Trace 診断あり)。設計 §4.3 の "書込側キャップ" と Load 側 pre-cap の対称=BK-M-3 の思想を
+    /// 踏襲。定数名は歴史的経緯で untitled を残す(§8.2 補遺で dirty パスありタブも含めるよう拡張)。
+    /// (Task 6 review I-2)
+    /// </summary>
+    private const int MaxSessionTotalUntitledChars = 15 * 1024 * 1024;
+
     public MainForm(AppSettings settings)
         : this(settings, SettingsStore.DefaultPath) { }
 
@@ -144,6 +206,9 @@ public sealed partial class MainForm : Form
         MainMenuStrip = menu;
 
         _file.NewFile(); // 起動時の無題タブ1つ（Q1=B：常に新規タブ）
+        // Task 7: 前回タブ復元が成功したとき、ctor で作った空無題タブを閉じるための参照
+        // (FileController.RestoreLastSession の initialEmpty 引数=Task 5 review M-2)。
+        _startupEmptyDoc = _docs.Active;
     }
 
     /// <summary>タブ毎の EditorControl を生成する。受動読みは EditorControl 単一経路（UIA v2）に一本化済み。</summary>
@@ -177,11 +242,20 @@ public sealed partial class MainForm : Form
         UpdateTitle();
         UpdateStatus();
 
+        if (_restoreOffered)
+            return;
+        _restoreOffered = true;
+
         // 前回の異常終了で残ったバックアップがあれば復元提案（起動時に一度だけ）。確認 OFF では無確認で全復元。
-        if (!_restoreOffered)
+        // Task 7 テスト: _restoredCountOverrideForTest が設定されていれば実 backup を呼ばず値を差し替える。
+        int restored;
+        if (_restoredCountOverrideForTest is int overrideValue)
         {
-            _restoreOffered = true;
-            int restored = _backup.OfferRestoreOnStartup(
+            restored = overrideValue;
+        }
+        else
+        {
+            restored = _backup.OfferRestoreOnStartup(
                 this,
                 _file.RestoreFromBackup,
                 _settings.ConfirmRestoreOnStartup
@@ -189,6 +263,65 @@ public sealed partial class MainForm : Form
             if (restored > 0)
                 _announcer.Say($"バックアップを {restored} 件復元しました");
         }
+
+        // Task 7: バックアップ復元が 0 件のときだけ、前回タブ復元を試みる(設計書 2026-07-23 §3.2 / §4.4)。
+        // バックアップ復元がタブを追加した状態で更に前回タブ列を積むと二重復元になるため排他。
+        if (
+            restored == 0
+            && _settings.RestoreOpenFilesOnStartup
+            && _settings.LastSession is { Tabs.Count: > 0 } snap
+        )
+        {
+            TryRestoreLastSession(snap);
+        }
+    }
+
+    /// <summary>
+    /// 前回タブ列を復元し、失敗したパスがあれば集約 Warn ダイアログを 1 回だけ表示する。
+    /// buffers.json は Load 後に Delete する(復元済み本文の残置を避ける=設計書 §3.4)。
+    /// 想定外例外は Trace に落とし、起動を妨げない(復元は best-effort)。
+    /// </summary>
+    private void TryRestoreLastSession(yEdit.Core.Session.LastSessionSnapshot snap)
+    {
+        try
+        {
+            var buffers = yEdit.Core.Session.LastSessionBuffersStore.Load(LastSessionBuffersPath);
+            var failed = _file.RestoreLastSession(snap, buffers, _startupEmptyDoc);
+            yEdit.Core.Session.LastSessionBuffersStore.Delete(LastSessionBuffersPath);
+            if (failed.Count > 0 && !_suppressFailedRestoreDialogForTest)
+                ShowFailedRestoreDialog(failed);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning(
+                "yEdit: restore-last-session failed: {0}",
+                yEdit.Core.Text.SanitizeForDisplay.OneLine(ex.Message, 200)
+            );
+        }
+    }
+
+    /// <summary>
+    /// 復元できなかったパス群を 1 個の Warn ダイアログにまとめて表示する。最大 10 件表示、
+    /// それ以上は「他 N 件」で省略。パスは <see cref="yEdit.Core.Text.SanitizeForDisplay.OneLine"/>
+    /// で BiDi/制御文字を無害化してから表示する(RLO 等の欺瞞対策=MD-H-1 と同じ思想)。
+    /// </summary>
+    private void ShowFailedRestoreDialog(IReadOnlyList<string> failed)
+    {
+        const int Cap = 10;
+        var shown = failed
+            .Take(Cap)
+            .Select(p => yEdit.Core.Text.SanitizeForDisplay.OneLine(p, 200));
+        var body = "以下のファイルを開けませんでした:\n\n  " + string.Join("\n  ", shown);
+        if (failed.Count > Cap)
+            body += $"\n  ... 他 {failed.Count - Cap} 件";
+        body += "\n\nこれらは復元対象からはずしました。";
+        MessageBox.Show(
+            this,
+            body,
+            "一部のファイルを開けませんでした",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Warning
+        );
     }
 
     protected override void OnActivated(EventArgs e)
@@ -216,24 +349,62 @@ public sealed partial class MainForm : Form
     {
         // 終了開始: 実行中の grep を中止し、終了確認中に結果窓が湧くのを抑止する。
         _grep.BeginClose();
-        // 全タブの未保存を順に確認（どれかでキャンセルなら終了中止）。
-        foreach (var doc in _docs.Documents.ToArray())
+
+        // §8.2 fast-path: 設定 ON かつ dirty が cap 内 → 未保存確認せず silent close。
+        // silentPath は observability seam (Test 1-3 の path 判定 kill 用) に確定させる。
+        bool silentPath = _settings.RestoreOpenFilesOnStartup && WillDirtyContentFitInCaps();
+        _lastCloseTookSilentPathForTest = silentPath;
+
+        // §8 補遺 M-1: fall-through 経路で No-discard したタブを snapshot から除外するため追跡。
+        var discardedDocs = new HashSet<Document>();
+
+        if (!silentPath)
         {
-            if (!doc.Editor.Modified)
-                continue;
-            _docs.Activate(doc); // どのファイルの確認かを SR/視覚で示す
-            if (!_file.ConfirmDiscardIfDirty(doc))
+            // 従来経路: 全 dirty タブに Yes/No/Cancel 確認(all-or-nothing fall-through)。
+            // どれかでキャンセルなら終了中止。
+            foreach (var doc in _docs.Documents.ToArray())
             {
-                e.Cancel = true;
-                _grep.CancelClose(); // 終了を取りやめたので grep を通常運用へ戻す
-                base.OnFormClosing(e);
-                return;
+                if (!doc.Editor.Modified)
+                    continue;
+                _docs.Activate(doc); // どのファイルの確認かを SR/視覚で示す
+                bool keepClosing = _confirmDiscardOverrideForTest is not null
+                    ? _confirmDiscardOverrideForTest(doc)
+                    : _file.ConfirmDiscardIfDirty(doc);
+                if (!keepClosing)
+                {
+                    e.Cancel = true;
+                    _grep.CancelClose(); // 終了を取りやめたので grep を通常運用へ戻す
+                    base.OnFormClosing(e);
+                    return;
+                }
+                // keepClosing=true + Modified 継続 = No-discard 明示選択(Yes は SaveDocument で
+                // Modified=false 化される)。次回 silent 復元で「破棄」意図が silent に無視されるのを防ぐため追跡。
+                if (doc.Editor.Modified)
+                    discardedDocs.Add(doc);
             }
         }
+
         // ウィンドウサイズを設定に保存（最大化中は RestoreBounds を使う・M1 同様）。
         var b = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
         _settings.WindowWidth = b.Width;
         _settings.WindowHeight = b.Height;
+
+        // Task 6: 通常終了時に前回セッションを保存(設定 OFF なら既存残骸を消す=設計書 §3.1)
+        // Task 6 review M-3: buffers.json → settings.json の順で書く(非原子)。設計 §4.3 は
+        // atomic 化を将来課題として明記済み。片方だけ書けた場合の orphan/欠落は次回 Load 時の
+        // E4/E5 分岐(BufferKey 欠落 skip)で silent に吸収される=挙動不変。
+        if (_settings.RestoreOpenFilesOnStartup)
+        {
+            var (snap, buffers) = BuildLastSessionSnapshot(discardedDocs);
+            _settings.LastSession = snap;
+            SaveLastSessionBuffersSafe(buffers);
+        }
+        else
+        {
+            _settings.LastSession = null;
+            DeleteLastSessionBuffersSafe();
+        }
+
         SaveSettingsSafe();
         base.OnFormClosing(e);
     }
@@ -553,6 +724,156 @@ public sealed partial class MainForm : Form
         }
         catch
         { /* 設定保存失敗は致命でない */
+        }
+    }
+
+    /// <summary>
+    /// §8.2: 保存対象=無題タブ or dirty パスありタブ。BuildLastSessionSnapshot と
+    /// WillDirtyContentFitInCaps で使う判定を単一定義に集約する(divergence 予防)。
+    /// </summary>
+    private static bool NeedsContentSave(Document doc) =>
+        doc.State.Path is null || doc.Editor.Modified;
+
+    /// <summary>
+    /// 現在のタブ列から LastSessionSnapshot と本文マップを組み立てる。設計書 §3.1 + §8.2 補遺:
+    /// パスなし or dirty(パスありでも Modified=true)のタブは本文を buffers に保存し、
+    /// 復元経路で「編集途中の状態」を silent に再現する。cap 超過(per-tab / total)は
+    /// BufferKey=null に落として枠だけ保存する(BK-M-3 と同方針=次回は disk 内容が読まれる)。
+    /// CodePage / HasBom / LineEnding / WasModified はパスありの再エンコード保存 §8.4 用。
+    /// </summary>
+    private (
+        yEdit.Core.Session.LastSessionSnapshot Snap,
+        Dictionary<string, string> Buffers
+    ) BuildLastSessionSnapshot(HashSet<Document>? discardedDocs = null)
+    {
+        var tabs = new List<yEdit.Core.Session.SessionTabRecord>();
+        var buffers = new Dictionary<string, string>();
+        var active = _docs.Active;
+        int totalContentChars = 0;
+        foreach (var doc in _docs.Documents)
+        {
+            // §8 補遺 M-1: 明示 No-discard したタブは snapshot から除外(silent 復活防止)。
+            if (discardedDocs is not null && discardedDocs.Contains(doc))
+                continue;
+            int line = doc.Editor.CurrentLine;
+            int col = doc.Editor.GetColumn(doc.Editor.CurrentPosition);
+            bool wasModified = doc.Editor.Modified;
+            string? bufferKey = null;
+
+            // §8.2: パスなし OR (パスあり かつ dirty) は本文を buffers に保存。
+            // (以前は「dirty 無題は skip」= Task 6 review I-1 の分岐が居たが §8 補遺で撤去)
+            bool needsContent = NeedsContentSave(doc);
+            if (needsContent)
+            {
+                string content = doc.Editor.SnapshotText;
+                bool fitsPerTab = content.Length <= MaxSessionUntitledContentChars;
+                bool fitsTotal =
+                    fitsPerTab
+                    && (long)totalContentChars + content.Length <= MaxSessionTotalUntitledChars;
+                if (fitsTotal)
+                {
+                    bufferKey = Guid.NewGuid().ToString("N");
+                    buffers[bufferKey] = content;
+                    totalContentChars += content.Length;
+                }
+                else
+                {
+                    System.Diagnostics.Trace.TraceWarning(
+                        "yEdit: last-session-content-skipped (path={0}, dirty={1}, {2} chars, per-tab-fit={3}, total-fit={4})",
+                        doc.State.Path ?? $"untitled-{doc.State.UntitledNumber}",
+                        wasModified,
+                        content.Length,
+                        fitsPerTab,
+                        fitsTotal
+                    );
+                    // BufferKey=null に落とす=次回起動時に dirty 編集は disk 内容に置き換わる(§8.4 E9 と等価)
+                }
+            }
+
+            tabs.Add(
+                new yEdit.Core.Session.SessionTabRecord(
+                    Path: doc.State.Path,
+                    UntitledNumber: doc.State.Path is null ? doc.State.UntitledNumber : 0,
+                    BufferKey: bufferKey,
+                    IsActive: ReferenceEquals(doc, active),
+                    CaretLine: line,
+                    CaretColumn: col,
+                    CodePage: doc.State.Path is not null ? doc.State.Encoding.CodePage : 0, // §8.2
+                    HasBom: doc.State.Path is not null && doc.State.HasBom,
+                    LineEnding: (int)doc.State.LineEnding,
+                    WasModified: wasModified
+                )
+            );
+        }
+        return (new yEdit.Core.Session.LastSessionSnapshot(tabs), buffers);
+    }
+
+    /// <summary>
+    /// §8.2 pre-check: <see cref="OnFormClosing"/> の silent close 経路(RestoreOpenFilesOnStartup=ON 時)
+    /// に入れるかを判定する。全 dirty タブ(パスなし+パスあり dirty)の本文が per-tab / total 両方の
+    /// cap 内に収まる場合のみ true。false のときは従来の未保存確認ダイアログ経路にフォールバック。
+    /// dry-run のため tabs や buffers を実際には組み立てない=<see cref="EditorControl.TextLength"/> の
+    /// O(1) 参照だけで判定し、<see cref="EditorControl.SnapshotText"/> の全文コピーを避ける
+    /// (close 時の大バッファ数百 MB コピーを回避)。
+    /// </summary>
+    private bool WillDirtyContentFitInCaps()
+    {
+        int totalContentChars = 0;
+        foreach (var doc in _docs.Documents)
+        {
+            bool needsContent = NeedsContentSave(doc);
+            if (!needsContent)
+                continue;
+            int len = doc.Editor.TextLength;
+            if (len > MaxSessionUntitledContentChars)
+                return false;
+            totalContentChars += len;
+            if ((long)totalContentChars > MaxSessionTotalUntitledChars)
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>テスト用: BuildLastSessionSnapshot の入出力を直接検証する seam(Task 6 review I-3)。</summary>
+    internal (
+        yEdit.Core.Session.LastSessionSnapshot Snap,
+        IReadOnlyDictionary<string, string> Buffers
+    ) BuildLastSessionSnapshotForTest()
+    {
+        var (snap, buffers) = BuildLastSessionSnapshot();
+        return (snap, buffers);
+    }
+
+    /// <summary>テスト用: <see cref="WillDirtyContentFitInCaps"/> の直接検証 seam(§8.5)。</summary>
+    internal bool WillDirtyContentFitInCapsForTest() => WillDirtyContentFitInCaps();
+
+    private void SaveLastSessionBuffersSafe(IReadOnlyDictionary<string, string> map)
+    {
+        try
+        {
+            yEdit.Core.Session.LastSessionBuffersStore.Save(LastSessionBuffersPath, map);
+        }
+        catch
+        {
+            System.Diagnostics.Trace.TraceWarning(
+                "yEdit: failed to save last-session-buffers.json"
+            );
+        }
+    }
+
+    private void DeleteLastSessionBuffersSafe()
+    {
+        try
+        {
+            yEdit.Core.Session.LastSessionBuffersStore.Delete(LastSessionBuffersPath);
+        }
+        catch
+        {
+            // 削除失敗は致命でない(settings.json 側で LastSession=null にしたため、残骸を Load しても
+            // 参照される BufferKey が無い=無害な orphan として残るだけ)。(Task 6 review M-1)
+            System.Diagnostics.Trace.TraceWarning(
+                "yEdit: failed to delete last-session-buffers.json (orphan として残置=無害)"
+            );
         }
     }
 

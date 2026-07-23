@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.IO;
+using yEdit.Core.Session;
 using yEdit.Core.Settings;
 using Directory = System.IO.Directory;
 using File2 = System.IO.File;
@@ -147,6 +149,60 @@ public class MainFormSmokeTests
             Assert.Equal(path, doc.State.Path);
             // SelectCharRange(2, 3): start=2 / end=2+3=5(EditorControl:323-324 のエイリアス経由)
             Assert.Equal((2, 5), doc.Editor.GetSelectionCharRange());
+        });
+
+    // ===== Task 6: OnFormClosing での LastSession/buffers 保存 =====
+
+    [Fact]
+    public void OnFormClosing_RestoreEnabled_SavesLastSessionAndBuffers() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            string txt = tmp.File("a.txt");
+            File2.WriteAllText(txt, "hello");
+            string buffersPath = Path.Combine(tmp.Root, "last-session-buffers.json");
+
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using (var form = ShowMainForm(settings, tmp.SettingsPath))
+            {
+                form.SetLastSessionBuffersPathForTest(buffersPath);
+                form.FileForTest.TryOpenOrActivate(txt);
+                form.Close();
+            }
+
+            var loaded = SettingsStore.Load(tmp.SettingsPath);
+            Assert.True(loaded.RestoreOpenFilesOnStartup);
+            Assert.NotNull(loaded.LastSession);
+            Assert.Contains(loaded.LastSession!.Tabs, t => t.Path == txt);
+        });
+
+    [Fact]
+    public void OnFormClosing_RestoreDisabled_ClearsLastSessionAndDeletesBuffers() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            string buffersPath = Path.Combine(tmp.Root, "last-session-buffers.json");
+            // 事前に buffers.json 残骸を作っておく → 設定 OFF で消えるはず
+            File2.WriteAllText(buffersPath, "{\"k\":\"stale\"}");
+
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = false;
+            settings.LastSession = new LastSessionSnapshot(
+                new List<SessionTabRecord> { new(@"C:\stale.txt", 0, null, true, 0, 0) }
+            );
+
+            using (var form = ShowMainForm(settings, tmp.SettingsPath))
+            {
+                form.SetLastSessionBuffersPathForTest(buffersPath);
+                form.Close();
+            }
+
+            var loaded = SettingsStore.Load(tmp.SettingsPath);
+            Assert.False(loaded.RestoreOpenFilesOnStartup);
+            Assert.Null(loaded.LastSession);
+            Assert.False(File2.Exists(buffersPath));
         });
 
     [Fact]

@@ -49,6 +49,22 @@ public sealed partial class MainForm : Form
     // MenuStrip の Activate/Deactivate イベントで明示的に追跡する。
     private bool _menuActive;
 
+    // Task 6: テストが実 %APPDATA% を汚さないための seam。null=既定パス。
+    private string? _lastSessionBuffersPathOverride;
+    private string LastSessionBuffersPath =>
+        _lastSessionBuffersPathOverride ?? yEdit.Core.Session.LastSessionBuffersStore.DefaultPath;
+
+    internal void SetLastSessionBuffersPathForTest(string path) =>
+        _lastSessionBuffersPathOverride = path;
+
+    /// <summary>
+    /// 無題タブ本文の上限 (chars=UTF-16 code units)。1M chars = 2 MB UTF-16 相当。
+    /// 上限超過タブは <see cref="yEdit.Core.Session.SessionTabRecord.BufferKey"/>=null に落とし
+    /// 「枠だけ復元」= 空タブで再作成される (BackupCoordinator の BK-M-3 と同方針)。
+    /// 設計 2026-07-23 §3.1 / 設計 §4.3。
+    /// </summary>
+    private const int MaxSessionUntitledContentChars = 1024 * 1024;
+
     public MainForm(AppSettings settings)
         : this(settings, SettingsStore.DefaultPath) { }
 
@@ -234,6 +250,20 @@ public sealed partial class MainForm : Form
         var b = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
         _settings.WindowWidth = b.Width;
         _settings.WindowHeight = b.Height;
+
+        // Task 6: 通常終了時に前回セッションを保存(設定 OFF なら既存残骸を消す=設計書 §3.1)
+        if (_settings.RestoreOpenFilesOnStartup)
+        {
+            var (snap, buffers) = BuildLastSessionSnapshot();
+            _settings.LastSession = snap;
+            SaveLastSessionBuffersSafe(buffers);
+        }
+        else
+        {
+            _settings.LastSession = null;
+            DeleteLastSessionBuffersSafe();
+        }
+
         SaveSettingsSafe();
         base.OnFormClosing(e);
     }
@@ -553,6 +583,81 @@ public sealed partial class MainForm : Form
         }
         catch
         { /* 設定保存失敗は致命でない */
+        }
+    }
+
+    /// <summary>
+    /// 現在のタブ列から LastSessionSnapshot と無題本文マップを組み立てる。
+    /// 無題本文が <see cref="MaxSessionUntitledContentChars"/> を超えた場合は BufferKey=null に落として
+    /// 枠だけ保存する(BK-M-3 と同方針)。設計書 §3.1。
+    /// </summary>
+    private (
+        yEdit.Core.Session.LastSessionSnapshot Snap,
+        Dictionary<string, string> Buffers
+    ) BuildLastSessionSnapshot()
+    {
+        var tabs = new List<yEdit.Core.Session.SessionTabRecord>();
+        var buffers = new Dictionary<string, string>();
+        var active = _docs.Active;
+        foreach (var doc in _docs.Documents)
+        {
+            int line = doc.Editor.CurrentLine;
+            int col = doc.Editor.GetColumn(doc.Editor.CurrentPosition);
+            string? bufferKey = null;
+            if (doc.State.Path is null)
+            {
+                string content = doc.Editor.SnapshotText;
+                if (content.Length <= MaxSessionUntitledContentChars)
+                {
+                    bufferKey = Guid.NewGuid().ToString("N");
+                    buffers[bufferKey] = content;
+                }
+                else
+                {
+                    System.Diagnostics.Trace.TraceWarning(
+                        "yEdit: last-session-content-skipped (untitled {0}, {1} chars)",
+                        doc.State.UntitledNumber,
+                        content.Length
+                    );
+                }
+            }
+            tabs.Add(
+                new yEdit.Core.Session.SessionTabRecord(
+                    Path: doc.State.Path,
+                    UntitledNumber: doc.State.Path is null ? doc.State.UntitledNumber : 0,
+                    BufferKey: bufferKey,
+                    IsActive: ReferenceEquals(doc, active),
+                    CaretLine: line,
+                    CaretColumn: col
+                )
+            );
+        }
+        return (new yEdit.Core.Session.LastSessionSnapshot(tabs), buffers);
+    }
+
+    private void SaveLastSessionBuffersSafe(IReadOnlyDictionary<string, string> map)
+    {
+        try
+        {
+            yEdit.Core.Session.LastSessionBuffersStore.Save(LastSessionBuffersPath, map);
+        }
+        catch
+        {
+            System.Diagnostics.Trace.TraceWarning(
+                "yEdit: failed to save last-session-buffers.json"
+            );
+        }
+    }
+
+    private void DeleteLastSessionBuffersSafe()
+    {
+        try
+        {
+            yEdit.Core.Session.LastSessionBuffersStore.Delete(LastSessionBuffersPath);
+        }
+        catch
+        {
+            // 削除失敗は致命でない(次回起動でも Load が empty を返すだけ)
         }
     }
 

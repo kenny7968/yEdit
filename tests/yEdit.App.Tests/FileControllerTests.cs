@@ -1,6 +1,7 @@
 using System.Text;
 using yEdit.App.Tests.Fakes;
 using yEdit.Core.Backup;
+using yEdit.Core.Session;
 using yEdit.Core.Settings;
 using yEdit.Core.Text;
 using Directory = System.IO.Directory;
@@ -1389,5 +1390,176 @@ public class FileControllerTests
             // 抑止解除後: 再びダイアログが出る(finally での復元確認)
             host.File.TryOpenOrActivate(missing);
             Assert.Contains(host.Prompt.Log, e => e.Kind == "Error");
+        });
+
+    // ===== Task 5: RestoreLastSession(通常終了時に保存した LastSessionSnapshot を新タブへ復元) =====
+
+    [Fact]
+    public void RestoreLastSession_OpensPathTabs_ClosesInitialEmpty() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            using var tmp = new TempDir();
+            string p1 = tmp.File("a.txt");
+            string p2 = tmp.File("b.txt");
+            File2.WriteAllText(p1, "AAA");
+            File2.WriteAllText(p2, "BBB");
+            var initialEmpty = host.Docs.CreateNew();
+
+            var snap = new LastSessionSnapshot(
+                new List<SessionTabRecord>
+                {
+                    new(
+                        Path: p1,
+                        UntitledNumber: 0,
+                        BufferKey: null,
+                        IsActive: false,
+                        CaretLine: 0,
+                        CaretColumn: 0
+                    ),
+                    new(
+                        Path: p2,
+                        UntitledNumber: 0,
+                        BufferKey: null,
+                        IsActive: true,
+                        CaretLine: 0,
+                        CaretColumn: 2
+                    ),
+                }
+            );
+
+            var failed = host.File.RestoreLastSession(
+                snap,
+                new Dictionary<string, string>(),
+                initialEmpty
+            );
+
+            Assert.Empty(failed);
+            Assert.Equal(2, host.Docs.Count);
+            Assert.Equal(p2, host.Docs.Active!.State.Path);
+            Assert.Equal(
+                2,
+                host.Docs.Active!.Editor.GetColumn(host.Docs.Active!.Editor.CurrentPosition)
+            );
+        });
+
+    [Fact]
+    public void RestoreLastSession_FailedPathsAggregated_NoIndividualDialog() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            using var tmp = new TempDir();
+            string ok = tmp.File("ok.txt");
+            File2.WriteAllText(ok, "OK");
+            string missing = tmp.File("missing.txt");
+            var initialEmpty = host.Docs.CreateNew();
+
+            var snap = new LastSessionSnapshot(
+                new List<SessionTabRecord>
+                {
+                    new(missing, 0, null, false, 0, 0),
+                    new(ok, 0, null, true, 0, 0),
+                }
+            );
+            var failed = host.File.RestoreLastSession(
+                snap,
+                new Dictionary<string, string>(),
+                initialEmpty
+            );
+
+            Assert.Single(failed);
+            Assert.Equal(missing, failed[0]);
+            Assert.DoesNotContain(host.Prompt.Log, e => e.Kind == "Error");
+            Assert.Equal(1, host.Docs.Count);
+        });
+
+    [Fact]
+    public void RestoreLastSession_UntitledBufferMissing_SkipsRecord() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            var initialEmpty = host.Docs.CreateNew();
+
+            var snap = new LastSessionSnapshot(
+                new List<SessionTabRecord> { new(null, 1, "k1", true, 0, 0) }
+            );
+            var failed = host.File.RestoreLastSession(
+                snap,
+                new Dictionary<string, string>(),
+                initialEmpty
+            );
+
+            Assert.Empty(failed);
+            Assert.Equal(1, host.Docs.Count);
+            Assert.Same(initialEmpty, host.Docs.Documents[0]);
+        });
+
+    [Fact]
+    public void RestoreLastSession_UntitledContentPresent_RestoresContent_ModifiedFalse() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            var initialEmpty = host.Docs.CreateNew();
+
+            var snap = new LastSessionSnapshot(
+                new List<SessionTabRecord> { new(null, 2, "k1", true, 0, 4) }
+            );
+            var buffers = new Dictionary<string, string> { ["k1"] = "hello world" };
+
+            var failed = host.File.RestoreLastSession(snap, buffers, initialEmpty);
+
+            Assert.Empty(failed);
+            Assert.Equal(1, host.Docs.Count);
+            var doc = host.Docs.Active!;
+            Assert.Null(doc.State.Path);
+            Assert.Equal(2, doc.State.UntitledNumber);
+            Assert.Equal("hello world", doc.Editor.SnapshotText);
+            Assert.False(doc.Editor.Modified);
+            Assert.Equal(4, doc.Editor.GetColumn(doc.Editor.CurrentPosition));
+        });
+
+    [Fact]
+    public void RestoreLastSession_NothingRestored_KeepsInitialEmpty() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            using var tmp = new TempDir();
+            var initialEmpty = host.Docs.CreateNew();
+
+            var snap = new LastSessionSnapshot(
+                new List<SessionTabRecord>
+                {
+                    new(tmp.File("missing.txt"), 0, null, false, 0, 0),
+                    new(null, 1, "kx", false, 0, 0),
+                }
+            );
+            var failed = host.File.RestoreLastSession(
+                snap,
+                new Dictionary<string, string>(),
+                initialEmpty
+            );
+
+            Assert.Single(failed);
+            Assert.Equal(1, host.Docs.Count);
+            Assert.Same(initialEmpty, host.Docs.Documents[0]);
+        });
+
+    [Fact]
+    public void RestoreLastSession_CaretPosition_ClampsOutOfRange() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            var initialEmpty = host.Docs.CreateNew();
+
+            var snap = new LastSessionSnapshot(
+                new List<SessionTabRecord> { new(null, 1, "k1", true, 999, 999) }
+            );
+            var buffers = new Dictionary<string, string> { ["k1"] = "abc" };
+
+            host.File.RestoreLastSession(snap, buffers, initialEmpty);
+
+            var doc = host.Docs.Active!;
+            Assert.Equal(0, doc.Editor.CurrentLine);
+            Assert.Equal(3, doc.Editor.GetColumn(doc.Editor.CurrentPosition));
         });
 }

@@ -502,6 +502,85 @@ public sealed class FileController
     }
 
     /// <summary>
+    /// 通常終了時に保存した LastSessionSnapshot を新タブへ復元する。
+    /// - パスあり: TryOpenOrActivate(既存経路) で開く。失敗時は failedPaths に集約(単発ダイアログ抑止)。
+    /// - 無題タブ: BufferKey が buffers に無ければ skip(空タブを追加しない=設計書 §4 E4/E5)。
+    /// 復元タブが 1 個以上できた場合、ctor で作った initialEmpty(空無題タブ)を閉じる。
+    /// アクティブタブは IsActive=true のレコードに対応する doc。
+    /// 設計書 2026-07-23 §3.4。
+    /// </summary>
+    public IReadOnlyList<string> RestoreLastSession(
+        yEdit.Core.Session.LastSessionSnapshot snap,
+        IReadOnlyDictionary<string, string> buffers,
+        Document? initialEmpty
+    )
+    {
+        var failedPaths = new List<string>();
+        Document? activeDoc = null;
+        int openedCount = 0;
+
+        WithLoadErrorPromptSuppressed(() =>
+        {
+            foreach (var rec in snap.Tabs)
+            {
+                if (rec.Path is not null)
+                {
+                    var doc = TryOpenOrActivate(rec.Path);
+                    if (doc is null)
+                    {
+                        failedPaths.Add(rec.Path);
+                        continue;
+                    }
+                    doc.Editor.SetCaretByLineColumn(rec.CaretLine, rec.CaretColumn);
+                    openedCount++;
+                    if (rec.IsActive)
+                        activeDoc = doc;
+                }
+                else
+                {
+                    // 無題タブ: BufferKey 未指定 or store から欠落 → skip(空タブを追加しない)
+                    if (
+                        rec.BufferKey is null
+                        || !buffers.TryGetValue(rec.BufferKey, out var content)
+                    )
+                        continue;
+                    var doc = RestoreUntitledTab(rec, content);
+                    openedCount++;
+                    if (rec.IsActive)
+                        activeDoc = doc;
+                }
+            }
+        });
+
+        if (activeDoc is not null)
+            _docs.Activate(activeDoc);
+        if (openedCount > 0 && initialEmpty is not null)
+            _docs.TryClose(initialEmpty, _ => true); // 空無題タブは無条件破棄
+        _metaChanged();
+        return failedPaths;
+    }
+
+    private Document RestoreUntitledTab(yEdit.Core.Session.SessionTabRecord rec, string content)
+    {
+        var s = _settings();
+        var doc = _docs.CreateNew();
+        doc.State.Path = null;
+        doc.State.UntitledNumber = rec.UntitledNumber > 0 ? rec.UntitledNumber : ++_untitledSeq;
+        if (rec.UntitledNumber > _untitledSeq)
+            _untitledSeq = rec.UntitledNumber; // 以後の新規無題と衝突しないよう連番を追従
+        doc.State.Encoding = EncodingCatalog.Get(s.DefaultCodePage);
+        doc.State.HasBom = false;
+        doc.State.LineEnding = (LineEnding)s.DefaultLineEnding;
+        doc.Editor.SetOrReplaceSource(TextBuffer.FromString(content));
+        ApplyEol(doc);
+        doc.Editor.EmptyUndoBuffer();
+        doc.Editor.SetSavePoint(); // Modified=false で開始(通常終了時の状態を再現)
+        doc.Editor.SetCaretByLineColumn(rec.CaretLine, rec.CaretColumn);
+        DocumentManager.UpdateLabel(doc);
+        return doc;
+    }
+
+    /// <summary>
     /// action の実行中だけ LoadInto と TryProbeReachability の catch 内 _prompt.Error を抑止する。
     /// Task 5 で追加する RestoreLastSession が失敗パスを集約通知するために使う seam。
     /// finally で必ず復元し、nested 呼び出しでも安全(prev の保存 → 復元)。

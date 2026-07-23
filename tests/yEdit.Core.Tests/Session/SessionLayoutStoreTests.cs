@@ -174,14 +174,79 @@ public class SessionLayoutStoreTests
     }
 
     [Fact]
-    public void Load_OversizeFile_ReturnsNull()
+    public void Load_OversizeFile_ReturnsNull_EvenIfValidJson()
     {
         string path = TempPath();
         try
         {
-            // 4 MB cap 超過は読まずに null(stale/攻撃 JSON の遮断)。
-            File.WriteAllBytes(path, new byte[SessionLayoutStore.MaxLoadFileSizeBytes + 1]);
+            // Task 1 レビュー: パース失敗で緑になる入力(ゼロ埋め等)では cap 除去の変異が
+            // 生き残る。JSON 末尾空白は合法=cap がなければパース成功する入力で cap 自体を固定する。
+            SessionLayoutStore.Save(
+                path,
+                new SessionLayout(
+                    new List<SessionLayoutRecord> { Rec(path: @"C:\a\ok.txt") },
+                    DateTime.UtcNow
+                )
+            );
+            File.AppendAllText(path, new string(' ', (int)SessionLayoutStore.MaxLoadFileSizeBytes));
             Assert.Null(SessionLayoutStore.Load(path));
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_TrailingWhitespace_WithinCap_StillLoads()
+    {
+        string path = TempPath();
+        try
+        {
+            // 上の oversize テストの前提確認: 末尾空白パディング自体は Deserialize を壊さない
+            // (=oversize テストを落とすのは size cap だけ、を保証する)。
+            SessionLayoutStore.Save(
+                path,
+                new SessionLayout(
+                    new List<SessionLayoutRecord> { Rec(path: @"C:\a\ok.txt") },
+                    DateTime.UtcNow
+                )
+            );
+            File.AppendAllText(path, new string(' ', 1024));
+            var loaded = SessionLayoutStore.Load(path);
+            Assert.NotNull(loaded);
+            Assert.Single(loaded.Tabs);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_AppliesNormalize_ToNonNormalizedFile()
+    {
+        string path = TempPath();
+        try
+        {
+            // Task 1 レビュー: Load→Normalize の結線を公開 API 経由で固定する(結線を外す変異が
+            // Normalize 直接テストだけでは生き残るため)。重複 BackupId+複数 IsActive の 2 防御で検証。
+            string dup = NewBackupId();
+            var tabs = new List<SessionLayoutRecord>
+            {
+                Rec(backupId: dup, isActive: true),
+                Rec(backupId: dup, isActive: true),
+            };
+            SessionLayoutStore.Save(path, new SessionLayout(tabs, DateTime.UtcNow));
+            var loaded = SessionLayoutStore.Load(path);
+            Assert.NotNull(loaded);
+            Assert.Equal(2, loaded.Tabs.Count);
+            Assert.Equal(dup, loaded.Tabs[0].BackupId);
+            Assert.Null(loaded.Tabs[1].BackupId); // 重複 demote が Load 経由でも効く
+            Assert.True(loaded.Tabs[0].IsActive);
+            Assert.False(loaded.Tabs[1].IsActive); // active 単一化が Load 経由でも効く
         }
         finally
         {
@@ -320,6 +385,9 @@ public class SessionLayoutStoreTests
     [InlineData("../evil")] // パストラバーサル形
     [InlineData("ABCDEF00112233445566778899AABBCC")] // 大文字 hex(自プロセスは必ず lowercase)
     [InlineData("0123456789abcdef0123456789abcdef0")] // 33 桁(長さ不正)
+    [InlineData(" 0123456789abcdef0123456789abcdef")] // 先頭半角空白(TryParseExact の Trim 対策)
+    [InlineData("0123456789abcdef0123456789abcdef\n")] // 末尾 LF
+    [InlineData("　0123456789abcdef0123456789abcdef")] // 先頭全角空白 (U+3000)
     public void Normalize_InvalidBackupId_IsNulled(string invalidId)
     {
         var tabs = new List<SessionLayoutRecord> { Rec(backupId: invalidId) };

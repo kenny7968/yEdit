@@ -1,6 +1,7 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using yEdit.Core.Backup;
+using yEdit.Core.Text;
 
 namespace yEdit.Core.Session;
 
@@ -79,7 +80,15 @@ public static class SessionLayoutStore
                 continue;
             string? backupId = t.BackupId;
             if (backupId is not null && !BackupIdValidator.IsValid(backupId))
+            {
+                // 設計 §2.3: 不正 Id は null 化+トレース(MaxTabs 切り詰めと対称)。生 Id は
+                // 攻撃者制御下(改行=ログ行偽装・BiDi・長大文字列)のため OneLine で無害化して載せる。
+                System.Diagnostics.Trace.TraceWarning(
+                    "yEdit: session-layout-invalid-backup-id ({0})",
+                    SanitizeForDisplay.OneLine(backupId, 200)
+                );
                 backupId = null; // 不正 Id はパストラバーサル痕跡の可能性 → 参照ごと捨てる
+            }
             if (backupId is not null && !seenIds.Add(backupId))
                 backupId = null; // 1 バックアップ 1 タブの不変(重複参照は 2 個目以降を demote)
             bool isActive = t.IsActive && !activeSeen;

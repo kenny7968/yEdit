@@ -920,7 +920,11 @@ public sealed partial class MainForm : Form
         _settings = dlg.Result; // Result は取得のたびに組み立てるため一度だけ読む
         foreach (var doc in _docs.Documents)
             EditorAppearance.Apply(doc.Editor, _settings);
-        _backup.UpdateSettings(_settings.BackupEnabled, _settings.BackupIntervalSeconds);
+        _backup.UpdateSettings(
+            _settings.BackupEnabled,
+            _settings.BackupIntervalSeconds,
+            _settings.RestoreOpenFilesOnStartup
+        );
         SaveSettingsSafe();
         _announcer.Say("設定を適用しました");
     }

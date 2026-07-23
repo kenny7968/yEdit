@@ -1,6 +1,7 @@
 using System.IO;
 using yEdit.App.Tests.Fakes;
 using yEdit.Core.Backup;
+using yEdit.Core.Session;
 
 namespace yEdit.App.Tests;
 
@@ -32,10 +33,15 @@ public class BackupCoordinatorTests
         /// (test で Ctor_GeneratesUniqueSessionDir_PerInstance が観測する)。</summary>
         public string? CapturedSessionDir;
 
+        /// <summary>hot exit 統合(Task 3): session-state.json のテスト用パス(TempDir 配下に隔離)。
+        /// 既定 DefaultPath(%APPDATA%)へ実 I/O が漏れないよう Host は常に明示注入する。</summary>
+        public string LayoutPath { get; }
+
         public Host(
             bool enabled = true,
             int intervalSeconds = 30,
-            int? maxBackupCharsOverride = null
+            int? maxBackupCharsOverride = null,
+            bool restoreSessionEnabled = false
         )
         {
             var (form, docs) = HostForm.CreateWithDocs();
@@ -48,6 +54,7 @@ public class BackupCoordinatorTests
                 "yEdit-Stage5-" + Guid.NewGuid().ToString("N")
             );
             Directory.CreateDirectory(TempDir);
+            LayoutPath = Path.Combine(TempDir, "session-state.json");
             // Task 1b: 既定引数(traceSink=null)経路は本番既定 = DebugBackupTraceSink。
             // ここでは FakeBackupTraceSink を注入して catch{} の trace 発火を assert 可能にする。
             // BK-M-2: factory シグニチャは Func<string, IBackupWriter>=session dir を受け取る。
@@ -66,7 +73,9 @@ public class BackupCoordinatorTests
                 Prompt,
                 TempDir,
                 Trace,
-                maxBackupCharsOverride
+                maxBackupCharsOverride,
+                restoreSessionEnabled,
+                LayoutPath
             );
         }
 
@@ -1006,5 +1015,367 @@ public class BackupCoordinatorTests
             Assert.Equal("backup-content-skipped", warn.Category);
             Assert.DoesNotContain("\u202E", warn.Detail, StringComparison.Ordinal); // RLO drop
             Assert.Contains("evil", warn.Detail, StringComparison.Ordinal);
+        });
+
+    // ===== hot exit \u7D71\u5408 Task 3(\u8A2D\u8A08 2026-07-23 \u00A73.1): \u30EC\u30A4\u30A2\u30A6\u30C8\u5B9A\u671F\u9000\u907F =====
+    //
+    // \u6CE8\u610F: restoreSessionEnabled=true \u3067\u306F NewDoc(CreateNew)\u306E ActiveDocumentChanged \u3067\u3082
+    // Reconcile\u2192\u30EC\u30A4\u30A2\u30A6\u30C8\u66F8\u8FBC\u304C\u8D70\u308B\u305F\u3081\u3001\u66F8\u8FBC\u300C\u56DE\u6570\u300D\u306E\u53B3\u5BC6\u56FA\u5B9A\u306F\u305B\u305A\u3001
+    // \u300C\u5897\u3048\u308B/\u5897\u3048\u306A\u3044\u300D\u306E\u5DEE\u5206\u3068\u6700\u7D42\u66F8\u8FBC([^1])\u306E\u5185\u5BB9\u3067 assert \u3059\u308B\u3002
+
+    [Fact]
+    public void Reconcile_RestoreSessionEnabled_WritesLayout_MatchingCurrentDocs() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host(restoreSessionEnabled: true);
+            var dirty = host.NewDoc("hello");
+            var clean = host.NewDoc("world", dirty: false);
+
+            host.Backup.Reconcile();
+
+            Assert.NotEmpty(host.Writer.LayoutWrites);
+            Assert.Equal(host.LayoutPath, host.Writer.LayoutWritePaths[^1]); // \u6CE8\u5165 path \u3078\u66F8\u304F
+            var layout = host.Writer.LayoutWrites[^1];
+            Assert.Equal(2, layout.Tabs.Count); // \u30BF\u30D6\u9806=Documents \u9806
+            var t0 = layout.Tabs[0];
+            var t1 = layout.Tabs[1];
+            // dirty \u7121\u984C: BackupId=_map \u306E Id(\u672C\u6587\u30D0\u30C3\u30AF\u30A2\u30C3\u30D7\u3068\u540C\u3058 Id \u3092\u53C2\u7167)
+            Assert.Null(t0.Path);
+            Assert.Equal(dirty.State.UntitledNumber, t0.UntitledNumber);
+            Assert.Equal(host.Writer.Writes.Single().Id, t0.BackupId);
+            Assert.False(t0.IsActive);
+            Assert.Equal(dirty.Editor.CurrentLine, t0.CaretLine);
+            Assert.Equal(dirty.Editor.GetColumn(dirty.Editor.CurrentPosition), t0.CaretColumn);
+            Assert.Equal((int)dirty.State.LineEnding, t0.LineEnding);
+            // clean \u7121\u984C: BackupId=null(\u672C\u6587\u30D0\u30C3\u30AF\u30A2\u30C3\u30D7\u306A\u3057)\u30FB\u6700\u5F8C\u306B\u4F5C\u3063\u305F doc \u304C\u30A2\u30AF\u30C6\u30A3\u30D6
+            Assert.Null(t1.BackupId);
+            Assert.Equal(clean.State.UntitledNumber, t1.UntitledNumber);
+            Assert.True(t1.IsActive);
+        });
+
+    [Fact]
+    public void Reconcile_LayoutUnchanged_DoesNotRewrite() =>
+        Sta.Run(() =>
+        {
+            // Stage 6 \u6559\u8A13: no-change \u306F\u975E\u65E2\u5B9A\u72B6\u614B(\u30BF\u30D6 1 \u500B\u30FBdirty)\u304B\u3089\u691C\u8A3C\u3092\u59CB\u3081\u308B\u3002
+            using var host = new Host(restoreSessionEnabled: true);
+            host.NewDoc("hello");
+            host.Backup.Reconcile(); // \u5148\u306B 1 \u56DE\u66F8\u304B\u305B\u308B
+            int before = host.Writer.LayoutWrites.Count;
+            Assert.True(before >= 1); // sanity: \u975E\u65E2\u5B9A\u72B6\u614B
+
+            host.Backup.Reconcile(); // \u5909\u5316\u306A\u3057=\u7F72\u540D\u4E00\u81F4
+
+            Assert.Equal(before, host.Writer.LayoutWrites.Count);
+        });
+
+    [Fact]
+    public void Reconcile_TabAdded_RewritesLayout() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host(restoreSessionEnabled: true);
+            host.NewDoc("A");
+            host.Backup.Reconcile();
+            int before = host.Writer.LayoutWrites.Count;
+
+            _ = host.Docs.CreateNew(); // \u30BF\u30D6\u8FFD\u52A0(ActiveDocumentChanged \u2192 Reconcile)
+
+            Assert.True(host.Writer.LayoutWrites.Count > before);
+            Assert.Equal(2, host.Writer.LayoutWrites[^1].Tabs.Count);
+        });
+
+    [Fact]
+    public void Reconcile_ActiveSwitched_RewritesLayout() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host(restoreSessionEnabled: true);
+            var d1 = host.NewDoc("A");
+            _ = host.NewDoc("B");
+            host.Backup.Reconcile();
+            int before = host.Writer.LayoutWrites.Count;
+
+            host.Docs.Activate(d1); // \u30A2\u30AF\u30C6\u30A3\u30D6\u5207\u66FF(ActiveDocumentChanged \u2192 Reconcile)
+
+            Assert.True(host.Writer.LayoutWrites.Count > before);
+            var last = host.Writer.LayoutWrites[^1];
+            Assert.True(last.Tabs[0].IsActive);
+            Assert.False(last.Tabs[1].IsActive);
+        });
+
+    [Fact]
+    public void Reconcile_CaretMoved_RewritesLayout() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host(restoreSessionEnabled: true);
+            var doc = host.NewDoc("hello\nworld");
+            host.Backup.Reconcile();
+            int before = host.Writer.LayoutWrites.Count;
+
+            doc.Editor.SetCaretByLineColumn(1, 2);
+            host.Backup.Reconcile();
+
+            Assert.True(host.Writer.LayoutWrites.Count > before);
+            var t = host.Writer.LayoutWrites[^1].Tabs[0];
+            Assert.Equal(1, t.CaretLine);
+            Assert.Equal(2, t.CaretColumn);
+        });
+
+    [Fact]
+    public void Reconcile_RestoreSessionDisabled_NeverWritesLayout() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host(); // restoreSessionEnabled \u65E2\u5B9A false
+            host.NewDoc("hello");
+
+            host.Backup.Reconcile();
+
+            Assert.NotEmpty(host.Writer.Writes); // \u5BFE\u7167: \u672C\u6587\u30D0\u30C3\u30AF\u30A2\u30C3\u30D7\u306F\u5F93\u6765\u3069\u304A\u308A\u66F8\u304B\u308C\u308B
+            Assert.Empty(host.Writer.LayoutWrites); // \u30EC\u30A4\u30A2\u30A6\u30C8\u306F\u4E00\u5207\u66F8\u304B\u308C\u306A\u3044(\u6319\u52D5\u4E0D\u5909)
+        });
+
+    [Fact]
+    public void LayoutOnlyMode_BackupDisabled_WritesLayoutWithoutContent() =>
+        Sta.Run(() =>
+        {
+            // \u8A2D\u8A08 \u00A75.2 OFF\u00D7ON: \u672C\u6587\u306F\u9000\u907F\u3057\u306A\u3044(\u30E6\u30FC\u30B6\u30FC\u610F\u601D\u306E\u5C0A\u91CD)\u304C\u30EC\u30A4\u30A2\u30A6\u30C8\u306F\u5B9A\u671F\u9000\u907F\u3059\u308B\u3002
+            using var host = new Host(enabled: false, restoreSessionEnabled: true);
+            Assert.Equal(1, host.WriterFactoryCalls); // writer \u306F\u751F\u6210\u3055\u308C\u308B
+            Assert.True(host.Backup.TimerEnabled); // timer \u3082\u8D77\u52D5\u3059\u308B
+            host.NewDoc("hello"); // dirty \u3060\u304C\u672C\u6587\u306F\u66F8\u304B\u308C\u306A\u3044
+
+            host.Backup.Reconcile();
+
+            Assert.Empty(host.Writer.Writes); // \u672C\u6587\u30D0\u30C3\u30AF\u30A2\u30C3\u30D7\u306A\u3057
+            Assert.NotEmpty(host.Writer.LayoutWrites);
+            var tab = Assert.Single(host.Writer.LayoutWrites[^1].Tabs);
+            Assert.Null(tab.BackupId); // _map \u672A\u767B\u9332(_enabled=false)=BackupId \u306F\u5E38\u306B null
+        });
+
+    [Fact]
+    public void FailedLayoutWrite_ForcesRewrite_NextReconcile() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host(enabled: false, restoreSessionEnabled: true);
+            var doc = host.NewDoc("hello");
+            host.Backup.Reconcile(); // \u6210\u529F\u66F8\u8FBC(\u975E\u65E2\u5B9A\u72B6\u614B\u3092\u4F5C\u308B)
+            int before = host.Writer.LayoutWrites.Count;
+            Assert.True(before >= 1);
+
+            host.Writer.FailNextLayoutWrite = true;
+            doc.Editor.SetCaretByLineColumn(0, 3); // \u7F72\u540D\u5909\u5316 \u2192 \u66F8\u8FBC\u8A66\u884C
+            host.Backup.Reconcile(); // \u5931\u6557(\u8A18\u9332\u3055\u308C\u305A OnLayoutWriteFailed \u304C\u540C\u671F\u767A\u706B)
+            Assert.Equal(before, host.Writer.LayoutWrites.Count);
+
+            host.Backup.Reconcile(); // \u5931\u6557\u901A\u77E5 \u2192 \u7F72\u540D\u4E00\u81F4\u3067\u3082\u5F37\u5236\u518D\u66F8\u8FBC
+
+            Assert.Equal(before + 1, host.Writer.LayoutWrites.Count);
+            Assert.Equal(3, host.Writer.LayoutWrites[^1].Tabs[0].CaretColumn); // \u5931\u6557\u5206\u306E\u72B6\u614B\u304C\u66F8\u304B\u308C\u308B
+        });
+
+    [Fact]
+    public void FinalFlushForRestore_FlushesPendingContent_AndWritesLayoutUnconditionally() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host(restoreSessionEnabled: true);
+            var doc = host.NewDoc("hello");
+            host.Backup.Reconcile();
+            int contentBefore = host.Writer.Writes.Count;
+            int layoutBefore = host.Writer.LayoutWrites.Count;
+
+            // \u672A\u9000\u907F\u306E dirty \u5909\u66F4(Reconcile \u3092\u631F\u307E\u306A\u3044=hot exit \u76F4\u524D\u306E\u7DE8\u96C6\u3092\u6A21\u3059)
+            doc.Editor.Text = "hello world";
+            doc.Editor.ClearSavePoint();
+            host.Backup.FinalFlushForRestore();
+
+            Assert.Equal(contentBefore + 1, host.Writer.Writes.Count); // \u672A\u9000\u907F\u5206\u3092 flush
+            Assert.Equal("hello world", host.Writer.Writes[^1].Content);
+            Assert.True(host.Writer.LayoutWrites.Count > layoutBefore);
+
+            // \u7F72\u540D\u4E0D\u5909\u3067\u3082\u5F37\u5236\u66F8\u8FBC(force: true \u306E pin)
+            int layoutAfter = host.Writer.LayoutWrites.Count;
+            host.Backup.FinalFlushForRestore();
+            Assert.Equal(layoutAfter + 1, host.Writer.LayoutWrites.Count);
+            Assert.Equal(contentBefore + 1, host.Writer.Writes.Count); // \u672C\u6587\u306F sig \u5224\u5B9A\u3069\u304A\u308A\u5897\u3048\u306A\u3044
+        });
+
+    [Fact]
+    public void Shutdown_KeepForRestore_KeepsBackupsAndLayout() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host(restoreSessionEnabled: true);
+            _ = host.NewDoc("one");
+            _ = host.NewDoc("two");
+            host.Backup.Reconcile();
+            Assert.True(host.Writer.Writes.Count >= 2); // sanity: \u7BA1\u7406\u5206 HasBackup=true
+
+            host.Backup.Shutdown(keepForRestore: true);
+
+            Assert.Empty(host.Writer.Deletes); // \u81EA\u30BB\u30C3\u30B7\u30E7\u30F3\u5206\u306E\u524A\u9664\u3092\u6295\u5165\u3057\u306A\u3044
+            Assert.Equal(0, host.Writer.LayoutDeletes); // session-state.json \u3082\u6B8B\u3059
+            Assert.Equal(1, host.Writer.DisposeCount); // \u30C9\u30EC\u30A4\u30F3\u306F\u3059\u308B
+        });
+
+    [Fact]
+    public void Shutdown_Default_DeletesBackups_AndQueuesDeleteLayout() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host(restoreSessionEnabled: true);
+            _ = host.NewDoc("one");
+            host.Backup.Reconcile();
+
+            host.Backup.Shutdown(); // \u65E2\u5B9A keepForRestore=false=\u73FE\u884C\u306E\u30AF\u30EA\u30FC\u30F3\u7D42\u4E86\u524A\u9664
+
+            Assert.Single(host.Writer.Deletes);
+            Assert.Equal(1, host.Writer.LayoutDeletes); // stale \u30EC\u30A4\u30A2\u30A6\u30C8\u3092\u6B8B\u3055\u306A\u3044
+            Assert.Equal(1, host.Writer.DisposeCount);
+        });
+
+    [Fact]
+    public void Shutdown_WithoutWriter_DeletesLayoutFileDirectly() =>
+        Sta.Run(() =>
+        {
+            // \u4E21\u6A5F\u80FD OFF=writer \u672A\u751F\u6210\u3067\u3082\u3001\u904E\u53BB ON \u30BB\u30C3\u30B7\u30E7\u30F3\u306E\u6B8B\u9AB8 session-state.json \u3092\u76F4\u63A5\u6D88\u3059\u3002
+            using var host = new Host(enabled: false);
+            File.WriteAllText(host.LayoutPath, "{}"); // \u6B8B\u9AB8\u3092\u6A21\u3059
+
+            host.Backup.Shutdown();
+
+            Assert.Equal(0, host.WriterFactoryCalls); // writer \u306F\u751F\u6210\u3055\u308C\u306A\u3044\u307E\u307E
+            Assert.False(File.Exists(host.LayoutPath)); // SessionLayoutStore.Delete \u76F4\u547C\u3073\u3067\u6383\u9664
+        });
+
+    [Fact]
+    public void UpdateSettings_EnableRestoreSession_WritesLayoutImmediately() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host(); // restore=false \u8D77\u52D5
+            host.NewDoc("hello");
+            host.Backup.Reconcile();
+            Assert.NotEmpty(host.Writer.Writes); // \u975E\u65E2\u5B9A\u72B6\u614B: \u672C\u6587\u306F\u3042\u308B\u304C\u30EC\u30A4\u30A2\u30A6\u30C8\u306F\u306A\u3044
+            Assert.Empty(host.Writer.LayoutWrites);
+
+            host.Backup.UpdateSettings(true, 30, restoreSessionEnabled: true);
+
+            Assert.NotEmpty(host.Writer.LayoutWrites); // \u5207\u66FF\u76F4\u5F8C\u306E\u5373 Reconcile \u3067\u66F8\u304B\u308C\u308B
+            Assert.Single(host.Writer.LayoutWrites[^1].Tabs);
+        });
+
+    [Fact]
+    public void UpdateSettings_RestoreOffToOn_ForcesRewrite_EvenIfSignatureUnchanged() =>
+        Sta.Run(() =>
+        {
+            // ON\u2192OFF\u2192ON \u3067\u72B6\u614B\u304C\u5909\u308F\u3089\u306A\u304F\u3066\u3082\u3001OFF \u4E2D\u306B stale \u5316\u3057\u305F\u53EF\u80FD\u6027\u304C\u3042\u308B\u305F\u3081\u5F37\u5236\u66F8\u8FBC\u3059\u308B
+            // (_layoutForceWrite \u306E OFF\u2192ON \u9077\u79FB pin\u3002\u843D\u3068\u3059\u5909\u7570\u306F\u3053\u3053\u3067\u8D64\u5316)\u3002
+            using var host = new Host(restoreSessionEnabled: true);
+            host.NewDoc("hello");
+            host.Backup.Reconcile();
+            int before = host.Writer.LayoutWrites.Count;
+
+            host.Backup.UpdateSettings(true, 30, restoreSessionEnabled: false); // ON\u2192OFF
+            Assert.Equal(before, host.Writer.LayoutWrites.Count); // OFF \u4E2D\u306F\u66F8\u304B\u306A\u3044
+
+            host.Backup.UpdateSettings(true, 30, restoreSessionEnabled: true); // OFF\u2192ON
+
+            Assert.Equal(before + 1, host.Writer.LayoutWrites.Count); // \u7F72\u540D\u4E00\u81F4\u3067\u3082\u66F8\u304F
+        });
+
+    // ===== hot exit \u7D71\u5408 Task 3(\u8A2D\u8A08 \u00A73.3/\u00A73.4): \u7D71\u5408\u5FA9\u5143 API =====
+
+    [Fact]
+    public void CollectForSilentRestore_ReturnsLayoutAndBackups_EvenWhenBackupDisabled() =>
+        Sta.Run(() =>
+        {
+            // \u8A2D\u8A08 \u00A75.2: \u30D0\u30C3\u30AF\u30A2\u30C3\u30D7\u7121\u52B9(_enabled=false)\u3067\u3082\u52D5\u304F=OfferRestoreOnStartup \u306E
+            // _enabled \u30AC\u30FC\u30C9\u3068\u306F\u72EC\u7ACB(\u30EC\u30A4\u30A2\u30A6\u30C8\u306E\u307F\u5FA9\u5143\u30E2\u30FC\u30C9)\u3002
+            using var host = new Host(enabled: false);
+            var planted = new SessionLayout(
+                new List<SessionLayoutRecord>
+                {
+                    new(
+                        Path: "C:\\data\\a.txt",
+                        UntitledNumber: 0,
+                        BackupId: null,
+                        IsActive: true,
+                        CaretLine: 3,
+                        CaretColumn: 5,
+                        LineEnding: 0
+                    ),
+                },
+                FixedNow.UtcDateTime
+            );
+            SessionLayoutStore.Save(host.LayoutPath, planted);
+            PlantBackup(host.TempDir, Rec("r1", "one"));
+
+            var (layout, backups) = host.Backup.CollectForSilentRestore();
+
+            Assert.NotNull(layout);
+            var tab = Assert.Single(layout!.Tabs);
+            Assert.Equal("C:\\data\\a.txt", tab.Path);
+            Assert.True(tab.IsActive);
+            Assert.Equal(3, tab.CaretLine);
+            Assert.Equal(5, tab.CaretColumn);
+            var bk = Assert.Single(backups);
+            Assert.Equal(HashId("r1"), bk.Id);
+            Assert.Equal("one", bk.Content);
+        });
+
+    [Fact]
+    public void DeleteConsumedLayout_RemovesLayoutFile() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host(enabled: false);
+            SessionLayoutStore.Save(
+                host.LayoutPath,
+                new SessionLayout(new List<SessionLayoutRecord>(), FixedNow.UtcDateTime)
+            );
+            Assert.True(File.Exists(host.LayoutPath)); // sanity
+
+            host.Backup.DeleteConsumedLayout();
+
+            Assert.False(File.Exists(host.LayoutPath));
+        });
+
+    [Fact]
+    public void AdoptRestored_RegistersMap_AndMovesFileToOwnSessionDir() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            var rec = Rec("adopt", "boom");
+            var oldDir = Path.Combine(host.TempDir, "session-old");
+            Directory.CreateDirectory(oldDir);
+            BackupStore.Write(oldDir, rec); // \u65E7\u30BB\u30C3\u30B7\u30E7\u30F3 dir \u306E\u6D88\u8CBB\u6E08\u307F\u30D0\u30C3\u30AF\u30A2\u30C3\u30D7\u3092\u6A21\u3059
+            var doc = host.NewDoc("boom");
+
+            host.Backup.AdoptRestored(doc, rec);
+
+            // adopt-move: \u65E7 dir \u2192 \u81EA\u30BB\u30C3\u30B7\u30E7\u30F3 dir \u3078\u79FB\u52D5\u3057\u3001\u7A7A\u306B\u306A\u3063\u305F\u65E7 dir \u306F\u6383\u9664\u3055\u308C\u308B
+            Assert.True(
+                File.Exists(Path.Combine(host.CapturedSessionDir!, rec.Id + ".json")),
+                "moved file should exist in own session dir"
+            );
+            Assert.False(Directory.Exists(oldDir));
+            Assert.Empty(host.Trace.Warnings); // \u6210\u529F\u6642\u306F trace \u306A\u3057
+
+            // _map \u767B\u9332: \u4EE5\u5F8C\u306E clean \u5316\u3067\u5143 Id \u306E Delete \u304C\u98DB\u3076(\u5143 Id \u5F15\u304D\u7D99\u304E\u306E\u8A3C\u660E)
+            doc.Editor.SetSavePoint();
+            host.Backup.Reconcile();
+            Assert.Contains(rec.Id, host.Writer.Deletes);
+        });
+
+    [Fact]
+    public void AdoptRestored_FileMissing_TracesAdoptMoveMissed() =>
+        Sta.Run(() =>
+        {
+            // \u79FB\u52D5\u5931\u6557(\u3069\u3053\u306B\u3082\u7121\u3044)\u306F trace \u306E\u307F\u3067\u7D9A\u884C=\u6700\u60AA\u3067\u3082\u5F93\u6765\u540C\u69D8\u306E\u518D\u63D0\u6848\u306B\u9000\u5316\u3059\u308B\u3060\u3051\u3002
+            using var host = new Host();
+            var rec = Rec("missing", "x");
+            var doc = host.NewDoc("x");
+
+            host.Backup.AdoptRestored(doc, rec);
+
+            var warn = Assert.Single(host.Trace.Warnings);
+            Assert.Equal("adopt-move-missed", warn.Category);
+            Assert.Null(warn.Ex);
+            Assert.Equal(rec.Id, warn.Detail); // \u6B63\u5F53\u306A GUID N \u306F sanitize \u4E0D\u5909
         });
 }

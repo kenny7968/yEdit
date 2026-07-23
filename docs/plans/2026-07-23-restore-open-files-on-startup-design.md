@@ -399,3 +399,172 @@ CLAUDE.md §5 の判定基準「SR 経路に触れる変更は必須」に対し
 - **(Task 7 review Minor-1)** `MainForm.ShowFailedRestoreDialog` の本文組立(Cap=10・「他 N 件」・SanitizeForDisplay.OneLine)を純関数 `BuildFailedRestoreBody(IReadOnlyList<string>)` に切り出し、境界(count=1/10/11/100)+RLO/LF injection 入力でユニットテストする。現状 Task 4 のダイアログ抑止 seam で表示自体は避けているため body の mutation 検知経路がない(fix はスタイル+防御性の double-check)。
 - **(Task 7 review Minor-3)** 前回タブ復元時の SR 通知(バックアップ復元と同型の「前回のタブを N 件復元しました」)。yEdit は SR 対応が第一級のため、復元後の状況把握を助けるためのアナウンスを検討する(Minor-3 と既存の同旨申し送りを統合)。
 - **(Task 7 review Minor-5)** `TryRestoreLastSession` の post-loop 経路(`_docs.Activate` / `_docs.TryClose(initialEmpty)` / `_metaChanged`)で例外が出た場合、`LastSessionBuffersStore.Delete` が実行されず buffers.json + settings.json.LastSession が両方残留=次回起動でも同じ復元を試行する。design §4 E8 の "best-effort 通常起動フォールバック" 範囲内だが、deterministic bug の場合の infinite retry を避けるため `Delete` を `finally` へ移すか、catch 側でも呼ぶ改修を検討。
+
+## 8. 補遺(2026-07-23 実機検証 後): dirty タブの silent 復元
+
+### 8.1 動機
+
+実機検証で以下が判明:
+- 設定 ON でも close 時に dirty タブは Yes/No/Cancel 確認が出る。No 選択で新規タブが silent 消失。
+- 現行 §3.1 追記(I-1)は「明示 No した本文の silent 復活」を避ける保守的方針だったが、ユーザーが期待する動作は「設定 ON = 未保存確認を出さず・次回起動時に同じ状態を silent 復元」(=IDE の "restore workspace on exit" 型)。
+
+### 8.2 挙動変更(§3.1 / §3.2 / §3.4 の差分)
+
+**OnFormClosing(§3.1 差替)**:
+
+```
+if (_settings.RestoreOpenFilesOnStartup) {
+    // Pre-check: 全 dirty タブが cap 内に収まるか
+    if (WillDirtyContentFitInCaps()) {
+        // silent close: 未保存確認を一切出さない
+        var (snap, buffers) = BuildLastSessionSnapshot();
+        _settings.LastSession = snap;
+        SaveLastSessionBuffersSafe(buffers);
+        SaveSettingsSafe();
+        base.OnFormClosing(e);
+        return;
+    }
+    // cap 超過 → all-or-nothing で従来経路へ fall through
+}
+// 従来経路: 全 dirty タブに ConfirmDiscardIfDirty
+foreach (var doc in _docs.Documents.ToArray()) {
+    if (!doc.Editor.Modified) continue;
+    _docs.Activate(doc);
+    if (!_file.ConfirmDiscardIfDirty(doc)) {
+        e.Cancel = true;
+        _grep.CancelClose();
+        base.OnFormClosing(e);
+        return;
+    }
+}
+// ここに来た時点で dirty はすべて処理済み(保存 or 破棄)
+if (_settings.RestoreOpenFilesOnStartup) {
+    var (snap, buffers) = BuildLastSessionSnapshot();  // cap OK が保証されている(dirty 消化済)
+    _settings.LastSession = snap;
+    SaveLastSessionBuffersSafe(buffers);
+} else {
+    _settings.LastSession = null;
+    DeleteLastSessionBuffersSafe();
+}
+SaveSettingsSafe();
+base.OnFormClosing(e);
+```
+
+**BuildLastSessionSnapshot(§3.1 追記 I-1 撤回)**:
+- 「dirty 無題タブは skip」ロジックを撤去。すべての dirty タブ(パスあり+無題)の本文を `buffers` に含める。
+- `WillDirtyContentFitInCaps()` は snapshot 構築の pre-check として同ロジック(per-tab 1M chars + total 15M chars)を dry-run する。
+
+**SessionTabRecord 拡張**:
+
+```csharp
+public sealed record SessionTabRecord(
+    string? Path,
+    int UntitledNumber,
+    string? BufferKey,
+    bool IsActive,
+    int CaretLine,
+    int CaretColumn,
+    // ↓ §8 追加
+    int CodePage,      // 保存時の Encoding.CodePage(0=未指定/既定)。dirty パスありの復元で使用
+    bool HasBom,       // 保存時の BOM 有無。dirty パスありの復元で使用
+    int LineEnding,    // 保存時の LineEnding enum。dirty パスありの復元で使用
+    bool WasModified   // 保存時の Modified フラグ。復元後の Modified 制御に使用
+);
+```
+
+**RestoreLastSession(§3.4 差替の骨子)**:
+
+```csharp
+foreach (var rec in snap.Tabs) {
+    if (rec.Path is not null && rec.BufferKey is not null
+        && buffers.TryGetValue(rec.BufferKey, out var content))
+    {
+        // dirty パスあり: TryOpenOrActivate せず、CreateNew で dirty オーバーレイ復元
+        var doc = RestorePathDirty(rec, content);
+        openedCount++;
+        if (rec.IsActive) activeDoc = doc;
+    }
+    else if (rec.Path is not null) {
+        // 非 dirty パスあり: 従来通り TryOpenOrActivate(auto-detect 任せ)
+        var doc = TryOpenOrActivate(rec.Path);
+        if (doc is null) { failedPaths.Add(rec.Path); continue; }
+        doc.Editor.SetCaretByLineColumn(rec.CaretLine, rec.CaretColumn);
+        openedCount++;
+        if (rec.IsActive) activeDoc = doc;
+    }
+    else {
+        // 無題: 従来通り(BufferKey 欠落なら skip)
+        if (rec.BufferKey is null || !buffers.TryGetValue(rec.BufferKey, out var c))
+            continue;
+        var doc = RestoreUntitledTab(rec, c);  // 内部で WasModified を尊重
+        openedCount++;
+        if (rec.IsActive) activeDoc = doc;
+    }
+}
+```
+
+**RestorePathDirty(新規ヘルパ)**:
+- `_docs.CreateNew()` → `doc.State.Path = rec.Path` → `Encoding=EncodingCatalog.Get(rec.CodePage)` / `HasBom=rec.HasBom` / `LineEnding=(LineEnding)rec.LineEnding`。
+- `SetOrReplaceSource(TextBuffer.FromString(content))` → `ApplyEol` → `EmptyUndoBuffer`。
+- **`SetSavePoint` を呼ばない** → Modified=true で開始。
+- `SetCaretByLineColumn`(clamp) → `DocumentManager.UpdateLabel`。
+- RecentFiles 登録: 既存 `TryOpenOrActivate` と対称に `_recent.Push(rec.Path)` を呼ぶ。
+
+**RestoreUntitledTab(既存修正)**:
+- `WasModified=true` → `SetSavePoint` を呼ばない(Modified=true)。
+- `WasModified=false` → 既存通り `SetSavePoint`(Modified=false)。
+
+**非 dirty パスありのエンコーディング**: 保存はするが復元時は使わない(TryOpenOrActivate の auto-detect に任せる=決定事項)。将来「保存 encoding と auto-detect 結果が異なる場合のみリロード」の最適化余地あり=申し送り。
+
+### 8.3 データフロー修正まとめ
+
+- 保存: 設定 ON なら「全 dirty タブの本文」を buffers.json に集約(§3.1 の per-tab/total cap は継続)。
+- close 時ダイアログ: cap 内なら silent close / cap 超過なら従来通り全 dirty タブに Yes/No/Cancel。
+- 復元: dirty パスあり分岐が新設され Modified=true + 保存 encoding で復元。非 dirty パスあり+無題は既存経路。
+- **設定 OFF の挙動は完全不変**(既存テストは全緑維持)。
+
+### 8.4 エラー処理の追記(§4 差分)
+
+| ケース | 現象 | ハンドリング |
+|---|---|---|
+| E9 dirty パスあり record・BufferKey は present だが buffers に欠落 | rec.BufferKey が buffers に無い | **非 dirty パスありへ demote**=TryOpenOrActivate 経路(disk から再オープン)。dirty 編集は silent lost + `Trace.TraceWarning` |
+| E10 dirty パスあり record・rec.CodePage が EncodingCatalog に存在しない | `EncodingCatalog.Get` 失敗 | settings.Default* に fallback + Trace |
+
+### 8.5 テスト追加
+
+**L1**:
+- SessionTabRecord に CodePage/HasBom/LineEnding/WasModified 追加の JSON round-trip。
+- SettingsStore.Normalize で `CodePage<0` → 0 に clamp・`LineEnding` 未知値 → 0 に clamp。
+
+**L3(App.Tests)**:
+- OnFormClosing 設定 ON + dirty あり + cap 内 → ConfirmDiscardIfDirty 呼ばれず・snapshot に dirty 内容(パスあり+無題)が入る・buffers.json に書かれる。
+- OnFormClosing 設定 ON + dirty あり + cap 超過 → 全 dirty タブに ConfirmDiscardIfDirty(=従来経路 fall through)。
+- OnFormClosing 設定 OFF + dirty あり → 従来通り(既存テスト維持)。
+- RestoreLastSession dirty パスあり record → CreateNew + Path 設定 + content 復元 + Modified=true + Encoding 復元。
+- RestoreLastSession dirty 無題 record(WasModified=true)→ Modified=true。
+- RestoreLastSession dirty パスあり + BufferKey buffers 欠落 → demote(TryOpenOrActivate)+ Trace 検証(observability seam)。
+
+**ミューテーション検証重点**:
+- cap 判定のピボット: 「cap 内」テストで cap 超過側に変異すると failed になる assertion。逆も。
+- WasModified の kill: true と false を両方持つ record セットで、SetSavePoint の呼び忘れ変異を検出。
+
+### 8.6 説明書の追記(§5.3 に補足)
+
+現行「起動時に前回開いていたファイルを開く」の説明に:
+
+```markdown
+この設定を有効にすると、終了時に未保存の変更があっても保存の確認をせずに終了します。未保存の変更は次回起動時に、編集途中の状態のまま復元されます。ただし変更内容が非常に大きい場合(1 ファイルあたりおよそ 100 万文字を超える場合)は、通常どおり保存の確認が表示されます。
+```
+
+### 8.7 マイグレーション
+
+- 既存 settings.json(§8 前の SessionTabRecord スキーマ)は CodePage/HasBom/LineEnding/WasModified が欠落 → System.Text.Json は既定値(0/false/0/false)で deserialize。
+- WasModified=false での復元は既存挙動と等価(SetSavePoint 呼ぶ)=挙動不変。
+- CodePage=0 でも dirty パスあり record は buffers に content があれば復元経路に入る(fallback で settings.Default* を使う=§8.4 E10)。
+- 既存テストの JSON リテラルは変更不要(既定値で埋まる)。
+
+### 8.8 スコープ外(§8 では扱わない)
+
+- **「復元時の確認ダイアログを非表示化」(Part 2)**: 現状の LastSession 復元経路に「確認ダイアログ」は存在しない。ユーザ実機で再現時に別対応(申し送り)。
+- 異常終了時のバックアップ復元: 現状維持(`ConfirmRestoreOnStartup` 設定依存)。
+- 復元時のエンコーディング再判定(非 dirty パスあり): 保存 encoding を復元時に活用する最適化は将来検討。

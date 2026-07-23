@@ -79,7 +79,7 @@ public sealed record SessionTabRecord(
 - `LastSession` の Deserialize が失敗した場合は `AppSettings` 全体既定へ落ちる(既存 try/catch)=`LastSession=null` になり復元経路に入らない。
 - `LastSession is not null` のとき:
   - `Tabs` が null → 空 List に補正
-  - 各レコードの `Path` が `IsNullOrWhiteSpace` → その `SessionTabRecord` を skip
+  - 各レコードの `Path` が非 null かつ空白のみ(`Path is not null && IsNullOrWhiteSpace(Path)`)→ その `SessionTabRecord` を skip(`Path is null` の無題タブは保持する)
   - `UntitledNumber<0` → 0 に clamp
   - `CaretLine<0` / `CaretColumn<0` → 0 に clamp(過大値は復元時の実バッファ範囲 clamp で吸収)
 
@@ -387,3 +387,4 @@ CLAUDE.md §5 の判定基準「SR 経路に触れる変更は必須」に対し
 - 復元時に「バックアップから復元しました」と同型で「前回のタブを N 件復元しました」の Announcer 通知を出すかは実装時に判断(小声で提示・SR 経路に影響なし)。
 - buffers.json の暗号化・パーミッション制限は将来のセキュリティ強化課題(現状は既存の settings.json と同水準の平文保存)。
 - 復元対象が 100 件級になった場合の UI(タブ列の横スクロール)は既存の制限を継承(本設計で新たな制約は導入しない)。
+- `LastSession.Tabs` の要素数上限(現状無制限=攻撃 JSON で 10M 要素の展開が可能)。バックアップ復元と同種のキャップを Normalize / Load 側に加えるかは別途検討(BackupCoordinator の BK-M-3 と対称の防御)。

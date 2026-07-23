@@ -80,6 +80,10 @@ public sealed class AppSettings
     {
         var c = (AppSettings)MemberwiseClone();
         c.RecentFiles = new List<string>(RecentFiles);
+        // LastSession は record + immutable な SessionTabRecord のリストラッパで、AppSettings の生存中
+        // (=起動時 1 回の Load と終了時 1 回の Save)は SettingsDialog の編集対象外=参照共有で足りる。
+        // 将来 SettingsDialog がタブ列編集を扱う場合、ここで new LastSessionSnapshot(new List<>(...)) の
+        // 深い複製に切り替える必要がある(Task 2 code review M6)。
         return c;
     }
 }

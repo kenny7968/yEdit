@@ -363,6 +363,29 @@ public class SettingsStoreTests
     }
 
     [Fact]
+    public void Roundtrip_RestoreEnabled_WithNullLastSession()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            var s = new AppSettings
+            {
+                RestoreOpenFilesOnStartup = true,
+                LastSession = null, // opt-in 済み・初回終了前の中間状態
+            };
+            SettingsStore.Save(path, s);
+            var loaded = SettingsStore.Load(path);
+            Assert.True(loaded.RestoreOpenFilesOnStartup);
+            Assert.Null(loaded.LastSession);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Roundtrip_LastSession_And_RestoreFlag()
     {
         string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");

@@ -85,7 +85,8 @@ public static class SettingsStore
     /// - Tabs が null → 空リスト
     /// - Path が IsNullOrWhiteSpace → その SessionTabRecord を skip(復元経路で空タブ追加を避ける)
     /// - UntitledNumber&lt;0 / CaretLine&lt;0 / CaretColumn&lt;0 → 0 に clamp
-    /// 設計書 §2.3。
+    /// - CodePage&lt;0 / LineEnding&lt;0 → 0 に clamp(§8 追加フィールド; 0=未指定として復元側で fallback)
+    /// 設計書 §2.3 / §8。
     /// </summary>
     private static void NormalizeLastSession(AppSettings s)
     {
@@ -110,6 +111,8 @@ public static class SettingsStore
                     UntitledNumber = Math.Max(0, t.UntitledNumber),
                     CaretLine = Math.Max(0, t.CaretLine),
                     CaretColumn = Math.Max(0, t.CaretColumn),
+                    CodePage = Math.Max(0, t.CodePage),
+                    LineEnding = Math.Max(0, t.LineEnding),
                 }
             );
         }

@@ -539,11 +539,12 @@ public sealed class FileController
 
     /// <summary>
     /// 通常終了時に保存した LastSessionSnapshot を新タブへ復元する。
-    /// - パスあり: TryOpenOrActivate(既存経路) で開く。失敗時は failedPaths に集約(単発ダイアログ抑止)。
-    /// - 無題タブ: BufferKey が buffers に無ければ skip(空タブを追加しない=設計書 §4 E4/E5)。
+    /// - dirty パスあり (rec.BufferKey が buffers に存在): CreateNew で復元 (Modified=true, 保存 encoding 復元)=RestorePathDirty (§8.2)。
+    /// - 非 dirty パスあり: TryOpenOrActivate(既存経路) で開く。失敗時は failedPaths に集約(単発ダイアログ抑止)。BufferKey ある but buffers 欠落 → §8.4 E9 demote で同経路に落とし Trace 警告。
+    /// - 無題タブ: BufferKey が buffers に無ければ skip(空タブを追加しない=設計書 §4 E4/E5)。WasModified で Modified 状態を復元 (§8.2)。
     /// 復元タブが 1 個以上できた場合、ctor で作った initialEmpty(空無題タブ)を閉じる。
     /// アクティブタブは IsActive=true のレコードに対応する doc。
-    /// 設計書 2026-07-23 §3.4。
+    /// 設計書 2026-07-23 §3.4 + §8.2 / §8.4 E9。
     /// </summary>
     public IReadOnlyList<string> RestoreLastSession(
         yEdit.Core.Session.LastSessionSnapshot snap,

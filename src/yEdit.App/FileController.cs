@@ -60,6 +60,12 @@ public sealed class FileController
         _reachabilityProbe = reachabilityProbe;
     }
 
+    /// <summary>
+    /// テスト用: BuildLastSessionSnapshot 系テストが起動時無題タブ(index 0)を掴んで
+    /// 本文を差し込む seam(Task 6 review I-3)。実運用経路では参照しない。
+    /// </summary>
+    internal IReadOnlyList<Document> DocsForTest => _docs.Documents;
+
     // ==================== 新規 / 開く ====================
 
     /// <summary>新しい無題タブを作る（既定の文字コード・改行を設定から適用）。</summary>

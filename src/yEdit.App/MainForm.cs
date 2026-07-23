@@ -65,6 +65,15 @@ public sealed partial class MainForm : Form
     /// </summary>
     private const int MaxSessionUntitledContentChars = 1024 * 1024;
 
+    /// <summary>
+    /// 無題タブ本文の累積上限 (chars=UTF-16 code units)。Load 側の 32 MB pre-cap (LastSessionBuffersStore
+    /// MaxLoadFileSizeBytes) を絶対に下回るよう 15 M chars ≈ 30 MB で cutoff。
+    /// この上限を超える追加無題タブは BufferKey=null に落として枠だけ保存する(Trace 診断あり)。
+    /// 設計 §4.3 の "書込側キャップ" と Load 側 pre-cap の対称=BK-M-3 の思想を踏襲。
+    /// (Task 6 review I-2)
+    /// </summary>
+    private const int MaxSessionTotalUntitledChars = 15 * 1024 * 1024;
+
     public MainForm(AppSettings settings)
         : this(settings, SettingsStore.DefaultPath) { }
 
@@ -252,6 +261,9 @@ public sealed partial class MainForm : Form
         _settings.WindowHeight = b.Height;
 
         // Task 6: 通常終了時に前回セッションを保存(設定 OFF なら既存残骸を消す=設計書 §3.1)
+        // Task 6 review M-3: buffers.json → settings.json の順で書く(非原子)。設計 §4.3 は
+        // atomic 化を将来課題として明記済み。片方だけ書けた場合の orphan/欠落は次回 Load 時の
+        // E4/E5 分岐(BufferKey 欠落 skip)で silent に吸収される=挙動不変。
         if (_settings.RestoreOpenFilesOnStartup)
         {
             var (snap, buffers) = BuildLastSessionSnapshot();
@@ -599,25 +611,39 @@ public sealed partial class MainForm : Form
         var tabs = new List<yEdit.Core.Session.SessionTabRecord>();
         var buffers = new Dictionary<string, string>();
         var active = _docs.Active;
+        int totalUntitledChars = 0;
         foreach (var doc in _docs.Documents)
         {
+            // Task 6 review I-1: dirty 無題タブは skip する。ConfirmDiscardIfDirty で「No=破棄」を
+            // 明示選択済みの本文を復元経路で silent に復活させないため(Modified=false 無題タブは
+            // 保存された状態=通常終了時の状態を再現)。設計 §3.1 精密化。
+            if (doc.State.Path is null && doc.Editor.Modified)
+                continue;
+
             int line = doc.Editor.CurrentLine;
             int col = doc.Editor.GetColumn(doc.Editor.CurrentPosition);
             string? bufferKey = null;
             if (doc.State.Path is null)
             {
                 string content = doc.Editor.SnapshotText;
-                if (content.Length <= MaxSessionUntitledContentChars)
+                bool fitsPerTab = content.Length <= MaxSessionUntitledContentChars;
+                bool fitsTotal =
+                    fitsPerTab
+                    && (long)totalUntitledChars + content.Length <= MaxSessionTotalUntitledChars;
+                if (fitsTotal)
                 {
                     bufferKey = Guid.NewGuid().ToString("N");
                     buffers[bufferKey] = content;
+                    totalUntitledChars += content.Length;
                 }
                 else
                 {
                     System.Diagnostics.Trace.TraceWarning(
-                        "yEdit: last-session-content-skipped (untitled {0}, {1} chars)",
+                        "yEdit: last-session-content-skipped (untitled {0}, {1} chars, per-tab-fit={2}, total-fit={3})",
                         doc.State.UntitledNumber,
-                        content.Length
+                        content.Length,
+                        fitsPerTab,
+                        fitsTotal
                     );
                 }
             }
@@ -633,6 +659,16 @@ public sealed partial class MainForm : Form
             );
         }
         return (new yEdit.Core.Session.LastSessionSnapshot(tabs), buffers);
+    }
+
+    /// <summary>テスト用: BuildLastSessionSnapshot の入出力を直接検証する seam(Task 6 review I-3)。</summary>
+    internal (
+        yEdit.Core.Session.LastSessionSnapshot Snap,
+        IReadOnlyDictionary<string, string> Buffers
+    ) BuildLastSessionSnapshotForTest()
+    {
+        var (snap, buffers) = BuildLastSessionSnapshot();
+        return (snap, buffers);
     }
 
     private void SaveLastSessionBuffersSafe(IReadOnlyDictionary<string, string> map)
@@ -657,7 +693,11 @@ public sealed partial class MainForm : Form
         }
         catch
         {
-            // 削除失敗は致命でない(次回起動でも Load が empty を返すだけ)
+            // 削除失敗は致命でない(settings.json 側で LastSession=null にしたため、残骸を Load しても
+            // 参照される BufferKey が無い=無害な orphan として残るだけ)。(Task 6 review M-1)
+            System.Diagnostics.Trace.TraceWarning(
+                "yEdit: failed to delete last-session-buffers.json (orphan として残置=無害)"
+            );
         }
     }
 

@@ -134,6 +134,14 @@ public static class LastSessionBuffersStore
 - パスなし: `BufferKey = Guid.NewGuid().ToString("N")` + `buffers[key] = doc.Editor.SnapshotText`(1 M 超は key=null に落として枠だけ)。
 - Caret: `doc.Editor.CurrentLine` と `doc.Editor.GetColumn(doc.Editor.CurrentPosition)`(いずれも 0-based)。
 
+**追記(Task 6 review I-1)**: dirty(`Modified=true`)の**無題タブ**は BuildLastSessionSnapshot で
+skip する。OnFormClosing の未保存確認で「No=破棄」を明示選択した本文を、buffers.json 経由で
+次回起動時に silent 復活させないため。無題+`Modified=false` の空タブ枠は従来どおり保存する。
+
+**追記(Task 6 review I-2)**: 無題本文の**累積**上限 15 M chars(≈ 30 MB)を書込側に置き、
+Load 側 pre-cap(32 MB)を絶対に下回るようにする。超過時は BufferKey=null に落として
+枠だけ保存し `Trace.TraceWarning` する(per-tab 上限 1 M chars と組合わせて二段防御)。
+
 ### 3.2 復元(起動時)
 
 `MainForm.OnShown` の既存 `OfferRestoreOnStartup` 呼び出し直後で分岐:

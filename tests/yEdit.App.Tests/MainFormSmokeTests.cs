@@ -176,6 +176,64 @@ public class MainFormSmokeTests
             Assert.True(loaded.RestoreOpenFilesOnStartup);
             Assert.NotNull(loaded.LastSession);
             Assert.Contains(loaded.LastSession!.Tabs, t => t.Path == txt);
+            // Task 6 review I-3: Save 呼び出しが本当に発火したことを検証(Save をコメントアウトすると赤化)
+            Assert.True(File2.Exists(buffersPath));
+        });
+
+    [Fact]
+    public void OnFormClosing_UntitledTabWithContent_PersistsToBuffersFile() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            string buffersPath = Path.Combine(tmp.Root, "last-session-buffers.json");
+
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using (var form = ShowMainForm(settings, tmp.SettingsPath))
+            {
+                form.SetLastSessionBuffersPathForTest(buffersPath);
+                // 起動時の空無題タブに本文を入れ、SavePoint を打ち直して Modified=false 状態にする
+                // (BuildLastSessionSnapshot は Modified=true の untitled を skip する=Task 6 review I-1)
+                var doc = form.FileForTest.DocsForTest[0];
+                doc.Editor.SetOrReplaceSource(
+                    yEdit.Core.Buffers.TextBuffer.FromString("session-hello")
+                );
+                doc.Editor.SetSavePoint();
+                form.Close();
+            }
+
+            // buffers.json に何か 1 件書かれているはず
+            var buffers = yEdit.Core.Session.LastSessionBuffersStore.Load(buffersPath);
+            Assert.Single(buffers);
+            Assert.Contains("session-hello", buffers.Values);
+            // 対応する SessionTabRecord は Path=null で BufferKey が buffers のキーと一致
+            var reloaded = SettingsStore.Load(tmp.SettingsPath);
+            Assert.NotNull(reloaded.LastSession);
+            var untitled = reloaded.LastSession!.Tabs.First(t => t.Path is null);
+            Assert.NotNull(untitled.BufferKey);
+            Assert.True(buffers.ContainsKey(untitled.BufferKey!));
+        });
+
+    [Fact]
+    public void BuildLastSessionSnapshot_DirtyUntitledTab_Skipped() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            var doc = form.FileForTest.DocsForTest[0];
+            doc.Editor.SetOrReplaceSource(yEdit.Core.Buffers.TextBuffer.FromString("dirty-secret"));
+            // SetOrReplaceSource 直後は fresh バッファ=Modified=false のため
+            // ClearSavePoint で明示的に dirty 化(§復元 dirty 化バグ 対策で追加された seam を利用)。
+            doc.Editor.ClearSavePoint();
+
+            var (snap, buffers) = form.BuildLastSessionSnapshotForTest();
+
+            Assert.Empty(snap.Tabs); // dirty untitled 1 個のみ = skip 後は空
+            Assert.Empty(buffers);
         });
 
     [Fact]

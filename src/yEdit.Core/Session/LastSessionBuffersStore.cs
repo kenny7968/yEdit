@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 
 namespace yEdit.Core.Session;
@@ -9,7 +10,16 @@ namespace yEdit.Core.Session;
 /// </summary>
 public static class LastSessionBuffersStore
 {
-    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        WriteIndented = true,
+        // I-1: 非 ASCII を \uXXXX に展開せず生 UTF-8 で書き出す。書込側 cap
+        // (MaxSessionUntitledContentChars=1M chars/tab / MaxSessionTotalUntitledChars=15M chars 累積)と
+        // Load 側 pre-cap (32 MB) の算数を成立させる=日本語 6 タブで silent loss を防ぐ。
+        // JSON ファイル(HTML/JS 埋め込みではない)なので UnsafeRelaxedJsonEscaping の XSS 意味論は
+        // 該当せず、Deserialize は生 UTF-8 と \uXXXX の両方を等しく読める(下位互換性あり)。
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
 
     /// <summary>
     /// Load 時のファイルサイズ上限(bytes)。書込側は 1M chars/tab(=UTF-16 で 2 MB/tab)を上限とし

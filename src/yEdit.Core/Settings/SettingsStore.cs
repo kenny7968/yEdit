@@ -99,6 +99,8 @@ public static class SettingsStore
         var cleaned = new List<SessionTabRecord>(s.LastSession.Tabs.Count);
         foreach (var t in s.LastSession.Tabs)
         {
+            if (t is null)
+                continue; // I-3: 攻撃/破損 JSON 由来の null 要素で NRE→全設定既定リセットを防ぐ
             // Path があるが空白のみ=不完全レコード → skip
             if (t.Path is not null && string.IsNullOrWhiteSpace(t.Path))
                 continue;

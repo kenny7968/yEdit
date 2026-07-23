@@ -345,6 +345,35 @@ public class SettingsStoreTests
     }
 
     [Fact]
+    public void Load_LastSession_TabsWithNullElement_SkipsAndKeepsOtherSettings()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            // 攻撃/破損: Tabs に null 要素が混入
+            File.WriteAllText(
+                path,
+                "{\"FontName\":\"TestFont\",\"LastSession\":{\"Tabs\":["
+                    + "null,"
+                    + "{\"Path\":\"C:\\\\a.txt\",\"UntitledNumber\":0,\"BufferKey\":null,\"IsActive\":true,\"CaretLine\":0,\"CaretColumn\":0}"
+                    + "]}}"
+            );
+            var s = SettingsStore.Load(path);
+            // 全設定既定リセットが起きていない=FontName が保持されている
+            Assert.Equal("TestFont", s.FontName);
+            // null 要素は skip され、有効な 1 件だけ残る
+            Assert.NotNull(s.LastSession);
+            Assert.Single(s.LastSession!.Tabs);
+            Assert.Equal(@"C:\a.txt", s.LastSession.Tabs[0].Path);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Load_LastSession_NullTabs_BecomesEmptyList()
     {
         string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");

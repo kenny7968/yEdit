@@ -1654,4 +1654,30 @@ public class FileControllerTests
             Assert.Equal(1, host.Docs.Count); // ok のみ・initialEmpty 閉じる
             Assert.Equal(ok, host.Docs.Active!.State.Path);
         });
+
+    [Fact]
+    public void RestoreLastSession_DuplicatePathInSnap_DoesNotPolluteRecentFiles() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host();
+            using var tmp = new TempDir();
+            string p1 = tmp.File("dup.txt");
+            File2.WriteAllText(p1, "DUP");
+            host.Settings.RecentFiles = new List<string> { @"C:\pre-existing.txt" };
+            var initialEmpty = host.Docs.CreateNew();
+
+            // 同一パスの重複エントリ: 2 番目は fast-path (FindByPath) 経由になる
+            var snap = new LastSessionSnapshot(
+                new List<SessionTabRecord>
+                {
+                    new(p1, 0, null, false, 0, 0),
+                    new(p1, 0, null, true, 0, 0), // 重複=fast-path
+                }
+            );
+            host.File.RestoreLastSession(snap, new Dictionary<string, string>(), initialEmpty);
+
+            // fast-path でも _suppressRegisterRecent を尊重=RecentFiles 汚染なし
+            Assert.Single(host.Settings.RecentFiles);
+            Assert.Equal(@"C:\pre-existing.txt", host.Settings.RecentFiles[0]);
+        });
 }

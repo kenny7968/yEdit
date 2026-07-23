@@ -108,7 +108,10 @@ public sealed class FileController
         if (existing is not null)
         {
             _docs.Activate(existing);
-            RegisterRecent(path);
+            // Task 10 review I-2: 復元経路(_suppressRegisterRecent=true)では fast-path でも
+            // RegisterRecent を抑止する(重複パスの LastSession 復元で RecentFiles が汚染されるのを防ぐ)。
+            if (!_suppressRegisterRecent)
+                RegisterRecent(path);
             return existing;
         }
 

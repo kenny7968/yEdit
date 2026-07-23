@@ -300,6 +300,31 @@ public class MainFormSmokeTests
         });
 
     [Fact]
+    public void BuildLastSessionSnapshot_UntitledOverPerTabCap_BufferKeyIsNull() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using var form = ShowMainForm(settings, tmp.SettingsPath);
+            var doc = form.FileForTest.DocsForTest[0];
+            // 1 M + 1 chars = per-tab cap 超過
+            int over = 1024 * 1024 + 1;
+            doc.Editor.SetOrReplaceSource(
+                yEdit.Core.Buffers.TextBuffer.FromString(new string('x', over))
+            );
+            doc.Editor.SetSavePoint(); // dirty untitled skip 分岐に落ちないように clean 化
+
+            var (snap, buffers) = form.BuildLastSessionSnapshotForTest();
+
+            // 1 タブ分の record は含まれるが BufferKey=null(枠だけ保存)
+            Assert.Single(snap.Tabs);
+            Assert.Null(snap.Tabs[0].BufferKey);
+            Assert.Empty(buffers);
+        });
+
+    [Fact]
     public void OnFormClosing_RestoreDisabled_ClearsLastSessionAndDeletesBuffers() =>
         Sta.Run(() =>
         {

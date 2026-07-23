@@ -80,18 +80,20 @@ public sealed partial class MainForm : Form
         _suppressFailedRestoreDialogForTest = value;
 
     /// <summary>
-    /// 無題タブ本文の上限 (chars=UTF-16 code units)。1M chars = 2 MB UTF-16 相当。
-    /// 上限超過タブは <see cref="yEdit.Core.Session.SessionTabRecord.BufferKey"/>=null に落とし
-    /// 「枠だけ復元」= 空タブで再作成される (BackupCoordinator の BK-M-3 と同方針)。
-    /// 設計 2026-07-23 §3.1 / 設計 §4.3。
+    /// dirty タブ本文の per-tab 上限 (chars=UTF-16 code units)。1M chars = 2 MB UTF-16 相当。
+    /// 無題タブ+パスあり dirty タブのいずれもこの cap を超えると
+    /// <see cref="yEdit.Core.Session.SessionTabRecord.BufferKey"/>=null に落として「枠だけ復元」
+    /// = 空タブ/disk 内容で再作成される (BackupCoordinator の BK-M-3 と同方針)。
+    /// 設計 2026-07-23 §3.1 / 設計 §4.3 / §8.2 補遺。定数名は歴史的経緯で untitled を残す。
     /// </summary>
     private const int MaxSessionUntitledContentChars = 1024 * 1024;
 
     /// <summary>
-    /// 無題タブ本文の累積上限 (chars=UTF-16 code units)。Load 側の 32 MB pre-cap (LastSessionBuffersStore
-    /// MaxLoadFileSizeBytes) を絶対に下回るよう 15 M chars ≈ 30 MB で cutoff。
-    /// この上限を超える追加無題タブは BufferKey=null に落として枠だけ保存する(Trace 診断あり)。
-    /// 設計 §4.3 の "書込側キャップ" と Load 側 pre-cap の対称=BK-M-3 の思想を踏襲。
+    /// dirty タブ本文(無題+パスあり dirty)の累積上限 (chars=UTF-16 code units)。Load 側の 32 MB
+    /// pre-cap (LastSessionBuffersStore MaxLoadFileSizeBytes) を絶対に下回るよう 15 M chars ≈ 30 MB
+    /// で cutoff。この上限を超える追加 dirty タブは BufferKey=null に落として枠だけ保存する
+    /// (Trace 診断あり)。設計 §4.3 の "書込側キャップ" と Load 側 pre-cap の対称=BK-M-3 の思想を
+    /// 踏襲。定数名は歴史的経緯で untitled を残す(§8.2 補遺で dirty パスありタブも含めるよう拡張)。
     /// (Task 6 review I-2)
     /// </summary>
     private const int MaxSessionTotalUntitledChars = 15 * 1024 * 1024;
@@ -692,6 +694,13 @@ public sealed partial class MainForm : Form
     }
 
     /// <summary>
+    /// §8.2: 保存対象=無題タブ or dirty パスありタブ。BuildLastSessionSnapshot と
+    /// WillDirtyContentFitInCaps で使う判定を単一定義に集約する(divergence 予防)。
+    /// </summary>
+    private static bool NeedsContentSave(Document doc) =>
+        doc.State.Path is null || doc.Editor.Modified;
+
+    /// <summary>
     /// 現在のタブ列から LastSessionSnapshot と本文マップを組み立てる。設計書 §3.1 + §8.2 補遺:
     /// パスなし or dirty(パスありでも Modified=true)のタブは本文を buffers に保存し、
     /// 復元経路で「編集途中の状態」を silent に再現する。cap 超過(per-tab / total)は
@@ -716,7 +725,7 @@ public sealed partial class MainForm : Form
 
             // §8.2: パスなし OR (パスあり かつ dirty) は本文を buffers に保存。
             // (以前は「dirty 無題は skip」= Task 6 review I-1 の分岐が居たが §8 補遺で撤去)
-            bool needsContent = doc.State.Path is null || wasModified;
+            bool needsContent = NeedsContentSave(doc);
             if (needsContent)
             {
                 string content = doc.Editor.SnapshotText;
@@ -775,7 +784,7 @@ public sealed partial class MainForm : Form
         int totalContentChars = 0;
         foreach (var doc in _docs.Documents)
         {
-            bool needsContent = doc.State.Path is null || doc.Editor.Modified;
+            bool needsContent = NeedsContentSave(doc);
             if (!needsContent)
                 continue;
             int len = doc.Editor.TextLength;

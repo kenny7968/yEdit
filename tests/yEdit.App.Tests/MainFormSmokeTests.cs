@@ -256,8 +256,9 @@ public class MainFormSmokeTests
             using (var form = ShowMainForm(settings, tmp.SettingsPath))
             {
                 form.SetLastSessionBuffersPathForTest(buffersPath);
-                // 起動時の空無題タブに本文を入れ、SavePoint を打ち直して Modified=false 状態にする
-                // (BuildLastSessionSnapshot は Modified=true の untitled を skip する=Task 6 review I-1)
+                // 起動時の空無題タブに本文を入れる。
+                // SetSavePoint で Modified=false に戻す(現行 OnFormClosing は dirty untitled でも
+                // ConfirmDiscardIfDirty を投げるため=Task 13 の silent close 導入で撤去予定)
                 var doc = form.FileForTest.DocsForTest[0];
                 doc.Editor.SetOrReplaceSource(
                     yEdit.Core.Buffers.TextBuffer.FromString("session-hello")
@@ -330,6 +331,9 @@ public class MainFormSmokeTests
             Assert.NotNull(rec.BufferKey);
             Assert.Equal("dirty content", buffers[rec.BufferKey!]);
             Assert.True(rec.WasModified); // §8.2
+            Assert.Equal(0, rec.CodePage); // §8.2: untitled は Encoding.CodePage を保存しない
+            Assert.False(rec.HasBom); // §8.2: 同上・BOM は保存しない
+            Assert.Equal((int)doc.State.LineEnding, rec.LineEnding); // §8.2: LineEnding は無題でも記録
         });
 
     // §8 補遺 Task 12: WillDirtyContentFitInCaps は per-tab cap 超過を dry-run で捉える。
@@ -364,7 +368,6 @@ public class MainFormSmokeTests
             doc.Editor.SetOrReplaceSource(
                 yEdit.Core.Buffers.TextBuffer.FromString(new string('x', over))
             );
-            doc.Editor.SetSavePoint(); // dirty untitled skip 分岐に落ちないように clean 化
 
             var (snap, buffers) = form.BuildLastSessionSnapshotForTest();
 

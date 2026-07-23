@@ -216,11 +216,25 @@ public sealed class FileController
 
             if (loaded.HadReplacementChar)
             {
-                _prompt.Warn(
-                    "このファイルには現在の文字コードで表せない文字（置換文字）が含まれています。"
-                        + "別の文字コードで開き直してください。",
-                    "文字コードの警告"
-                );
+                // 統合復元 Task 5 fixup: 復元経路(WithLoadErrorPromptSuppressed 実行中)は per-file
+                // ダイアログを出さない(設計 2026-07-23 統合 §3.3 の silent 原則)。U+FFFD は本文に
+                // 見える形で残る=silent data loss ではないため trace で診断可能性のみ維持する。
+                // 通常の「開く」「開き直し」経路は挙動不変。
+                if (!_suppressLoadErrorPrompt)
+                {
+                    _prompt.Warn(
+                        "このファイルには現在の文字コードで表せない文字（置換文字）が含まれています。"
+                            + "別の文字コードで開き直してください。",
+                        "文字コードの警告"
+                    );
+                }
+                else
+                {
+                    System.Diagnostics.Trace.TraceWarning(
+                        "yEdit: restore-replacement-char-detected: {0}",
+                        SanitizeForDisplay.OneLine(path, 200)
+                    );
+                }
             }
             // Task 5 review I-2: 復元経路(RestoreLastSession)では「ユーザーが開いた」相当ではないため
             // RecentFiles を汚さない=起動前の順序を保つ。通常経路(開く/最近/開き直し)は従来どおり登録。

@@ -2402,4 +2402,48 @@ public class FileControllerTests
             Assert.Equal(2, host.Docs.Count);
             Assert.Equal("from layout", host.Docs.Active!.Editor.SnapshotText);
         });
+
+    [Fact]
+    public void RestoreSession_CleanPathRecord_WithReplacementChar_NoWarnDialog_TracesInstead() =>
+        Sta.Run(() =>
+        {
+            // fixup: 復元経路では置換文字警告ダイアログも抑止する(設計 §3.3 silent 原則)。
+            // UTF-8 BOM+不正バイト(0xFF)=auto-detect で UTF-8 確定+U+FFFD 置換が発生する fixture。
+            // 通常経路の Warn 発火は既存 Reopen_WithReplacementChar_WarnsToReopen が pin する
+            // (=ガード条件の反転変異はそちらで殺す)。抑止時は trace で診断可能性を維持する契約。
+            using var host = new Host();
+            using var tmp = new TempDir();
+            string p = tmp.File("mojibake.txt");
+            File2.WriteAllBytes(p, new byte[] { 0xEF, 0xBB, 0xBF, (byte)'a', 0xFF });
+            var initialEmpty = host.Docs.CreateNew();
+            var layout = Layout(LayoutRec(path: p, isActive: true));
+
+            // App.Tests は並列実行無効(GlobalUsings)のため、プロセス共有の Trace.Listeners への
+            // 一時 listener 追加は他テストと競合しない。
+            var sw = new System.IO.StringWriter();
+            var listener = new System.Diagnostics.TextWriterTraceListener(sw);
+            System.Diagnostics.Trace.Listeners.Add(listener);
+            try
+            {
+                var failed = host.File.RestoreSession(
+                    layout,
+                    Array.Empty<BackupRecord>(),
+                    initialEmpty,
+                    adoptRestored: null
+                );
+
+                Assert.Empty(failed); // 開くこと自体は成功(警告のみ抑止)
+                var doc = host.Docs.Active!;
+                Assert.Equal(p, doc.State.Path);
+                Assert.Equal("a�", doc.Editor.SnapshotText); // U+FFFD は本文に見える形で残る=silent data loss ではない
+                Assert.Empty(host.Prompt.Log); // Warn 含め silent 経路ではダイアログを一切出さない
+                System.Diagnostics.Trace.Flush();
+                Assert.Contains("restore-replacement-char-detected", sw.ToString());
+            }
+            finally
+            {
+                System.Diagnostics.Trace.Listeners.Remove(listener);
+                listener.Dispose();
+            }
+        });
 }

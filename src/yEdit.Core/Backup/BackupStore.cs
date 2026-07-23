@@ -153,18 +153,26 @@ public static class BackupStore
             );
 
         string fileName = id + ".json";
-        string targetFull = Path.GetFullPath(targetSessionDir);
+        // F-1(脆弱性レビュー実測): 除外比較の意図=自分自身の削除防止。末尾区切りの有無
+        // (Path.GetFullPath は末尾区切りを保持・EnumerateDirectories は付けない)や
+        // target==baseDir 直指定で比較が破れると、adopt 済みファイルを stale 重複と誤認して
+        // File.Delete する self-delete 経路になるため、両辺とも TrimEndingDirectorySeparator
+        // 済みの full path で比較し、baseDir 自体も target と一致すれば検索対象から外す。
+        string targetFull = Path.TrimEndingDirectorySeparator(Path.GetFullPath(targetSessionDir));
         string target = Path.Combine(targetFull, fileName);
+        string baseFull = Path.TrimEndingDirectorySeparator(Path.GetFullPath(baseDir));
 
         // 検索対象: baseDir 直下(flat 後方互換)+ session-*(自 dir は除外=自分自身の移動を防ぐ)
         var searchDirs = new List<string>();
         if (Directory.Exists(baseDir))
         {
-            searchDirs.Add(baseDir);
+            // target が flat(baseDir 直下)なら flat は自管理下=他 session dir の stale 掃除のみ行う。
+            if (!string.Equals(baseFull, targetFull, StringComparison.OrdinalIgnoreCase))
+                searchDirs.Add(baseDir);
             foreach (string sub in Directory.EnumerateDirectories(baseDir, "session-*"))
                 if (
                     !string.Equals(
-                        Path.GetFullPath(sub),
+                        Path.TrimEndingDirectorySeparator(Path.GetFullPath(sub)),
                         targetFull,
                         StringComparison.OrdinalIgnoreCase
                     )
@@ -190,11 +198,12 @@ public static class BackupStore
                     File.Move(src, target); // 同一ボリューム内=原子的
                     alreadyAtTarget = true;
                 }
-                // 空になった session-* は掃除(flat の baseDir 自体は消さない)
+                // 空になった session-* は掃除(flat の baseDir 自体は消さない。F-1 と同じく
+                // 末尾区切り差で判定が破れないよう TrimEndingDirectorySeparator 済みで比較)
                 if (
                     !string.Equals(
-                        Path.GetFullPath(dir),
-                        Path.GetFullPath(baseDir),
+                        Path.TrimEndingDirectorySeparator(Path.GetFullPath(dir)),
+                        baseFull,
                         StringComparison.OrdinalIgnoreCase
                     )
                 )

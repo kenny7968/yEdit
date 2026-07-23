@@ -686,6 +686,57 @@ public class BackupStoreTests
     }
 
     [Fact]
+    public void TryMoveToSessionDir_TargetEqualsBaseDir_DoesNotDeleteAdoptedFile()
+    {
+        using var t = new TempDir();
+        // F-1 P1(脆弱性レビュー実測): target==baseDir(flat を自管理下として adopt)では
+        // baseDir が除外判定なしで検索対象に入り src==target → File.Delete が adopt 対象自体を
+        // 削除して true を返す(成功偽装=silent データ喪失)経路があった。遮断を lock in する。
+        // 意味論=「target が flat なら flat は自管理下・他 session dir の stale 掃除のみ行う」。
+        BackupStore.Write(t.Root, Rec("adopt-self-flat", null, "must-survive"));
+        string id = HashId("adopt-self-flat");
+        string path = Path.Combine(t.Root, id + ".json");
+        string originalJson = File.ReadAllText(path);
+
+        bool result = BackupStore.TryMoveToSessionDir(t.Root, id, t.Root);
+
+        Assert.True(result); // 既に自管理下=true(冪等 adopt)
+        Assert.True(File.Exists(path)); // 自己削除しない
+        Assert.Equal(originalJson, File.ReadAllText(path)); // 内容も不変
+    }
+
+    [Fact]
+    public void TryMoveToSessionDir_TrailingSeparatorTarget_DoesNotSelfDelete()
+    {
+        using var t = new TempDir();
+        // F-1 P2/P2b(脆弱性レビュー実測): 末尾区切り付き target は Path.GetFullPath が区切りを
+        // 保持する一方 EnumerateDirectories は区切りなしを返すため除外比較が破れ、move 成功後に
+        // target 自身を stale 重複と誤認して削除(+空 dir 掃除で target dir ごと消滅=完全喪失)
+        // する経路があった。遮断を lock in する。dir 名は NTFS の名前順列挙で source が target
+        // より先に来るよう固定する(P2b=move 後に除外漏れ target へ到達、の決定的再現)。
+        string source = Path.Combine(t.Root, "session-a-source");
+        string target = Path.Combine(t.Root, "session-b-target");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(target);
+        BackupStore.Write(source, Rec("adopt-trailing", null, "must-survive"));
+        string id = HashId("adopt-trailing");
+        string originalJson = File.ReadAllText(Path.Combine(source, id + ".json"));
+
+        bool result = BackupStore.TryMoveToSessionDir(
+            t.Root,
+            id,
+            target + Path.DirectorySeparatorChar
+        );
+
+        Assert.True(result);
+        Assert.True(Directory.Exists(target)); // target dir が巻き添え削除されない
+        string dest = Path.Combine(target, id + ".json");
+        Assert.True(File.Exists(dest)); // move 後に self-delete されない
+        Assert.Equal(originalJson, File.ReadAllText(dest)); // 内容不変
+        Assert.False(Directory.Exists(source)); // 空になった元 dir の掃除は従来どおり
+    }
+
+    [Fact]
     public void TryMoveToSessionDir_CreatesTargetSessionDir_WhenMissing()
     {
         using var t = new TempDir();

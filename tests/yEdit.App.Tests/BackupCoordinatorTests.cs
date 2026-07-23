@@ -1413,6 +1413,156 @@ public class BackupCoordinatorTests
             Assert.Equal(rec.Id, warn.Detail); // \u6B63\u5F53\u306A GUID N \u306F sanitize \u4E0D\u5909
         });
 
+    // ===== hot exit \u7D71\u5408 Task 4(\u8A2D\u8A08 \u00A73.4): OfferRestoreOnStartup \u306E adopt-move =====
+    //
+    // \u5FA9\u5143\u3067\u6D88\u8CBB\u3057\u305F\u30D0\u30C3\u30AF\u30A2\u30C3\u30D7\u3092\u81EA\u30BB\u30C3\u30B7\u30E7\u30F3 dir \u3078\u5F15\u304D\u53D6\u308B(_map \u76F4\u767B\u9332 \u2192 AdoptRestored \u5DEE\u66FF)\u3002
+    // \u6839\u6CBB\u5BFE\u8C61(BK-M-2 \u7531\u6765\u306E\u6F5C\u5728\u30D0\u30B0): \u65E7 session-* dir \u306B\u6B8B\u3063\u305F\u6D88\u8CBB\u6E08\u307F\u30D5\u30A1\u30A4\u30EB\u306F
+    // SerialBackupWriter.Delete(\u81EA\u30BB\u30C3\u30B7\u30E7\u30F3 dir \u5BFE\u8C61)\u3067\u6D88\u3048\u305A\u3001\u6B21\u56DE\u8D77\u52D5\u306E LoadAll \u304C\u62FE\u3063\u3066
+    // \u6700\u5927 30 \u65E5\u9593(sweep \u307E\u3067)\u6BCE\u56DE\u518D\u63D0\u6848\u3055\u308C\u308B\u3002
+
+    [Fact]
+    public void OfferRestore_ConfirmFalse_CleanedDoc_LeavesNoBackupFile_NoReproposal() =>
+        Sta.Run(() =>
+        {
+            // \u56DE\u5E30(\u73FE\u884C\u30D0\u30B0): adopt-move \u306A\u3057\u3067\u306F session-old\<id>.json \u304C\u6B8B\u308A\u7D9A\u3051\u3001clean \u5316\u306E
+            // Delete(\u81EA\u30BB\u30C3\u30B7\u30E7\u30F3 dir \u5BFE\u8C61)\u3067\u306F\u6D88\u3048\u306A\u3044=\u6B21\u56DE LoadAll \u304C\u62FE\u3044\u518D\u63D0\u6848\u3055\u308C\u308B\u3002
+            using var host = new Host();
+            var rec = Rec("repropose", "boom");
+            var oldDir = Path.Combine(host.TempDir, "session-old");
+            Directory.CreateDirectory(oldDir);
+            BackupStore.Write(oldDir, rec); // \u524D\u30BB\u30C3\u30B7\u30E7\u30F3(\u30AF\u30E9\u30C3\u30B7\u30E5\u7531\u6765)\u306E\u6B8B\u9AB8\u3092\u6A21\u3059
+
+            int restored = host.Backup.OfferRestoreOnStartup(
+                host.Form,
+                r =>
+                {
+                    var d = host.Docs.CreateNew();
+                    d.Editor.Text = r.Content ?? "";
+                    d.Editor.ClearSavePoint(); // \u672C\u756A RestoreFromBackup \u3068\u540C\u69D8 dirty \u306E\u307E\u307E
+                    return d;
+                },
+                confirm: false
+            );
+            Assert.Equal(1, restored); // sanity
+
+            var doc = host.Docs.Documents.Single();
+            doc.Editor.SetSavePoint(); // \u4FDD\u5B58\u76F8\u5F53(clean \u5316)
+            host.Backup.Reconcile();
+
+            Assert.Contains(rec.Id, host.Writer.Deletes); // \u5143 Id \u3078\u306E\u524A\u9664\u30B8\u30E7\u30D6\u304C\u98DB\u3076
+            // \u672C\u756A SerialBackupWriter.Delete \u306F\u81EA\u30BB\u30C3\u30B7\u30E7\u30F3 dir \u3078\u306E BackupStore.Delete\u3002
+            // FakeWriter \u306F in-memory \u306E\u305F\u3081\u3001\u305D\u306E\u610F\u5473\u8AD6\u3092\u3053\u3053\u3067\u518D\u751F\u3057\u3066\u30C7\u30A3\u30B9\u30AF\u7D42\u72B6\u614B\u3092\u691C\u8A3C\u3059\u308B\u3002
+            foreach (var id in host.Writer.Deletes)
+                BackupStore.Delete(host.CapturedSessionDir!, id);
+
+            // \u6839\u6CBB\u306E\u6838\u5FC3: TempDir \u914D\u4E0B\u306E\u3069\u3053\u306B\u3082 <id>.json \u304C\u6B8B\u3089\u306A\u3044
+            // (\u65E7 dir \u306B\u6B8B\u308B\u3068\u6B21\u56DE LoadAll \u304C\u62FE\u3044\u3001\u6700\u5927 30 \u65E5\u9593\u6BCE\u8D77\u52D5\u3067\u518D\u63D0\u6848\u3055\u308C\u308B)\u3002
+            Assert.Empty(
+                Directory.GetFiles(host.TempDir, rec.Id + ".json", SearchOption.AllDirectories)
+            );
+            Assert.Empty(BackupStore.LoadAll(host.TempDir)); // \u6B21\u56DE\u8D77\u52D5\u306E LoadAll \u76F8\u5F53\u304C\u7A7A
+        });
+
+    [Fact]
+    public void OfferRestore_ConfirmFalse_MovesConsumedBackup_ToOwnSessionDir() =>
+        Sta.Run(() =>
+        {
+            // confirm=false(\u5168\u4EF6 silent \u5FA9\u5143)\u7D4C\u8DEF: \u6D88\u8CBB\u3057\u305F record \u306E\u30D5\u30A1\u30A4\u30EB\u304C\u65E7 session dir \u304B\u3089
+            // \u81EA\u30BB\u30C3\u30B7\u30E7\u30F3 dir \u3078\u79FB\u52D5\u3057\u3001\u7A7A\u306B\u306A\u3063\u305F\u65E7 dir \u306F\u6383\u9664\u3055\u308C\u308B\u3002
+            using var host = new Host();
+            var rec = Rec("adopt-cf", "boom");
+            var oldDir = Path.Combine(host.TempDir, "session-old");
+            Directory.CreateDirectory(oldDir);
+            BackupStore.Write(oldDir, rec);
+            Directory.CreateDirectory(host.CapturedSessionDir!); // \u521D\u56DE\u66F8\u8FBC\u6E08\u307F(dir \u65E2\u5B58)\u306E\u30B1\u30FC\u30B9
+
+            host.Backup.OfferRestoreOnStartup(
+                host.Form,
+                r =>
+                {
+                    var d = host.Docs.CreateNew();
+                    d.Editor.Text = r.Content ?? "";
+                    d.Editor.ClearSavePoint();
+                    return d;
+                },
+                confirm: false
+            );
+
+            Assert.True(
+                File.Exists(Path.Combine(host.CapturedSessionDir!, rec.Id + ".json")),
+                "consumed backup should be moved into own session dir"
+            );
+            Assert.False(Directory.Exists(oldDir)); // \u7A7A\u306B\u306A\u3063\u305F\u65E7 session dir \u306F\u6383\u9664\u3055\u308C\u308B
+        });
+
+    [Fact]
+    public void OfferRestore_ConfirmTrue_MovesCheckedBackup_LeavesUncheckedInPlace() =>
+        Sta.Run(() =>
+        {
+            // \u30C0\u30A4\u30A2\u30ED\u30B0\u7D4C\u8DEF: \u30C1\u30A7\u30C3\u30AF\u3057\u305F(=\u5FA9\u5143\u3067\u6D88\u8CBB\u3057\u305F)record \u3060\u3051 adopt-move \u3059\u308B\u3002
+            // \u30C1\u30A7\u30C3\u30AF\u3057\u306A\u304B\u3063\u305F record \u306F\u5834\u6240\u3054\u3068\u636E\u3048\u7F6E\u304F(\u5B89\u5168\u5074\u3067\u6B8B\u3057\u6B21\u56DE\u518D\u63D0\u6848\u3059\u308B\u4E0D\u5909\u6761\u4EF6
+            // =\u8A2D\u8A08 \u00A73.4\u300C\u6D88\u8CBB\u3057\u305F\u3082\u306E\u3060\u3051\u5F15\u304D\u53D6\u308B\u300D\u3092\u58CA\u3055\u306A\u3044)\u3002
+            using var host = new Host();
+            var check = Rec("checked", "one");
+            var uncheck = Rec("unchecked", "two");
+            var oldDir = Path.Combine(host.TempDir, "session-old");
+            Directory.CreateDirectory(oldDir);
+            BackupStore.Write(oldDir, check);
+            BackupStore.Write(oldDir, uncheck);
+            host.Prompt.NextOutcome = new RestoreOutcome(RestoreAction.Restore, new[] { check });
+
+            host.Backup.OfferRestoreOnStartup(
+                host.Form,
+                r =>
+                {
+                    var d = host.Docs.CreateNew();
+                    d.Editor.Text = r.Content ?? "";
+                    d.Editor.ClearSavePoint();
+                    return d;
+                },
+                confirm: true
+            );
+
+            Assert.True(
+                File.Exists(Path.Combine(host.CapturedSessionDir!, check.Id + ".json")),
+                "checked backup should be moved into own session dir"
+            );
+            Assert.False(File.Exists(Path.Combine(oldDir, check.Id + ".json")));
+            // \u30C1\u30A7\u30C3\u30AF\u3057\u306A\u304B\u3063\u305F record \u306F\u79FB\u52D5\u3057\u306A\u3044(\u65E7 dir \u306B\u6B8B\u308B=\u6B21\u56DE\u518D\u63D0\u6848)
+            Assert.True(File.Exists(Path.Combine(oldDir, uncheck.Id + ".json")));
+        });
+
+    [Fact]
+    public void OfferRestore_MoveSucceeds_WhenOwnSessionDirNotYetCreated() =>
+        Sta.Run(() =>
+        {
+            // \u81EA\u30BB\u30C3\u30B7\u30E7\u30F3 dir \u306F\u521D\u56DE\u672C\u6587\u66F8\u8FBC\u307E\u3067\u30C7\u30A3\u30B9\u30AF\u306B\u5B58\u5728\u3057\u306A\u3044(ctor \u306F\u30D1\u30B9\u6C7A\u5B9A\u306E\u307F)\u3002
+            // \u305D\u306E\u72B6\u614B\u3067\u3082 adopt-move \u304C dir \u3092\u4F5C\u3063\u3066\u79FB\u52D5\u3067\u304D\u308B\u3053\u3068\u3092 pin\u3002
+            using var host = new Host();
+            var rec = Rec("adopt-nodir", "boom");
+            var oldDir = Path.Combine(host.TempDir, "session-old");
+            Directory.CreateDirectory(oldDir);
+            BackupStore.Write(oldDir, rec);
+            Assert.False(Directory.Exists(host.CapturedSessionDir!)); // sanity: \u672A\u4F5C\u6210
+
+            host.Backup.OfferRestoreOnStartup(
+                host.Form,
+                r =>
+                {
+                    var d = host.Docs.CreateNew();
+                    d.Editor.Text = r.Content ?? "";
+                    d.Editor.ClearSavePoint();
+                    return d;
+                },
+                confirm: false
+            );
+
+            Assert.True(
+                File.Exists(Path.Combine(host.CapturedSessionDir!, rec.Id + ".json")),
+                "adopt-move should create the session dir and move the file"
+            );
+        });
+
     // ===== hot exit \u7D71\u5408 Task 3 \u54C1\u8CEA\u30EC\u30D3\u30E5\u30FC I-1: layout-only \u30E2\u30FC\u30C9\u306E _map \u540C\u671F =====
     //
     // _enabled=false \u3067\u3082 _map \u3092\u30C7\u30A3\u30B9\u30AF\u5B9F\u5728\u306E\u93E1\u306B\u4FDD\u3064(ReconcileMapMaintenance)\u3002

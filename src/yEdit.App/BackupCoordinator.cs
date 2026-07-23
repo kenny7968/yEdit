@@ -204,12 +204,10 @@ public sealed class BackupCoordinator : IDisposable
                 try
                 {
                     var doc = restore(rec);
-                    _map[doc] = new DocBackup
-                    {
-                        Id = rec.Id,
-                        LastSig = ContentSignature.Of(doc.Editor.SnapshotText),
-                        HasBackup = true,
-                    };
+                    // Task 4(設計 §3.4): _map 登録+ファイル本体の adopt-move。旧 session dir の
+                    // 消費済みファイルを自セッション dir へ引き取り、clean 化 Delete が実ファイルに
+                    // 届くようにする(BK-M-2 再提案バグ根治)。
+                    AdoptRestored(doc, rec);
                     restored++;
                 }
                 catch (Exception ex)
@@ -234,12 +232,9 @@ public sealed class BackupCoordinator : IDisposable
                     {
                         var doc = restore(rec);
                         // Reconcile が先に新 Id で登録していても、ここで元 Id へ上書きして引き継ぐ。
-                        _map[doc] = new DocBackup
-                        {
-                            Id = rec.Id,
-                            LastSig = ContentSignature.Of(doc.Editor.SnapshotText),
-                            HasBackup = true,
-                        };
+                        // Task 4(設計 §3.4): adopt-move で消費済みファイルも自セッション dir へ
+                        // 引き取る(チェックしなかった record は据え置き=次回再提案)。
+                        AdoptRestored(doc, rec);
                     }
                     catch (Exception ex)
                     {

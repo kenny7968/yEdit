@@ -1392,436 +1392,6 @@ public class FileControllerTests
             Assert.Contains(host.Prompt.Log, e => e.Kind == "Error");
         });
 
-    // ===== Task 5: RestoreLastSession(通常終了時に保存した LastSessionSnapshot を新タブへ復元) =====
-
-    [Fact]
-    public void RestoreLastSession_OpensPathTabs_ClosesInitialEmpty() =>
-        Sta.Run(() =>
-        {
-            using var host = new Host();
-            using var tmp = new TempDir();
-            string p1 = tmp.File("a.txt");
-            string p2 = tmp.File("b.txt");
-            File2.WriteAllText(p1, "AAA");
-            File2.WriteAllText(p2, "BBB");
-            var initialEmpty = host.Docs.CreateNew();
-
-            var snap = new LastSessionSnapshot(
-                new List<SessionTabRecord>
-                {
-                    new(
-                        Path: p1,
-                        UntitledNumber: 0,
-                        BufferKey: null,
-                        IsActive: false,
-                        CaretLine: 0,
-                        CaretColumn: 0
-                    ),
-                    new(
-                        Path: p2,
-                        UntitledNumber: 0,
-                        BufferKey: null,
-                        IsActive: true,
-                        CaretLine: 0,
-                        CaretColumn: 2
-                    ),
-                }
-            );
-
-            var failed = host.File.RestoreLastSession(
-                snap,
-                new Dictionary<string, string>(),
-                initialEmpty
-            );
-
-            Assert.Empty(failed);
-            Assert.Equal(2, host.Docs.Count);
-            Assert.Equal(p2, host.Docs.Active!.State.Path);
-            Assert.Equal(
-                2,
-                host.Docs.Active!.Editor.GetColumn(host.Docs.Active!.Editor.CurrentPosition)
-            );
-        });
-
-    [Fact]
-    public void RestoreLastSession_FailedPathsAggregated_NoIndividualDialog() =>
-        Sta.Run(() =>
-        {
-            using var host = new Host();
-            using var tmp = new TempDir();
-            string ok1 = tmp.File("ok1.txt");
-            string ok2 = tmp.File("ok2.txt");
-            File2.WriteAllText(ok1, "OK1");
-            File2.WriteAllText(ok2, "OK2");
-            string missing = tmp.File("missing.txt");
-            var initialEmpty = host.Docs.CreateNew();
-
-            // fixture 順は [ok, missing, ok] — 中央に失敗を置き prefix/suffix 除外を確認(Stage 8 教訓)
-            var snap = new LastSessionSnapshot(
-                new List<SessionTabRecord>
-                {
-                    new(ok1, 0, null, false, 0, 0),
-                    new(missing, 0, null, false, 0, 0),
-                    new(ok2, 0, null, true, 0, 0),
-                }
-            );
-            var failed = host.File.RestoreLastSession(
-                snap,
-                new Dictionary<string, string>(),
-                initialEmpty
-            );
-
-            Assert.Single(failed);
-            Assert.Equal(missing, failed[0]);
-            Assert.DoesNotContain(host.Prompt.Log, e => e.Kind == "Error");
-            Assert.Equal(2, host.Docs.Count); // ok1 + ok2, initialEmpty は閉じる
-        });
-
-    [Fact]
-    public void RestoreLastSession_UntitledBufferMissing_SkipsRecord() =>
-        Sta.Run(() =>
-        {
-            using var host = new Host();
-            var initialEmpty = host.Docs.CreateNew();
-
-            var snap = new LastSessionSnapshot(
-                new List<SessionTabRecord> { new(null, 1, "k1", true, 0, 0) }
-            );
-            var failed = host.File.RestoreLastSession(
-                snap,
-                new Dictionary<string, string>(),
-                initialEmpty
-            );
-
-            Assert.Empty(failed);
-            Assert.Equal(1, host.Docs.Count);
-            Assert.Same(initialEmpty, host.Docs.Documents[0]);
-        });
-
-    [Fact]
-    public void RestoreLastSession_UntitledContentPresent_RestoresContent_ModifiedFalse() =>
-        Sta.Run(() =>
-        {
-            using var host = new Host();
-            var initialEmpty = host.Docs.CreateNew();
-
-            var snap = new LastSessionSnapshot(
-                new List<SessionTabRecord> { new(null, 2, "k1", true, 0, 4) }
-            );
-            var buffers = new Dictionary<string, string> { ["k1"] = "hello world" };
-
-            var failed = host.File.RestoreLastSession(snap, buffers, initialEmpty);
-
-            Assert.Empty(failed);
-            Assert.Equal(1, host.Docs.Count);
-            var doc = host.Docs.Active!;
-            Assert.Null(doc.State.Path);
-            Assert.Equal(2, doc.State.UntitledNumber);
-            Assert.Equal("hello world", doc.Editor.SnapshotText);
-            Assert.False(doc.Editor.Modified);
-            Assert.Equal(4, doc.Editor.GetColumn(doc.Editor.CurrentPosition));
-        });
-
-    [Fact]
-    public void RestoreLastSession_NothingRestored_KeepsInitialEmpty() =>
-        Sta.Run(() =>
-        {
-            using var host = new Host();
-            using var tmp = new TempDir();
-            var initialEmpty = host.Docs.CreateNew();
-
-            var snap = new LastSessionSnapshot(
-                new List<SessionTabRecord>
-                {
-                    new(tmp.File("missing.txt"), 0, null, false, 0, 0),
-                    new(null, 1, "kx", false, 0, 0),
-                }
-            );
-            var failed = host.File.RestoreLastSession(
-                snap,
-                new Dictionary<string, string>(),
-                initialEmpty
-            );
-
-            Assert.Single(failed);
-            Assert.Equal(1, host.Docs.Count);
-            Assert.Same(initialEmpty, host.Docs.Documents[0]);
-        });
-
-    [Fact]
-    public void RestoreLastSession_CaretPosition_ClampsOutOfRange() =>
-        Sta.Run(() =>
-        {
-            using var host = new Host();
-            var initialEmpty = host.Docs.CreateNew();
-
-            var snap = new LastSessionSnapshot(
-                new List<SessionTabRecord> { new(null, 1, "k1", true, 999, 999) }
-            );
-            var buffers = new Dictionary<string, string> { ["k1"] = "abc" };
-
-            host.File.RestoreLastSession(snap, buffers, initialEmpty);
-
-            var doc = host.Docs.Active!;
-            Assert.Equal(0, doc.Editor.CurrentLine);
-            Assert.Equal(3, doc.Editor.GetColumn(doc.Editor.CurrentPosition));
-        });
-
-    // ===== Task 5 review 追加テスト(fixup): M-6 / M-7 / I-1 =====
-
-    [Fact]
-    public void RestoreLastSession_NoActiveRecord_StillClosesInitialEmpty() =>
-        Sta.Run(() =>
-        {
-            using var host = new Host();
-            using var tmp = new TempDir();
-            string p1 = tmp.File("a.txt");
-            File2.WriteAllText(p1, "AAA");
-            var initialEmpty = host.Docs.CreateNew();
-
-            // IsActive=false の 1 タブのみ → openedCount>0 だが activeDoc=null
-            var snap = new LastSessionSnapshot(
-                new List<SessionTabRecord>
-                {
-                    new(p1, 0, null, IsActive: false, CaretLine: 0, CaretColumn: 0),
-                }
-            );
-            var failed = host.File.RestoreLastSession(
-                snap,
-                new Dictionary<string, string>(),
-                initialEmpty
-            );
-
-            Assert.Empty(failed);
-            Assert.Equal(1, host.Docs.Count); // initialEmpty は閉じる=これが規定挙動
-            Assert.Equal(p1, host.Docs.Documents[0].State.Path);
-        });
-
-    [Fact]
-    public void RestoreLastSession_DoesNotPolluteRecentFiles() =>
-        Sta.Run(() =>
-        {
-            using var host = new Host();
-            using var tmp = new TempDir();
-            string p1 = tmp.File("x.txt");
-            string p2 = tmp.File("y.txt");
-            File2.WriteAllText(p1, "XX");
-            File2.WriteAllText(p2, "YY");
-            // 前回の RecentFiles 状態を仕込む(復元経路がこれを汚さないことを検証)
-            host.Settings.RecentFiles = new List<string> { @"C:\pre-existing.txt" };
-            var initialEmpty = host.Docs.CreateNew();
-
-            var snap = new LastSessionSnapshot(
-                new List<SessionTabRecord>
-                {
-                    new(p1, 0, null, false, 0, 0),
-                    new(p2, 0, null, true, 0, 0),
-                }
-            );
-            host.File.RestoreLastSession(snap, new Dictionary<string, string>(), initialEmpty);
-
-            Assert.Single(host.Settings.RecentFiles);
-            Assert.Equal(@"C:\pre-existing.txt", host.Settings.RecentFiles[0]);
-        });
-
-    [Fact]
-    public void RestoreLastSession_PathWithEmbeddedNull_OneBadRecord_DoesNotBreakOthers() =>
-        Sta.Run(() =>
-        {
-            using var host = new Host();
-            using var tmp = new TempDir();
-            string ok = tmp.File("ok.txt");
-            File2.WriteAllText(ok, "OK");
-            string bad = "\0/bad-path.txt"; // File.OpenRead が ArgumentException を投げる形
-
-            var initialEmpty = host.Docs.CreateNew();
-
-            var snap = new LastSessionSnapshot(
-                new List<SessionTabRecord>
-                {
-                    new(bad, 0, null, false, 0, 0),
-                    new(ok, 0, null, true, 0, 0),
-                }
-            );
-            var failed = host.File.RestoreLastSession(
-                snap,
-                new Dictionary<string, string>(),
-                initialEmpty
-            );
-
-            // 悪いレコードは failedPaths に載り、次のレコードは通常復元される
-            Assert.Contains(bad, failed);
-            Assert.Equal(1, host.Docs.Count); // ok のみ・initialEmpty 閉じる
-            Assert.Equal(ok, host.Docs.Active!.State.Path);
-        });
-
-    [Fact]
-    public void RestoreLastSession_DuplicatePathInSnap_DoesNotPolluteRecentFiles() =>
-        Sta.Run(() =>
-        {
-            using var host = new Host();
-            using var tmp = new TempDir();
-            string p1 = tmp.File("dup.txt");
-            File2.WriteAllText(p1, "DUP");
-            host.Settings.RecentFiles = new List<string> { @"C:\pre-existing.txt" };
-            var initialEmpty = host.Docs.CreateNew();
-
-            // 同一パスの重複エントリ: 2 番目は fast-path (FindByPath) 経由になる
-            var snap = new LastSessionSnapshot(
-                new List<SessionTabRecord>
-                {
-                    new(p1, 0, null, false, 0, 0),
-                    new(p1, 0, null, true, 0, 0), // 重複=fast-path
-                }
-            );
-            host.File.RestoreLastSession(snap, new Dictionary<string, string>(), initialEmpty);
-
-            // fast-path でも _suppressRegisterRecent を尊重=RecentFiles 汚染なし
-            Assert.Single(host.Settings.RecentFiles);
-            Assert.Equal(@"C:\pre-existing.txt", host.Settings.RecentFiles[0]);
-        });
-
-    // ===== Task 14: RestoreLastSession dirty パスあり分岐 + WasModified =====
-
-    [Fact]
-    public void RestoreLastSession_DirtyPathRecord_RestoresAsModified_WithEncoding() =>
-        Sta.Run(() =>
-        {
-            using var host = new Host();
-            using var tmp = new TempDir();
-            string p = tmp.File("a.txt");
-            File2.WriteAllText(p, "on disk");
-            var initialEmpty = host.Docs.CreateNew();
-
-            var snap = new LastSessionSnapshot(
-                new List<SessionTabRecord>
-                {
-                    new(
-                        Path: p,
-                        UntitledNumber: 0,
-                        BufferKey: "k1",
-                        IsActive: true,
-                        CaretLine: 0,
-                        CaretColumn: 3,
-                        CodePage: 65001,
-                        HasBom: true,
-                        LineEnding: 1,
-                        WasModified: true
-                    ),
-                }
-            );
-            var buffers = new Dictionary<string, string> { ["k1"] = "in memory dirty" };
-
-            var failed = host.File.RestoreLastSession(snap, buffers, initialEmpty);
-
-            Assert.Empty(failed);
-            var doc = host.Docs.Active!;
-            Assert.Equal(p, doc.State.Path);
-            Assert.Equal("in memory dirty", doc.Editor.SnapshotText);
-            Assert.True(doc.Editor.Modified);
-            Assert.Equal(65001, doc.State.Encoding.CodePage);
-            Assert.True(doc.State.HasBom);
-        });
-
-    [Fact]
-    public void RestoreLastSession_DirtyUntitledRecord_WasModified_RestoresAsModified() =>
-        Sta.Run(() =>
-        {
-            using var host = new Host();
-            var initialEmpty = host.Docs.CreateNew();
-            var snap = new LastSessionSnapshot(
-                new List<SessionTabRecord>
-                {
-                    new(
-                        Path: null,
-                        UntitledNumber: 2,
-                        BufferKey: "k1",
-                        IsActive: true,
-                        CaretLine: 0,
-                        CaretColumn: 0,
-                        CodePage: 0,
-                        HasBom: false,
-                        LineEnding: 0,
-                        WasModified: true
-                    ),
-                }
-            );
-            var buffers = new Dictionary<string, string> { ["k1"] = "unsaved new" };
-
-            host.File.RestoreLastSession(snap, buffers, initialEmpty);
-            var doc = host.Docs.Active!;
-            Assert.Equal("unsaved new", doc.Editor.SnapshotText);
-            Assert.True(doc.Editor.Modified);
-        });
-
-    [Fact]
-    public void RestoreLastSession_DirtyPathRecord_BufferMissing_DemotesToDiskReopen() =>
-        Sta.Run(() =>
-        {
-            using var host = new Host();
-            using var tmp = new TempDir();
-            string p = tmp.File("a.txt");
-            File2.WriteAllText(p, "on disk");
-            var initialEmpty = host.Docs.CreateNew();
-
-            var snap = new LastSessionSnapshot(
-                new List<SessionTabRecord>
-                {
-                    new(
-                        Path: p,
-                        UntitledNumber: 0,
-                        BufferKey: "missing",
-                        IsActive: true,
-                        CaretLine: 0,
-                        CaretColumn: 0,
-                        CodePage: 65001,
-                        HasBom: false,
-                        LineEnding: 0,
-                        WasModified: true
-                    ),
-                }
-            );
-            host.File.RestoreLastSession(snap, new Dictionary<string, string>(), initialEmpty);
-            var doc = host.Docs.Active!;
-            Assert.Equal(p, doc.State.Path);
-            Assert.Equal("on disk", doc.Editor.SnapshotText);
-            Assert.False(doc.Editor.Modified);
-        });
-
-    // §8 補遺 M-2: RestoreUntitledTab は rec.LineEnding を尊重する(save/restore 対称性)。
-    [Fact]
-    public void RestoreLastSession_UntitledRecord_RestoresLineEnding() =>
-        Sta.Run(() =>
-        {
-            using var host = new Host();
-            host.Settings.DefaultLineEnding = (int)LineEnding.Crlf; // 既定=CRLF
-            var initialEmpty = host.Docs.CreateNew();
-
-            // rec.LineEnding=1 (LF) — 既定と異なる値
-            var snap = new LastSessionSnapshot(
-                new List<SessionTabRecord>
-                {
-                    new(
-                        Path: null,
-                        UntitledNumber: 1,
-                        BufferKey: "k1",
-                        IsActive: true,
-                        CaretLine: 0,
-                        CaretColumn: 0,
-                        CodePage: 0,
-                        HasBom: false,
-                        LineEnding: (int)LineEnding.Lf,
-                        WasModified: false
-                    ),
-                }
-            );
-            var buffers = new Dictionary<string, string> { ["k1"] = "hello" };
-
-            host.File.RestoreLastSession(snap, buffers, initialEmpty);
-            var doc = host.Docs.Active!;
-            Assert.Equal(LineEnding.Lf, doc.State.LineEnding); // 既定 CRLF ではなく rec.LineEnding が反映
-        });
-
     // ===== 統合復元 Task 5: RestoreSession(hot exit 統合・設計 2026-07-23 §3.3/§4) =====
 
     /// <summary>正規形(GUID N・lowercase 32 桁 hex)のバックアップ Id を生成する。</summary>
@@ -2477,5 +2047,90 @@ public class FileControllerTests
                 System.Diagnostics.Trace.Listeners.Remove(listener);
                 listener.Dispose();
             }
+        });
+
+    // ===== Task 7: 旧経路(PR #22)テストからの移植(新経路で未カバーだった意味論) =====
+
+    [Fact]
+    public void RestoreSession_CaretPosition_ClampsOutOfRange() =>
+        Sta.Run(() =>
+        {
+            // 旧経路の CaretPosition_ClampsOutOfRange テストの移植: stale/攻撃 JSON の
+            // 範囲外 caret はバッファ実範囲へクランプされる(SetCaretByLineColumn の契約を
+            // 復元経路で pin。SessionLayoutStore.Normalize は負値 clamp のみで正の範囲外は通す)。
+            using var host = new Host();
+            var initialEmpty = host.Docs.CreateNew();
+            string id = NewBackupId();
+            var backups = new[] { Backup(id, untitledNumber: 1, content: "abc") };
+            var layout = Layout(
+                LayoutRec(
+                    untitledNumber: 1,
+                    backupId: id,
+                    isActive: true,
+                    caretLine: 999,
+                    caretColumn: 999
+                )
+            );
+
+            host.File.RestoreSession(layout, backups, initialEmpty, adoptRestored: null);
+
+            var doc = host.Docs.Active!;
+            Assert.Equal(0, doc.Editor.CurrentLine);
+            Assert.Equal(3, doc.Editor.GetColumn(doc.Editor.CurrentPosition));
+        });
+
+    [Fact]
+    public void RestoreSession_PathWithEmbeddedNull_OneBadRecord_DoesNotBreakOthers() =>
+        Sta.Run(() =>
+        {
+            // 旧経路の PathWithEmbeddedNull テストの移植: null 文字入り path
+            // (File.OpenRead が ArgumentException を投げる形=悪意/破損 JSON 由来)が 1 レコード
+            // あっても failedPaths に載るだけで、後続レコードの復元は続行される
+            // (per-record 隔離+LoadInto catch フィルタの ArgumentException 吸収)。
+            using var host = new Host();
+            using var tmp = new TempDir();
+            string ok = tmp.File("ok.txt");
+            File2.WriteAllText(ok, "OK");
+            string bad = "\0/bad-path.txt";
+            var initialEmpty = host.Docs.CreateNew();
+            var layout = Layout(LayoutRec(path: bad), LayoutRec(path: ok, isActive: true));
+
+            var failed = host.File.RestoreSession(
+                layout,
+                Array.Empty<BackupRecord>(),
+                initialEmpty,
+                adoptRestored: null
+            );
+
+            Assert.Contains(bad, failed);
+            Assert.Equal(1, host.Docs.Count); // ok のみ・initialEmpty 閉じる
+            Assert.Equal(ok, host.Docs.Active!.State.Path);
+        });
+
+    [Fact]
+    public void RestoreSession_DuplicatePathInLayout_DoesNotPolluteRecentFiles() =>
+        Sta.Run(() =>
+        {
+            // 旧経路の DoesNotPolluteRecentFiles + DuplicatePathInSnap 両テストの移植:
+            // 通常ロード経路(1 個目)と FindByPath fast-path(2 個目=重複パス)の両方で
+            // _suppressRegisterRecent が尊重される(Task 10 review I-2)。非既定状態
+            // (既存 RecentFiles 1 件)から開始し「変化しない」ことを検証する(Stage 6 教訓)。
+            using var host = new Host();
+            using var tmp = new TempDir();
+            string p1 = tmp.File("dup.txt");
+            File2.WriteAllText(p1, "DUP");
+            host.Settings.RecentFiles = new List<string> { @"C:\pre-existing.txt" };
+            var initialEmpty = host.Docs.CreateNew();
+            var layout = Layout(LayoutRec(path: p1), LayoutRec(path: p1, isActive: true));
+
+            host.File.RestoreSession(
+                layout,
+                Array.Empty<BackupRecord>(),
+                initialEmpty,
+                adoptRestored: null
+            );
+
+            Assert.Single(host.Settings.RecentFiles);
+            Assert.Equal(@"C:\pre-existing.txt", host.Settings.RecentFiles[0]);
         });
 }

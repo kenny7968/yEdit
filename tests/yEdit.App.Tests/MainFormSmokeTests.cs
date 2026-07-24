@@ -61,16 +61,26 @@ public class MainFormSmokeTests
         new() { BackupEnabled = false, CsvAutoModeOnOpen = csvAutoModeOnOpen };
 
     /// <summary>
-    /// MainForm を可視状態(=OnShown 発火)まで作る。MainForm は sealed のため
+    /// MainForm を可視状態まで作る(OnShown は BeginInvoke 経由のため non-pumping STA では
+    /// 発火しない=必要なら <see cref="ShowMainForm_Unified"/> を使う)。MainForm は sealed のため
     /// <see cref="Form.ShowWithoutActivation"/> を注入できない=Show() が一時的にアクティブ化するが、
     /// xUnit の並列実行は <see cref="Xunit.CollectionBehaviorAttribute"/> で無効化済(GlobalUsings.cs)
     /// のため実害なし。StartPosition/Location/ShowInTaskbar は Show() 前に上書きして
     /// 画面外(-32000,-32000)配置=デスクトップ上のチラつきを最小化する
     /// (ctor 内で StartPosition=CenterScreen が指定されているが、Show() 時に評価されるため上書きが効く)。
+    /// Task 7 テスト衛生: 2 引数 ctor は backups / session-state.json / last-session-buffers.json が
+    /// 実 %APPDATA% に落ち、close 時の Shutdown(keepForRestore:false) 等が開発機の実ファイルを
+    /// 消してしまうため、全テスト共通で 4 引数 ctor+seam により TempDir へ隔離する。
     /// </summary>
-    private static MainForm ShowMainForm(AppSettings settings, string settingsPath)
+    private static MainForm ShowMainForm(AppSettings settings, TempDir tmp)
     {
-        var form = new MainForm(settings, settingsPath);
+        var form = new MainForm(
+            settings,
+            tmp.SettingsPath,
+            backupDirectory: tmp.BackupDir,
+            sessionLayoutPath: tmp.LayoutPath
+        );
+        form.SetLastSessionBuffersPathForTest(tmp.BuffersPath);
         form.StartPosition = FormStartPosition.Manual;
         form.Location = new System.Drawing.Point(-32000, -32000);
         form.ShowInTaskbar = false;
@@ -95,25 +105,15 @@ public class MainFormSmokeTests
     }
 
     /// <summary>
-    /// hot exit 統合(設計 2026-07-23 統合 §3.2/§3.3)テスト用: backupDirectory /
-    /// sessionLayoutPath / buffers path を TempDir 配下へ隔離して MainForm を可視状態まで作り、
-    /// OnShown(ON なら RestoreUnifiedSession)を発火させる。失敗パスの集約 Warn は既定で抑止
+    /// hot exit 統合(設計 2026-07-23 統合 §3.2/§3.3)テスト用: <see cref="ShowMainForm"/> の
+    /// TempDir 隔離に加えて OnShown(ON なら RestoreUnifiedSession・OFF なら従来提案)を
+    /// pump で発火させる。失敗パスの集約 Warn は既定で抑止
     /// (MessageBox がテストをブロックしないように。実運用経路では出る)。
     /// </summary>
     private static MainForm ShowMainForm_Unified(AppSettings settings, TempDir tmp)
     {
-        var form = new MainForm(
-            settings,
-            tmp.SettingsPath,
-            backupDirectory: tmp.BackupDir,
-            sessionLayoutPath: tmp.LayoutPath
-        );
-        form.SetLastSessionBuffersPathForTest(tmp.BuffersPath);
+        var form = ShowMainForm(settings, tmp);
         form.SetSuppressFailedRestoreDialogForTest(true);
-        form.StartPosition = FormStartPosition.Manual;
-        form.Location = new System.Drawing.Point(-32000, -32000);
-        form.ShowInTaskbar = false;
-        form.Show();
         PumpUntilShown();
         return form;
     }
@@ -148,30 +148,11 @@ public class MainFormSmokeTests
         ReferenceEquals(((TabControl)doc.Page.Parent!).SelectedTab, doc.Page);
 
     /// <summary>
-    /// Task 7: OnShown の前回タブ復元経路を、実 %APPDATA%\yEdit\last-session-buffers.json を
-    /// 触らずに検証するための helper。SetLastSessionBuffersPathForTest は Show() より前に
-    /// 呼ばないと OnShown 内の Load/Delete が既定パスへ落ちるため、ここで統合的に組み立てる。
-    /// suppressFailedDialog=true で FailedPaths が非空でも Warn ダイアログを出さない
-    /// (テスト内で MessageBox がブロックするのを回避)。
+    /// レガシー(PR #22)形式の buffers.json を植える(移行復元の入力)。ストア側の Save は
+    /// Task 7 で退役済みのため、旧 Save 出力と互換の生 JSON(string→string マップ)を直接書く。
     /// </summary>
-    private static MainForm ShowMainForm_ForRestoreOnShown(
-        AppSettings settings,
-        string settingsPath,
-        string buffersPath,
-        bool suppressFailedDialog = false
-    )
-    {
-        var form = new MainForm(settings, settingsPath);
-        form.SetLastSessionBuffersPathForTest(buffersPath);
-        if (suppressFailedDialog)
-            form.SetSuppressFailedRestoreDialogForTest(true);
-        form.StartPosition = FormStartPosition.Manual;
-        form.Location = new System.Drawing.Point(-32000, -32000);
-        form.ShowInTaskbar = false;
-        form.Show();
-        PumpUntilShown();
-        return form;
-    }
+    private static void PlantLegacyBuffers(TempDir tmp, Dictionary<string, string> map) =>
+        File2.WriteAllText(tmp.BuffersPath, System.Text.Json.JsonSerializer.Serialize(map));
 
     // ===== AutoEnterCsvMode: 2 ガード(設定 ON/拡張子)の kill =====
 
@@ -184,7 +165,7 @@ public class MainFormSmokeTests
             // Ordinal に変異したら小文字 .csv と不一致=AutoEnterCsvMode を素通り=CsvMode=false で赤化する。
             string path = tmp.File("DATA.CSV");
             File2.WriteAllText(path, "a,b\n1,2");
-            using var form = ShowMainForm(NewSettings(csvAutoModeOnOpen: true), tmp.SettingsPath);
+            using var form = ShowMainForm(NewSettings(csvAutoModeOnOpen: true), tmp);
 
             var doc = form.FileForTest.TryOpenOrActivate(path);
 
@@ -199,7 +180,7 @@ public class MainFormSmokeTests
             using var tmp = new TempDir();
             string path = tmp.File("data.csv");
             File2.WriteAllText(path, "a,b\n1,2");
-            using var form = ShowMainForm(NewSettings(csvAutoModeOnOpen: false), tmp.SettingsPath);
+            using var form = ShowMainForm(NewSettings(csvAutoModeOnOpen: false), tmp);
 
             var doc = form.FileForTest.TryOpenOrActivate(path);
 
@@ -216,7 +197,7 @@ public class MainFormSmokeTests
             using var tmp = new TempDir();
             string path = tmp.File("data.txt"); // .csv でない
             File2.WriteAllText(path, "a,b\n1,2");
-            using var form = ShowMainForm(NewSettings(csvAutoModeOnOpen: true), tmp.SettingsPath);
+            using var form = ShowMainForm(NewSettings(csvAutoModeOnOpen: true), tmp);
 
             var doc = form.FileForTest.TryOpenOrActivate(path);
 
@@ -236,7 +217,7 @@ public class MainFormSmokeTests
             string path = tmp.File("data.csv"); // 拡張子だけでは判定できない=auto 設定 ON でも CSV へ入らないことを固定する
             File2.WriteAllText(path, "a,b,c\n1,2,3");
             // auto ON のまま OpenAndSelect: suppressAutoCsv=true が抜けると AutoEnterCsvMode が発火して赤化する
-            using var form = ShowMainForm(NewSettings(csvAutoModeOnOpen: true), tmp.SettingsPath);
+            using var form = ShowMainForm(NewSettings(csvAutoModeOnOpen: true), tmp);
 
             form.OpenAndSelect(path, offset: 2, length: 3);
 
@@ -374,8 +355,8 @@ public class MainFormSmokeTests
             File2.WriteAllText(p2, "clean-body");
             string k1 = NewId();
             string k2 = NewId();
-            LastSessionBuffersStore.Save(
-                tmp.BuffersPath,
+            PlantLegacyBuffers(
+                tmp,
                 new Dictionary<string, string> { [k1] = "edited-dirty", [k2] = "untitled-body" }
             );
 
@@ -444,10 +425,7 @@ public class MainFormSmokeTests
             string p1 = tmp.File("dirty.txt");
             File2.WriteAllText(p1, "disk-old");
             string k1 = NewId();
-            LastSessionBuffersStore.Save(
-                tmp.BuffersPath,
-                new Dictionary<string, string> { [k1] = "edited-dirty" }
-            );
+            PlantLegacyBuffers(tmp, new Dictionary<string, string> { [k1] = "edited-dirty" });
 
             var settings = NewSettings(csvAutoModeOnOpen: false);
             settings.BackupEnabled = true;
@@ -485,7 +463,6 @@ public class MainFormSmokeTests
             using var tmp = new TempDir();
             string p1 = tmp.File("a.txt");
             File2.WriteAllText(p1, "AAA");
-            string buffersPath = Path.Combine(tmp.Root, "last-session-buffers.json");
 
             var settings = NewSettings(csvAutoModeOnOpen: false);
             settings.RestoreOpenFilesOnStartup = false; // OFF
@@ -493,14 +470,10 @@ public class MainFormSmokeTests
                 new List<SessionTabRecord> { new(p1, 0, null, true, 0, 0) }
             );
 
-            // ShowMainForm_ForRestoreOnShown は Application.DoEvents で OnShown を発火させる=
-            // 「復元経路の gate 判定」が実際に評価される(Task 7 review: 純 ShowMainForm では
-            // vacuous になり RestoreOpenFilesOnStartup gate を mutation 検証できない)。
-            using var form = ShowMainForm_ForRestoreOnShown(
-                settings,
-                tmp.SettingsPath,
-                buffersPath
-            );
+            // ShowMainForm_Unified は Application.DoEvents で OnShown を発火させる=
+            // 「復元経路の gate 判定」が実際に評価される(Task 7 review: pump しない純 ShowMainForm
+            // では vacuous になり RestoreOpenFilesOnStartup gate を mutation 検証できない)。
+            using var form = ShowMainForm_Unified(settings, tmp);
             Assert.DoesNotContain(form.FileForTest.DocsForTest, d => d.State.Path == p1);
         });
 
@@ -746,11 +719,11 @@ public class MainFormSmokeTests
             Assert.Empty(BackupStore.LoadAll(tmp.BackupDir)); // 自セッション分のバックアップ削除
         });
 
-    // OFF 終了は stale な LastSession(レガシー)も常に null 化する(統合後は旧形式を書かない)。
-    // 旧テストの buffers.json 削除断言は仕様ごと削除(OFF 終了は buffers に触らない=
-    // レガシー buffers の掃除は ON 初回起動の移行パスが担う)。
+    // OFF 終了は stale な LastSession(レガシー)を常に null 化し、レガシー buffers.json も
+    // 掃除する(Task 7: OFF 恒久ユーザーは移行パスを一度も通らないため、ここで消さないと
+    // 本文入り orphan が永久に残る。ON 側の掃除は起動時の移行パスが担う)。
     [Fact]
-    public void OnFormClosing_RestoreDisabled_ClearsStaleLastSession() =>
+    public void OnFormClosing_RestoreDisabled_ClearsStaleLastSession_AndLegacyBuffers() =>
         Sta.Run(() =>
         {
             using var tmp = new TempDir();
@@ -759,6 +732,7 @@ public class MainFormSmokeTests
             settings.LastSession = new LastSessionSnapshot(
                 new List<SessionTabRecord> { new(@"C:\stale.txt", 0, null, true, 0, 0) }
             );
+            PlantLegacyBuffers(tmp, new Dictionary<string, string> { ["k"] = "orphan-body" });
 
             using (var form = ShowMainForm_Unified(settings, tmp))
             {
@@ -768,6 +742,7 @@ public class MainFormSmokeTests
             var loaded = SettingsStore.Load(tmp.SettingsPath);
             Assert.False(loaded.RestoreOpenFilesOnStartup);
             Assert.Null(loaded.LastSession);
+            Assert.False(File2.Exists(tmp.BuffersPath)); // OFF 終了で orphan 掃除(Task 7)
         });
 
     // Test 3: 設定 OFF → 従来経路(dirty タブに ConfirmDiscardIfDirty が発火)
@@ -779,10 +754,9 @@ public class MainFormSmokeTests
             var settings = NewSettings(csvAutoModeOnOpen: false);
             settings.RestoreOpenFilesOnStartup = false; // OFF = 従来経路
 
-            using var form = ShowMainForm(settings, tmp.SettingsPath);
-            // §8 補遺 I-1: 設定 OFF 経路は OnFormClosing で DeleteLastSessionBuffersSafe を呼ぶ=
-            // seam を張らないと実 %APPDATA%\yEdit\last-session-buffers.json を消しに行く。
-            form.SetLastSessionBuffersPathForTest(Path.Combine(tmp.Root, "buffers.json"));
+            // OFF 終了は OnFormClosing がレガシー buffers も掃除する(Task 7)=ShowMainForm が
+            // seam で TempDir へ隔離済みのため実 %APPDATA% は触らない。
+            using var form = ShowMainForm(settings, tmp);
 
             var doc = form.FileForTest.DocsForTest[0];
             doc.Editor.ReplaceCharRange(0, 0, "dirty");
@@ -809,10 +783,10 @@ public class MainFormSmokeTests
             var settings = NewSettings(csvAutoModeOnOpen: false);
             settings.RestoreOpenFilesOnStartup = false; // OFF = 従来経路(dialog fires)
 
-            using var form = ShowMainForm(settings, tmp.SettingsPath);
-            // §8 補遺 I-1 (preventive): 現状 e.Cancel=true で Delete 前に return するため実害はないが、
-            // 将来 cancel 前後の順序変更で regress するのを防ぐため seam を張る。
-            form.SetLastSessionBuffersPathForTest(Path.Combine(tmp.Root, "buffers.json"));
+            // §8 補遺 I-1 (preventive): 現状 e.Cancel=true でレガシー buffers の Delete 前に
+            // return するため実害はないが、将来 cancel 前後の順序変更で regress しても
+            // ShowMainForm の seam 隔離により実 %APPDATA% は守られる。
+            using var form = ShowMainForm(settings, tmp);
             var doc = form.FileForTest.DocsForTest[0];
             doc.Editor.ReplaceCharRange(0, 0, "dirty");
 

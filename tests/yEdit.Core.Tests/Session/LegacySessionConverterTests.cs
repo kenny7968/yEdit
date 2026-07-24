@@ -13,7 +13,7 @@ public class LegacySessionConverterTests
 {
     private static readonly DateTime Now = new(2026, 7, 23, 10, 0, 0, DateTimeKind.Utc);
 
-    /// <summary>正規形(GUID N・lowercase 32 桁 hex)の BufferKey を生成する(旧 BuildLastSessionSnapshot と同形)。</summary>
+    /// <summary>正規形(GUID N・lowercase 32 桁 hex)の BufferKey を生成する(旧形式(PR #22)の書込側と同形)。</summary>
     private static string NewKey() => Guid.NewGuid().ToString("N");
 
     private static SessionTabRecord Tab(

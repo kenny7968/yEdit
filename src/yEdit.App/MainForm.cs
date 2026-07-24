@@ -50,7 +50,8 @@ public sealed partial class MainForm : Form
     private bool _menuActive;
 
     // テストが実 %APPDATA% を汚さないための seam。null=既定パス。
-    // hot exit 統合後はレガシー移行(RestoreUnifiedSession)の Load/Delete だけが使う。
+    // hot exit 統合後はレガシー移行(RestoreUnifiedSession)の Load/Delete と
+    // OFF 終了時の orphan 掃除(OnFormClosing)だけが使う。
     private string? _lastSessionBuffersPathOverride;
     private string LastSessionBuffersPath =>
         _lastSessionBuffersPathOverride ?? yEdit.Core.Session.LastSessionBuffersStore.DefaultPath;
@@ -62,14 +63,6 @@ public sealed partial class MainForm : Form
     // FileController.RestoreSession の initialEmpty 引数に渡す=前回タブが 1 つでも復元
     // できた時のみ破棄される契約(Task 5 review M-2)。ctor 末尾で 1 度だけ代入し以後不変。
     private readonly Document? _startupEmptyDoc;
-
-    // テスト用: OfferRestoreOnStartup の戻り値を差し替える(設定 OFF 経路の分岐 kill 用)。
-    // null=通常経路(実 backup を呼ぶ)、非 null=そのままの値を restored に使う。
-    // hot exit 統合後は OnShown の OFF 分岐のみが参照する。
-    private int? _restoredCountOverrideForTest;
-
-    internal void SetRestoredCountOverrideForTest(int value) =>
-        _restoredCountOverrideForTest = value;
 
     // Task 7 テスト用: FailedPaths の Warn ダイアログ (MessageBox.Show=blocking) をテストで抑止する seam。
     // 4 番目の smoke テスト(missing file → FailedPaths に載る)で MessageBox が UI スレッドを
@@ -247,12 +240,6 @@ public sealed partial class MainForm : Form
         }
 
         // OFF: 従来どおり異常終了バックアップの復元提案のみ。
-        // テスト: _restoredCountOverrideForTest が設定されていれば実 backup を呼ばず素通りする
-        // (従来から override 分岐は announcer を呼ばない契約。統合後の OFF 経路では戻り値は
-        // announcer 分岐にしか使われないため、値の差し替えは早期 return と等価=S1854 対応)。
-        if (_restoredCountOverrideForTest is not null)
-            return;
-
         int restored = _backup.OfferRestoreOnStartup(
             this,
             _file.RestoreFromBackup,
@@ -428,6 +415,14 @@ public sealed partial class MainForm : Form
             _backup.FinalFlushForRestore();
 
         _settings.LastSession = null; // 統合後は旧形式を書かない
+        if (!_settings.RestoreOpenFilesOnStartup)
+        {
+            // レガシー残骸の掃除(設計 2026-07-23 統合 §8): OFF 恒久ユーザーは移行パス
+            // (RestoreUnifiedSession)を一度も通らないため、ここで消さないと本文入りの
+            // last-session-buffers.json が orphan として永久に残る。ON 側の掃除は
+            // 起動時の移行パスが担う(復元消費とセットで削除)。
+            yEdit.Core.Session.LastSessionBuffersStore.Delete(LastSessionBuffersPath);
+        }
         SaveSettingsSafe();
         base.OnFormClosing(e);
     }

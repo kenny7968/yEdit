@@ -549,7 +549,7 @@ public class MainFormSmokeTests
         });
 
     // ON×BackupOFF+dirty → 従来の確認あり(設計 §5.2: 内容を退避できないため silent close しない)。
-    // 確認通過後はレイアウトのみ書かれ、本文バックアップは書かれない。
+    // No(破棄)を選んだ無題タブはレイアウトからも除外され、空枠として復活しない(PR #22 M-1 後継)。
     [Fact]
     public void OnFormClosing_UnifiedOn_BackupOff_Dirty_FallsThroughToConfirm_LayoutOnly() =>
         Sta.Run(() =>
@@ -567,7 +567,7 @@ public class MainFormSmokeTests
                 form.SetConfirmDiscardOverrideForTest(_ =>
                 {
                     overrideCalls++;
-                    return true; // 破棄で閉じる
+                    return true; // No=破棄で閉じる(Modified 維持)
                 });
                 form.Close();
                 Assert.Equal(false, form.LastCloseTookSilentPathForTest);
@@ -577,8 +577,101 @@ public class MainFormSmokeTests
 
             var layout = SessionLayoutStore.Load(tmp.LayoutPath);
             Assert.NotNull(layout); // レイアウトのみモードでも FinalFlush はレイアウトを書く
-            Assert.Null(Assert.Single(layout!.Tabs).BackupId); // 本文バックアップ参照なし
+            Assert.Empty(layout!.Tabs); // No'd 無題タブは空枠として復活しない(MarkDiscarded)
             Assert.Empty(BackupStore.LoadAll(tmp.BackupDir)); // 本文は書かれない
+        });
+
+    // 設計 §3.2 補遺(PR #22 M-1 後継): ON×BackupON で 32M 超 dirty により fall-through した close で
+    // No(破棄)を選んだタブは、レイアウトからもバックアップからも消える=次回起動で silent 復活しない。
+    // 32M 超は SetOrReplaceSource(undo 履歴なしの一括差し込み)で 64 MB string 1 個に留める。
+    // HasOversizedDirtyDoc の true 側 gate もここで e2e 検証される(silent seam=false)。
+    [Fact]
+    public void OnFormClosing_UnifiedOn_OversizedFallThrough_DiscardedTabsNotRevived() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.BackupEnabled = true;
+            settings.RestoreOpenFilesOnStartup = true;
+
+            int overrideCalls = 0;
+            using (var form = ShowMainForm_Unified(settings, tmp))
+            {
+                var normal = form.FileForTest.DocsForTest[0];
+                normal.Editor.ReplaceCharRange(0, 0, "normal-body"); // No 対象(≤32M dirty)
+
+                form.FileForTest.NewFile();
+                var big = form.FileForTest.DocsForTest[^1];
+                big.Editor.SetOrReplaceSource(
+                    yEdit.Core.Buffers.TextBuffer.FromString(
+                        new string('x', BackupCoordinator.MaxBackupChars + 1)
+                    )
+                );
+                big.Editor.ClearSavePoint(); // Modified=true
+                Assert.True(form.HasOversizedDirtyDocForTest()); // 32M gate true 側の pre-condition
+
+                form.SetConfirmDiscardOverrideForTest(_ =>
+                {
+                    overrideCalls++;
+                    return true; // No=破棄して続行(Modified 維持)
+                });
+                form.Close();
+                Assert.Equal(false, form.LastCloseTookSilentPathForTest); // oversized で fall-through
+            }
+
+            Assert.Equal(2, overrideCalls); // dirty 2 タブに確認
+
+            // No'd タブはレイアウトに現れず、バックアップも残らない=silent 復活経路なし
+            var layout = SessionLayoutStore.Load(tmp.LayoutPath);
+            Assert.NotNull(layout);
+            Assert.Empty(layout!.Tabs);
+            Assert.Empty(BackupStore.LoadAll(tmp.BackupDir));
+        });
+
+    // MarkDiscarded の確定は確認ループ完走後(MainForm 側の遅延適用): 途中キャンセルで close が
+    // 中止された場合、既に No と答えたタブの破棄マークが残留しない=以後も通常どおり保護される。
+    [Fact]
+    public void OnFormClosing_CanceledClose_DoesNotPersistDiscardMarks() =>
+        Sta.Run(() =>
+        {
+            using var tmp = new TempDir();
+            var settings = NewSettings(csvAutoModeOnOpen: false);
+            settings.BackupEnabled = true;
+            settings.RestoreOpenFilesOnStartup = true;
+
+            using var form = ShowMainForm_Unified(settings, tmp);
+            var normal = form.FileForTest.DocsForTest[0];
+            normal.Editor.ReplaceCharRange(0, 0, "normal-body");
+
+            form.FileForTest.NewFile();
+            var big = form.FileForTest.DocsForTest[^1];
+            big.Editor.SetOrReplaceSource(
+                yEdit.Core.Buffers.TextBuffer.FromString(
+                    new string('x', BackupCoordinator.MaxBackupChars + 1)
+                )
+            );
+            big.Editor.ClearSavePoint(); // oversized dirty → fall-through 強制
+
+            int calls = 0;
+            form.SetConfirmDiscardOverrideForTest(_ => ++calls == 1); // 1 回目 No・2 回目キャンセル
+            form.Close();
+            Assert.True(form.Visible); // e.Cancel=true で閉じられなかった
+            Assert.Equal(2, calls);
+
+            // oversized を解消して再 close → silent 経路。No と答えた normal が保護対象のまま
+            // (マーク残留の変異=ループ内即時 MarkDiscarded 化はここで赤化する)。
+            big.Editor.SetOrReplaceSource(yEdit.Core.Buffers.TextBuffer.FromString("tiny"));
+            form.Close();
+            Assert.Equal(true, form.LastCloseTookSilentPathForTest);
+
+            var layout = SessionLayoutStore.Load(tmp.LayoutPath);
+            Assert.NotNull(layout);
+            Assert.Equal(2, layout!.Tabs.Count); // normal+big の両タブが残る
+            var dirtyTab = Assert.Single(layout.Tabs, t => t.BackupId is not null);
+            Assert.Contains(
+                BackupStore.LoadAll(tmp.BackupDir),
+                r => r.Id == dirtyTab.BackupId && r.Content == "normal-body"
+            );
         });
 
     // 設計 §10: 32M cap 判定の中核(IsOversizedDirty)。32M chars の実バッファを alloc せず

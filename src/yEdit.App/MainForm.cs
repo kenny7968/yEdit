@@ -390,6 +390,7 @@ public sealed partial class MainForm : Form
         {
             // 従来経路: 全 dirty タブに Yes/No/Cancel 確認(all-or-nothing fall-through)。
             // どれかでキャンセルなら終了中止。
+            var discarded = new List<Document>();
             foreach (var doc in _docs.Documents.ToArray())
             {
                 if (!doc.Editor.Modified)
@@ -405,7 +406,15 @@ public sealed partial class MainForm : Form
                     base.OnFormClosing(e);
                     return;
                 }
+                // keepClosing=true+Modified 維持=No(破棄)の明示選択(Yes は SaveDocument で
+                // Modified=false 化される)。破棄意図を hot exit の復元対象へ silent 復活させない
+                // (PR #22 M-1 後継)。確定は確認ループ完走後: 途中キャンセルでマークが残留すると、
+                // 以後その文書がバックアップ/レイアウト対象から永久に外れて silent 消失するため。
+                if (doc.Editor.Modified)
+                    discarded.Add(doc);
             }
+            foreach (var doc in discarded)
+                _backup.MarkDiscarded(doc); // OFF 経路でも冪等に無害(Shutdown が全削除する)
         }
 
         // ウィンドウサイズを設定に保存（最大化中は RestoreBounds を使う・M1 同様）。

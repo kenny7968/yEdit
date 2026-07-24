@@ -57,6 +57,11 @@ public sealed class BackupCoordinator : IDisposable
     private readonly System.Windows.Forms.Timer _timer = new();
     private IBackupWriter? _writer; // 無効時は生成しない(有効化時に factory 経由で遅延生成)
     private readonly Dictionary<Document, DocBackup> _map = new();
+
+    /// <summary>ユーザーが明示的に破棄(未保存確認で「いいえ」)した文書(設計 §3.2 補遺・
+    /// PR #22 M-1 後継)。Reconcile の再登録・BuildLayout の記録から除外し、hot exit の
+    /// 復元対象に破棄意図を silent 復活させない。</summary>
+    private readonly HashSet<Document> _discarded = new();
     private readonly ConcurrentQueue<string> _failed = new(); // 背景書込が失敗した Id(UI スレッドで回収)
     private bool _shutDown;
 
@@ -357,6 +362,22 @@ public sealed class BackupCoordinator : IDisposable
         }
     }
 
+    /// <summary>ユーザーが明示的に破棄(未保存確認で「いいえ」)した文書を最終 flush の対象外にする。
+    /// バックアップを即削除し、以後の ReconcileContent の再登録と BuildLayout のレイアウト記録から
+    /// 除外する(明示破棄の意図を hot exit の復元対象に silent 復活させない=PR #22 M-1 の後継)。
+    /// 破棄意図が確定した後(確認ループ完走後)にのみ呼ぶこと(途中キャンセルで close が中止された
+    /// 場合にマークが残留すると、以後その文書が保護対象から外れ hot exit で silent 消失するため)。</summary>
+    public void MarkDiscarded(Document doc)
+    {
+        if (_map.TryGetValue(doc, out var info))
+        {
+            if (info.HasBackup)
+                _writer?.Delete(info.Id);
+            _map.Remove(doc);
+        }
+        _discarded.Add(doc);
+    }
+
     /// <summary>UI スレッドで文書を走査し、必要なバックアップ書込/削除ジョブ(+有効時は
     /// レイアウト書込ジョブ)を投入する。App.Tests から直接叩けるよう internal(Timer は本番のみ)。</summary>
     internal void Reconcile()
@@ -394,6 +415,11 @@ public sealed class BackupCoordinator : IDisposable
 
         foreach (var doc in _docs.Documents)
         {
+            // 意図的変更(挙動不変リファクタではない): MarkDiscarded 済み文書は RegisterNew による
+            // 再登録・再書込をしない。ここを外すと OnFormClosing の FinalFlush が破棄済み dirty を
+            // 再退避し、次回起動で破棄意図が silent 復活する(PR #22 M-1 後継)。
+            if (_discarded.Contains(doc))
+                continue;
             if (!_map.TryGetValue(doc, out var info))
             {
                 RegisterNew(doc);
@@ -437,6 +463,10 @@ public sealed class BackupCoordinator : IDisposable
         var current = new HashSet<Document>(_docs.Documents);
         foreach (var doc in _map.Keys.ToList())
         {
+            // 意図的変更: MarkDiscarded 済み文書は対象外(通常は MarkDiscarded が _map から除去済みで
+            // 到達しない=将来 _map への再登録経路が増えた場合の防御的整合。ReconcileContent と対)。
+            if (_discarded.Contains(doc))
+                continue;
             var info = _map[doc];
             if (!current.Contains(doc))
             {
@@ -478,6 +508,10 @@ public sealed class BackupCoordinator : IDisposable
         var active = _docs.Active;
         foreach (var doc in _docs.Documents)
         {
+            // 意図的変更: MarkDiscarded 済みタブはレイアウトに書かない(タブごと復元対象外)。
+            // ここを外すと ON×BackupOFF の fall-through で No'd 無題タブが空枠として復活する。
+            if (_discarded.Contains(doc))
+                continue;
             string? backupId =
                 _map.TryGetValue(doc, out var info) && info.HasBackup ? info.Id : null;
             tabs.Add(

@@ -1211,6 +1211,38 @@ public class BackupCoordinatorTests
             Assert.Equal(contentBefore + 1, host.Writer.Writes.Count); // \u672C\u6587\u306F sig \u5224\u5B9A\u3069\u304A\u308A\u5897\u3048\u306A\u3044
         });
 
+    // 設計 §3.2 補遺(PR #22 M-1 後継): 明示破棄(No)タブは hot exit の復元対象に silent 復活しない。
+    // 3 つの skip/削除ピボットを同時に kill する構成:
+    //  - MarkDiscarded の Delete 投入を外す → Deletes 断言が赤化
+    //  - ReconcileContent の _discarded skip を外す → RegisterNew 再登録で Writes 断言が赤化
+    //  - BuildLayout の _discarded skip を外す → レイアウト Single 断言が赤化
+    [Fact]
+    public void MarkDiscarded_DeletesBackup_BlocksRewrite_AndExcludesFromLayout() =>
+        Sta.Run(() =>
+        {
+            using var host = new Host(restoreSessionEnabled: true);
+            _ = host.NewDoc("keep-me");
+            var drop = host.NewDoc("drop-me");
+            host.Backup.Reconcile(); // 両方登録+Write(+レイアウト 2 タブ)
+            string keepId = host.Writer.Writes.Single(w => w.Content == "keep-me").Id;
+            string dropId = host.Writer.Writes.Single(w => w.Content == "drop-me").Id;
+            Assert.Equal(2, host.Writer.LayoutWrites[^1].Tabs.Count); // 非既定状態から開始(Stage 6)
+
+            host.Backup.MarkDiscarded(drop);
+
+            Assert.Contains(dropId, host.Writer.Deletes); // 既存バックアップの即時 Delete 投入
+
+            // FinalFlush(close 時の最終 Reconcile 相当)でも再登録・再書込されない
+            host.Writer.Writes.Clear();
+            host.Backup.FinalFlushForRestore();
+            Assert.DoesNotContain(host.Writer.Writes, w => w.Content == "drop-me");
+
+            // レイアウトからタブごと除外される(復元対象外)
+            var layout = host.Writer.LayoutWrites[^1];
+            var tab = Assert.Single(layout.Tabs);
+            Assert.Equal(keepId, tab.BackupId);
+        });
+
     [Fact]
     public void Shutdown_KeepForRestore_KeepsBackupsAndLayout() =>
         Sta.Run(() =>

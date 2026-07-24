@@ -51,8 +51,14 @@ public static class SessionLayoutStore
             var raw = JsonSerializer.Deserialize<SessionLayout>(File.ReadAllText(path), Options);
             return raw is null ? null : Normalize(raw);
         }
-        catch
+        catch (Exception ex)
         {
+            // 最終品質パス M-3: size cap 超過はトレースするのに破損 JSON(E5'=タブ順の silent 消失)は
+            // 無音、の非対称を解消する。例外型名のみ載せる(攻撃者制御のメッセージ文字列は載せない)。
+            System.Diagnostics.Trace.TraceWarning(
+                "yEdit: session-state.json unreadable ({0}); ignoring.",
+                ex.GetType().Name
+            );
             return null; // 破損=レイアウトなし扱い(E5'。extras 復元は呼び出し側で継続)
         }
     }

@@ -1445,6 +1445,25 @@ public class BackupCoordinatorTests
             Assert.Equal(rec.Id, warn.Detail); // \u6B63\u5F53\u306A GUID N \u306F sanitize \u4E0D\u5909
         });
 
+    [Fact]
+    public void AdoptRestored_CleanDocAtAdoptTime_NextReconcileDeletesBackup() =>
+        Sta.Run(() =>
+        {
+            // \u6700\u7D42\u54C1\u8CEA\u30D1\u30B9 I-1 \u306E\u7D50\u5408\u78BA\u8A8D: path-only demote \u306E disk \u518D\u30AA\u30FC\u30D7\u30F3(=adopt \u6642\u70B9\u3067\u65E2\u306B
+            // clean \u306A doc)\u3092 adopt \u3057\u305F\u5834\u5408\u3001\u30E6\u30FC\u30B6\u30FC\u64CD\u4F5C\u306A\u3057\u3067\u3082\u6B21 Reconcile \u306E clean \u691C\u51FA
+            // (BackupPlanner.Decide)\u304C Delete \u3092\u98DB\u3070\u3057\u3001\u6D88\u8CBB\u6E08\u307F\u30EC\u30B3\u30FC\u30C9\u304C\u6B8B\u7F6E\u3057\u306A\u3044(\u30BE\u30F3\u30D3\u6839\u6CBB)\u3002
+            // \u65E2\u5B58\u306E adopt \u7CFB\u30C6\u30B9\u30C8\u306F\u300Cadopt \u6642 dirty \u2192 SetSavePoint \u5F8C\u306B Delete\u300D\u306E\u307F\u3067\u3001
+            // \u7121\u64CD\u4F5C Delete \u306E\u30D4\u30DC\u30C3\u30C8\u306F\u672A\u56FA\u5B9A\u3060\u3063\u305F\u3002
+            using var host = new Host();
+            var rec = Rec("path-only-clean", content: null!); // Content=null(path-only \u76F8\u5F53)
+            var doc = host.NewDoc("disk content", dirty: false); // disk \u518D\u30AA\u30FC\u30D7\u30F3\u76F8\u5F53=\u6700\u521D\u304B\u3089 clean
+
+            host.Backup.AdoptRestored(doc, rec);
+            host.Backup.Reconcile();
+
+            Assert.Contains(rec.Id, host.Writer.Deletes); // \u7121\u64CD\u4F5C\u3067\u6D88\u8CBB\u6E08\u307F Id \u306E\u524A\u9664\u30B8\u30E7\u30D6\u304C\u98DB\u3076
+        });
+
     // ===== hot exit \u7D71\u5408 Task 4(\u8A2D\u8A08 \u00A73.4): OfferRestoreOnStartup \u306E adopt-move =====
     //
     // \u5FA9\u5143\u3067\u6D88\u8CBB\u3057\u305F\u30D0\u30C3\u30AF\u30A2\u30C3\u30D7\u3092\u81EA\u30BB\u30C3\u30B7\u30E7\u30F3 dir \u3078\u5F15\u304D\u53D6\u308B(_map \u76F4\u767B\u9332 \u2192 AdoptRestored \u5DEE\u66FF)\u3002

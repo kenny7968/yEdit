@@ -1644,12 +1644,13 @@ public class FileControllerTests
             // activate で差が出ない)。
             var backups = new[] { Backup(id, originalPath: p2, content: null) };
             var layout = Layout(LayoutRec(path: p1, backupId: id, isActive: true));
+            var adopted = new List<(Document Doc, BackupRecord Rec)>();
 
             var failed = host.File.RestoreSession(
                 layout,
                 backups,
                 initialEmpty,
-                adoptRestored: null
+                (d, r) => adopted.Add((d, r))
             );
 
             Assert.Empty(failed);
@@ -1659,6 +1660,11 @@ public class FileControllerTests
             Assert.Equal("P1", doc.Editor.SnapshotText); // disk 再読込(空 dirty ではない)
             Assert.False(doc.Editor.Modified);
             Assert.Empty(host.Prompt.Log);
+            // 最終品質パス I-1: 消費した path-only record は adopt される(→ clean 検出で次 tick
+            // Delete=旧 session dir にレコードを残置させずゾンビ復活を根治)。
+            var a = Assert.Single(adopted);
+            Assert.Same(doc, a.Doc);
+            Assert.Same(backups[0], a.Rec);
         });
 
     [Fact]
@@ -1736,21 +1742,23 @@ public class FileControllerTests
         });
 
     [Fact]
-    public void RestoreSession_ExtrasPathOnly_ValidPath_OpensFromDisk_NoAdopt() =>
+    public void RestoreSession_ExtrasPathOnly_ValidPath_OpensFromDisk_AdoptsForCleanup() =>
         Sta.Run(() =>
         {
             // extras の path-only(Content=null)は E11 と同方針: パス正当時のみ disk 再オープン。
-            // 本文をバックアップから載せていないため adopt はしない(通常 Reconcile 管理へ)。
+            // 最終品質パス I-1: 消費 record は adopt する(doc は clean なので次 Reconcile が
+            // Delete=レイアウト外 Id の毎起動ゾンビ復活を根治)。
             using var host = new Host();
             using var tmp = new TempDir();
             string p = tmp.File("big.txt");
             File2.WriteAllText(p, "big file on disk");
             var initialEmpty = host.Docs.CreateNew();
-            var adopted = new List<(Document, BackupRecord)>();
+            var rec = Backup(NewBackupId(), originalPath: p, content: null);
+            var adopted = new List<(Document Doc, BackupRecord Rec)>();
 
             host.File.RestoreSession(
                 Layout(),
-                new[] { Backup(NewBackupId(), originalPath: p, content: null) },
+                new[] { rec },
                 initialEmpty,
                 (d, r) => adopted.Add((d, r))
             );
@@ -1761,7 +1769,9 @@ public class FileControllerTests
             Assert.Equal(System.IO.Path.GetFullPath(p), doc.State.Path);
             Assert.Equal("big file on disk", doc.Editor.SnapshotText);
             Assert.False(doc.Editor.Modified);
-            Assert.Empty(adopted);
+            var a = Assert.Single(adopted);
+            Assert.Same(doc, a.Doc);
+            Assert.Same(rec, a.Rec);
         });
 
     [Fact]

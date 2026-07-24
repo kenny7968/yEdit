@@ -675,6 +675,7 @@ public sealed class FileController
             rec.BackupId is not null && byId.TryGetValue(rec.BackupId, out var found)
                 ? found
                 : null;
+        BackupRecord? pathOnlyBk = null; // E11 demote した record(open 成功後の adopt 用に保持)
         bool demotedPathOnly = false;
         if (bk is not null && bk.Content is null)
         {
@@ -685,6 +686,7 @@ public sealed class FileController
                 yEdit.Core.Text.SanitizeForDisplay.OneLine(rec.Path ?? bk.Id, 200)
             );
             consumed.Add(bk.Id);
+            pathOnlyBk = bk;
             bk = null;
             demotedPathOnly = true;
         }
@@ -704,13 +706,23 @@ public sealed class FileController
                     "yEdit: dirty-backup-missing, demoting to disk reopen: {0}",
                     yEdit.Core.Text.SanitizeForDisplay.OneLine(rec.Path, 200)
                 );
+            bool existedBefore = _docs.FindByPath(rec.Path) is not null;
             var opened = TryOpenOrActivate(rec.Path);
             if (opened is null)
             {
                 failedPaths.Add(rec.Path);
+                // E11 demote の open 失敗時はレコード残置を受容(希少の二乗・30 日 sweep が回収)。
                 return null;
             }
             opened.Editor.SetCaretByLineColumn(rec.CaretLine, rec.CaretColumn);
+            // 最終品質パス I-1: E11 demote で消費した path-only レコードは adopt→clean 検出→
+            // 次 tick 削除で残置させない(残置すると新レイアウトが参照しない Id として次回以降
+            // 毎起動 extras 復活する=silent 経路に「すべて破棄」はない)。doc は clean なので
+            // 次 Reconcile(ReconcileContent の Decide / layout-only では ReconcileMapMaintenance)が
+            // 既存機構で Delete する。fast-path activate(既存タブ)には adopt しない=既存タブが
+            // 別バックアップで adopt 済みの場合に Id 上書きで別のゾンビを作らないため(残置受容)。
+            if (pathOnlyBk is not null && !existedBefore)
+                adoptRestored?.Invoke(opened, pathOnlyBk);
             return opened;
         }
 
@@ -840,12 +852,19 @@ public sealed class FileController
                 );
                 return null;
             }
+            bool existedBefore = _docs.FindByPath(normalized) is not null;
             var opened = TryOpenOrActivate(normalized);
             if (opened is null)
             {
                 failedPaths.Add(bk.OriginalPath);
+                // open 失敗時はレコード残置を受容(希少の二乗・30 日 sweep が回収)。
                 return null;
             }
+            // 最終品質パス I-1: path-only 消費レコードは adopt→clean 検出→次 tick 削除で
+            // 残置させない(レイアウト外 Id は次回以降も毎起動 extras としてゾンビ復活するため)。
+            // fast-path activate(既存タブ)には adopt しない=Id 上書きで既存 adopt を壊さない。
+            if (!existedBefore)
+                adoptRestored?.Invoke(opened, bk);
             return opened;
         }
         var doc = RestoreFromBackup(bk); // 既存経路(HIGH-2 検証・dirty 復元・無題連番)
